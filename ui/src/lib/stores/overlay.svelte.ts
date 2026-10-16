@@ -1,0 +1,58 @@
+// Global popups: one context menu at a time, and a toast stack.
+
+import type { Component } from "svelte";
+
+export type MenuItem =
+  | {
+      label: string;
+      icon?: Component;
+      action: () => void;
+      danger?: boolean;
+      disabled?: boolean;
+    }
+  | "separator";
+
+class MenuState {
+  items = $state.raw<MenuItem[]>([]);
+  x = $state(0);
+  y = $state(0);
+  open = $state(false);
+
+  show(items: MenuItem[], x: number, y: number) {
+    this.items = items;
+    this.x = x;
+    this.y = y;
+    this.open = true;
+  }
+
+  /** Opens next to an element, e.g. a "⋯" button. */
+  showAt(items: MenuItem[], el: Element) {
+    const r = el.getBoundingClientRect();
+    this.show(items, r.right, r.bottom + 4);
+  }
+
+  close() {
+    this.open = false;
+  }
+}
+
+export const menu = new MenuState();
+
+export type Toast = { id: number; text: string; level: "info" | "error" };
+
+class Toasts {
+  list = $state<Toast[]>([]);
+  #next = 1;
+
+  push(text: string, level: Toast["level"] = "info", ms = 3500) {
+    const id = this.#next++;
+    this.list.push({ id, text, level });
+    setTimeout(() => this.dismiss(id), ms);
+  }
+
+  dismiss(id: number) {
+    this.list = this.list.filter((t) => t.id !== id);
+  }
+}
+
+export const toasts = new Toasts();

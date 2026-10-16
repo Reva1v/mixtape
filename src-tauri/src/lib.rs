@@ -1,12 +1,17 @@
+mod cover_protocol;
+mod state;
+mod window;
+
 use tauri::Manager;
 
-#[tauri::command]
-fn app_ready(window: tauri::WebviewWindow) -> Result<(), String> {
-    window.show().map_err(|e| e.to_string())?;
-    window.set_focus().map_err(|e| e.to_string())
-}
-
 pub fn run() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info,mixtape=debug".into()),
+        )
+        .init();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
@@ -16,7 +21,14 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![app_ready])
+        .plugin(window::frame_plugin())
+        .register_asynchronous_uri_scheme_protocol("cover", cover_protocol::handle)
+        .setup(|app| {
+            let state = state::AppState::init()?;
+            app.manage(state);
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![window::app_ready])
         .run(tauri::generate_context!())
         .expect("error while running Mixtape");
 }

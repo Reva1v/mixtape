@@ -124,7 +124,7 @@ downloaded ──файл пропал/повреждён──▶ broken ──
 `track_id PK, synced INTEGER, body TEXT NULL, fetched_at` (`body NULL` = не найдено).
 
 ### search_fts
-`CREATE VIRTUAL TABLE search_fts USING fts5(search_text, tokenize='trigram', detail=none,
+`CREATE VIRTUAL TABLE search_fts USING fts5(search_text, tokenize='trigram',
 content='tracks', content_rowid='rowid')` + триггеры синхронизации; аналогичные лёгкие
 индексы для альбомов/артистов/плейлистов (или общий FTS с колонкой `kind`).
 

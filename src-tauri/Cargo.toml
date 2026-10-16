@@ -14,14 +14,19 @@ crate-type = ["rlib"]
 tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
+mixtape-core.workspace = true
+mixtape-library.workspace = true
+mixtape-artwork.workspace = true
 tauri = { version = "2.12", features = [] }
 tauri-plugin-window-state = "2.5"
 tauri-plugin-single-instance = "2.5"
+tauri-plugin-frame = "1.1.8"
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [lints]
 workspace = true

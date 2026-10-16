@@ -7,6 +7,14 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+image.workspace = true
+fast_image_resize.workspace = true
+kmeans_colors.workspace = true
+palette.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
 
 [lints]
 workspace = true

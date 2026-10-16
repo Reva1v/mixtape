@@ -20,24 +20,24 @@
 
 **Ядро данных**
 
-- [ ] T007 Доменные типы и ID (`TrackId`, `AlbumId`, `ArtistId`, `PlaylistId`, `TrackState = remote|cached|downloaded|broken`, `Track`, `Album`, `Artist`, `Playlist`, `CatalogItem`, `Page<T>`, ошибки) в `crates/core/src/lib.rs`
-- [ ] T008 Миграция v1 по data-model.md (все таблицы, `search_fts` trigram + триггеры, индексы) в `crates/library/migrations/001_init.sql`, применение `rusqlite_migration` в `crates/library/src/db.rs` (WAL, `synchronous=NORMAL`)
-- [ ] T009 Поток-писатель (очередь команд, батчи в транзакциях) + пул из 3 read-only соединений в `crates/library/src/conn.rs`
-- [ ] T010 [P] Нормализация `search_text` (lower, ё→е, NFKD без латинских диакритик) и конвертер раскладки ЙЦУКЕН↔QWERTY в `crates/library/src/normalize.rs` + unit-тесты
-- [ ] T011 Пути данных `%LOCALAPPDATA%\Mixtape\{library,cache,covers}` и `mixtape.db`, настройки (`settings` key/value JSON) в `crates/library/src/paths.rs`, `crates/library/src/settings.rs`
-- [ ] T012 [P] Хранилище обложек: загрузка, нарезка 64/300/1024 (`fast_image_resize`), blur-мини 64 px, палитра 4–5 цветов (`kmeans_colors`) в `crates/artwork/src/lib.rs` + тест на образце
+- [x] T007 Доменные типы и ID (`TrackId`, `AlbumId`, `ArtistId`, `PlaylistId`, `TrackState = remote|cached|downloaded|broken`, `Track`, `Album`, `Artist`, `Playlist`, `CatalogItem`, `Page<T>`, ошибки) в `crates/core/src/lib.rs`
+- [x] T008 Миграция v1 по data-model.md (все таблицы, `search_fts` trigram + триггеры, индексы) в `crates/library/migrations/001_init.sql`, применение `rusqlite_migration` в `crates/library/src/db.rs` (WAL, `synchronous=NORMAL`)
+- [x] T009 Поток-писатель (очередь команд, батчи в транзакциях) + пул из 3 read-only соединений в `crates/library/src/conn.rs`
+- [x] T010 [P] Нормализация `search_text` (lower, ё→е, NFKD без латинских диакритик) и конвертер раскладки ЙЦУКЕН↔QWERTY в `crates/library/src/normalize.rs` + unit-тесты
+- [x] T011 Пути данных `%LOCALAPPDATA%\Mixtape\{library,cache,covers}` и `mixtape.db`, настройки (`settings` key/value JSON) в `crates/library/src/paths.rs`, `crates/library/src/settings.rs`
+- [x] T012 [P] Хранилище обложек: загрузка, нарезка 64/300/1024 (`fast_image_resize`), blur-мини 64 px, палитра 4–5 цветов (`kmeans_colors`) в `crates/artwork/src/lib.rs` + тест на образце
 
 **Оболочка и UI-каркас**
 
-- [ ] T013 AppState в `src-tauri/src/state.rs` (БД, артворк, позже player/sync/yt), регистрация команд и плагинов (`window-state`, `single-instance`) в `src-tauri/src/lib.rs`
-- [ ] T014 Async URI-протокол `cover://` → `http://cover.localhost/{key}/{size}` с `Cache-Control: immutable` и LRU в памяти в `src-tauri/src/cover_protocol.rs`
-- [ ] T015 Окно: `tauri-plugin-frame` (snap overlay на кнопке «развернуть»), команды `window_minimize/toggle_maximize/close`, команда `app_ready` → `show()` в `src-tauri/src/window.rs`
-- [ ] T016 Дизайн-токены Tailwind 4 `@theme` (тёмная палитра, акцент из обложки через CSS-переменную, радиусы, тени, Inter variable woff2 с кириллицей) в `ui/src/app.css`, шрифт в `ui/src/assets/fonts/`
-- [ ] T017 Каркас приложения: титлбар с drag-region и кнопками окна, узкий сайдбар, основная область, правая выдвижная панель, место под мини-плеер в `ui/src/App.svelte`, `ui/src/lib/ui/TitleBar.svelte`, `ui/src/lib/ui/Sidebar.svelte`
-- [ ] T018 [P] Роутер на `$state` (экраны + история назад/вперёд, Alt+←/→) в `ui/src/lib/stores/router.svelte.ts`
-- [ ] T019 [P] Базовые компоненты: Button, IconButton, Menu (контекстное), Slider, Modal, Toast, Cover (img с размером), Skeleton в `ui/src/lib/ui/`
-- [ ] T020 [P] Строки интерфейса на русском в `ui/src/lib/i18n/ru.ts`
-- [ ] T021 IPC-обёртки и подписка на события в `ui/src/lib/ipc/index.ts`
+- [x] T013 AppState в `src-tauri/src/state.rs` (БД, артворк, позже player/sync/yt), регистрация команд и плагинов (`window-state`, `single-instance`) в `src-tauri/src/lib.rs`
+- [x] T014 Async URI-протокол `cover://` → `http://cover.localhost/{key}/{size}` с `Cache-Control: immutable` и LRU в памяти в `src-tauri/src/cover_protocol.rs`
+- [x] T015 Окно: `tauri-plugin-frame` (snap overlay на кнопке «развернуть»), команды `window_minimize/toggle_maximize/close`, команда `app_ready` → `show()` в `src-tauri/src/window.rs`
+- [x] T016 Дизайн-токены Tailwind 4 `@theme` (тёмная палитра, акцент из обложки через CSS-переменную, радиусы, тени, Inter variable woff2 с кириллицей) в `ui/src/app.css`, шрифт в `ui/src/assets/fonts/`
+- [x] T017 Каркас приложения: титлбар с drag-region и кнопками окна, узкий сайдбар, основная область, правая выдвижная панель, место под мини-плеер в `ui/src/App.svelte`, `ui/src/lib/ui/TitleBar.svelte`, `ui/src/lib/ui/Sidebar.svelte`
+- [x] T018 [P] Роутер на `$state` (экраны + история назад/вперёд, Alt+←/→) в `ui/src/lib/stores/router.svelte.ts`
+- [x] T019 [P] Базовые компоненты: Button, IconButton, Menu (контекстное), Slider, Modal, Toast, Cover (img с размером), Skeleton в `ui/src/lib/ui/`
+- [x] T020 [P] Строки интерфейса на русском в `ui/src/lib/i18n/ru.ts`
+- [x] T021 IPC-обёртки и подписка на события в `ui/src/lib/ipc/index.ts`
 - [ ] T022 Замер: релизная сборка пустого каркаса — RAM (Private WS mixtape + msedgewebview2) и время до `app_ready`; записать в `specs/001-mixtape-mvp/research.md` (spike S2)
 
 **Checkpoint**: окно открывается за ≤ 1,5 с, каркас рисуется, БД создаётся.

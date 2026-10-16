@@ -33,7 +33,8 @@
     ],
     "security": {
       "csp": "default-src 'self'; img-src 'self' data: http://cover.localhost; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost"
-    }
+    },
+    "withGlobalTauri": true
   },
   "bundle": {
     "active": true,
