@@ -11,7 +11,7 @@ pub fn handle<R: Runtime>(
     request: Request<Vec<u8>>,
     responder: UriSchemeResponder,
 ) {
-    let store = ctx.app_handle().state::<AppState>().covers.clone();
+    let store = ctx.app_handle().state::<std::sync::Arc<AppState>>().covers.clone();
     let path = request.uri().path().to_owned();
     std::thread::spawn(move || responder.respond(serve(&store, &path)));
 }

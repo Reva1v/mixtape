@@ -1,7 +1,10 @@
+mod commands;
 mod cover_protocol;
+mod events;
 mod state;
 mod window;
 
+use std::sync::Arc;
 use tauri::Manager;
 
 pub fn run() {
@@ -25,10 +28,19 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol("cover", cover_protocol::handle)
         .setup(|app| {
             let state = state::AppState::init()?;
-            app.manage(state);
+            app.manage(Arc::new(state));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![window::app_ready])
+        .invoke_handler(tauri::generate_handler![
+            window::app_ready,
+            commands::library::library_view,
+            commands::library::library_rows,
+            commands::library::library_search,
+            commands::library::album_get,
+            commands::library::artist_get,
+            commands::library::playlist_get,
+            commands::library::playlist_edit,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Mixtape");
 }

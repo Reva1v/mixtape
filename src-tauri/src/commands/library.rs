@@ -1,0 +1,227 @@
+//! Library commands (contracts/ipc.md, «Библиотека»).
+
+use super::{CmdResult, blocking};
+use crate::state::AppState;
+use mixtape_core::{
+    Album, AlbumId, AppError, Artist, ArtistId, ErrorKind, Playlist, PlaylistId, Track, TrackId,
+};
+use mixtape_library::views::{self, ViewIds, ViewKind, ViewSort};
+use mixtape_library::{playlists, repo, search};
+use serde::Serialize;
+use std::sync::Arc;
+use tauri::{AppHandle, Emitter, State};
+use ts_rs::TS;
+
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ViewInfo {
+    #[ts(type = "number")]
+    pub view_id: u64,
+    pub count: u32,
+}
+
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase", tag = "kind", content = "items")]
+#[ts(export)]
+pub enum Rows {
+    Tracks(Vec<Track>),
+    Albums(Vec<Album>),
+    Artists(Vec<Artist>),
+    Playlists(Vec<Playlist>),
+}
+
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SearchResult {
+    pub tracks: Vec<Track>,
+    pub albums: Vec<Album>,
+    pub artists: Vec<Artist>,
+    pub playlists: Vec<Playlist>,
+}
+
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct AlbumPage {
+    pub album: Album,
+    pub tracks: Vec<Track>,
+}
+
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ArtistPage {
+    pub artist: Artist,
+    pub tracks: Vec<Track>,
+    pub albums: Vec<Album>,
+}
+
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PlaylistPage {
+    pub playlist: Playlist,
+    pub tracks: Vec<Track>,
+}
+
+#[derive(Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct LibraryChanged {
+    pub kinds: Vec<ViewKind>,
+}
+
+pub fn emit_changed(app: &AppHandle, kinds: &[ViewKind]) {
+    let _ = app.emit("library:changed", LibraryChanged { kinds: kinds.to_vec() });
+}
+
+fn not_found(what: &str) -> AppError {
+    AppError::new(ErrorKind::NotFound, format!("{what} не найден"))
+}
+
+#[tauri::command]
+pub async fn library_view(
+    state: State<'_, Arc<AppState>>,
+    kind: ViewKind,
+    sort: Option<ViewSort>,
+) -> CmdResult<ViewInfo> {
+    let st = state.inner().clone();
+    blocking(move || {
+        let ids = st.db.read(|c| views::build(c, kind, sort.unwrap_or_default()))?;
+        let count = ids.len() as u32;
+        Ok(ViewInfo { view_id: st.views.insert(ids), count })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn library_rows(
+    state: State<'_, Arc<AppState>>,
+    view_id: u64,
+    offset: u32,
+    limit: u32,
+) -> CmdResult<Rows> {
+    let st = state.inner().clone();
+    blocking(move || {
+        let slice = st
+            .views
+            .slice(view_id, offset as usize, limit.min(200) as usize)
+            .ok_or_else(|| AppError::new(ErrorKind::Invalid, "Список устарел, обновите экран"))?;
+        Ok(st.db.read(|c| {
+            Ok(match slice {
+                ViewIds::Tracks(ids) => Rows::Tracks(repo::tracks_by_ids(c, &ids)?),
+                ViewIds::Albums(ids) => Rows::Albums(repo::albums_by_ids(c, &ids)?),
+                ViewIds::Artists(ids) => Rows::Artists(repo::artists_by_ids(c, &ids)?),
+                ViewIds::Playlists(ids) => Rows::Playlists(repo::playlists_by_ids(c, &ids)?),
+            })
+        })?)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn library_search(
+    state: State<'_, Arc<AppState>>,
+    query: String,
+    limit: Option<u32>,
+) -> CmdResult<SearchResult> {
+    let st = state.inner().clone();
+    blocking(move || {
+        Ok(st.db.read(|c| {
+            let ids = search::search(c, &query, limit.unwrap_or(30) as usize)?;
+            Ok(SearchResult {
+                tracks: repo::tracks_by_ids(c, &ids.tracks)?,
+                albums: repo::albums_by_ids(c, &ids.albums)?,
+                artists: repo::artists_by_ids(c, &ids.artists)?,
+                playlists: repo::playlists_by_ids(c, &ids.playlists)?,
+            })
+        })?)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn album_get(state: State<'_, Arc<AppState>>, id: AlbumId) -> CmdResult<AlbumPage> {
+    let st = state.inner().clone();
+    blocking(move || {
+        let page = st.db.read(|c| {
+            let Some(album) = repo::album(c, &id)? else { return Ok(None) };
+            let tracks = repo::tracks_by_ids(c, &repo::album_track_ids(c, &id)?)?;
+            Ok(Some(AlbumPage { album, tracks }))
+        })?;
+        page.ok_or_else(|| not_found("Альбом"))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn artist_get(state: State<'_, Arc<AppState>>, id: ArtistId) -> CmdResult<ArtistPage> {
+    let st = state.inner().clone();
+    blocking(move || {
+        let page = st.db.read(|c| {
+            let Some(artist) = repo::artist(c, &id)? else { return Ok(None) };
+            let tracks = repo::tracks_by_ids(c, &repo::artist_track_ids(c, &id)?)?;
+            let albums = repo::albums_by_ids(c, &repo::artist_album_ids(c, &id)?)?;
+            Ok(Some(ArtistPage { artist, tracks, albums }))
+        })?;
+        page.ok_or_else(|| not_found("Исполнитель"))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn playlist_get(state: State<'_, Arc<AppState>>, id: PlaylistId) -> CmdResult<PlaylistPage> {
+    let st = state.inner().clone();
+    blocking(move || {
+        let page = st.db.read(|c| {
+            let Some(playlist) = repo::playlist(c, &id)? else { return Ok(None) };
+            let tracks = repo::tracks_by_ids(c, &repo::playlist_track_ids(c, &id)?)?;
+            Ok(Some(PlaylistPage { playlist, tracks }))
+        })?;
+        page.ok_or_else(|| not_found("Плейлист"))
+    })
+    .await
+}
+
+/// Playlist edits. Each returns the id that was edited: editing a YouTube Music mirror
+/// creates a local copy, and the UI should switch to it.
+#[derive(serde::Deserialize, TS)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "op")]
+#[ts(export)]
+pub enum PlaylistEdit {
+    Create { title: String },
+    Rename { id: PlaylistId, title: String },
+    Delete { id: PlaylistId },
+    Add { id: PlaylistId, track_ids: Vec<TrackId> },
+    Remove { id: PlaylistId, position: u32 },
+    Move { id: PlaylistId, from: u32, to: u32 },
+}
+
+#[tauri::command]
+pub async fn playlist_edit(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    edit: PlaylistEdit,
+) -> CmdResult<Option<PlaylistId>> {
+    let st = state.inner().clone();
+    let res = blocking(move || {
+        Ok(st.db.write(move |t| {
+            Ok(match edit {
+                PlaylistEdit::Create { title } => Some(playlists::create(t, &title)?),
+                PlaylistEdit::Rename { id, title } => Some(playlists::rename(t, &id, &title)?),
+                PlaylistEdit::Delete { id } => {
+                    playlists::delete(t, &id)?;
+                    None
+                }
+                PlaylistEdit::Add { id, track_ids } => Some(playlists::add(t, &id, &track_ids)?),
+                PlaylistEdit::Remove { id, position } => Some(playlists::remove(t, &id, position)?),
+                PlaylistEdit::Move { id, from, to } => Some(playlists::move_item(t, &id, from, to)?),
+            })
+        })?)
+    })
+    .await?;
+    emit_changed(&app, &[ViewKind::Playlists]);
+    Ok(res)
+}

@@ -56,3 +56,28 @@ class Toasts {
 }
 
 export const toasts = new Toasts();
+
+/** A text input dialog (window.prompt does not exist in our webview). */
+class Prompt {
+  open = $state(false);
+  title = $state("");
+  value = $state("");
+  #resolve: ((v: string | null) => void) | null = null;
+
+  ask(title: string, initial = ""): Promise<string | null> {
+    this.#resolve?.(null);
+    this.title = title;
+    this.value = initial;
+    this.open = true;
+    return new Promise((r) => (this.#resolve = r));
+  }
+
+  finish(ok: boolean) {
+    const v = ok ? this.value.trim() || null : null;
+    this.open = false;
+    this.#resolve?.(v);
+    this.#resolve = null;
+  }
+}
+
+export const prompt = new Prompt();

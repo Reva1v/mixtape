@@ -19,7 +19,7 @@ pub fn frame_plugin<R: Runtime>() -> TauriPlugin<R> {
 
 /// Called by the UI after its first frame is painted.
 #[tauri::command]
-pub fn app_ready(window: tauri::WebviewWindow, state: tauri::State<'_, AppState>) -> Result<(), String> {
+pub fn app_ready(window: tauri::WebviewWindow, state: tauri::State<'_, std::sync::Arc<AppState>>) -> Result<(), String> {
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())?;
     tracing::info!(elapsed_ms = state.started.elapsed().as_millis() as u64, "window shown");

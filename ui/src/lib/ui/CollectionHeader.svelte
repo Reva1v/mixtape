@@ -1,0 +1,76 @@
+<script lang="ts">
+  // Header of album / playlist / artist pages: big cover over a wash of its colours.
+  import type { Snippet } from "svelte";
+  import Cover from "./Cover.svelte";
+  import IconPlay from "~icons/ph/play-fill";
+  import IconShuffle from "~icons/lucide/shuffle";
+  import IconMix from "~icons/lucide/radio";
+  import { t } from "$lib/i18n/ru";
+
+  interface Props {
+    kind: string;
+    title: string;
+    coverKey?: string | null;
+    palette?: string[];
+    round?: boolean;
+    meta?: Snippet;
+    onplay?: () => void;
+    onshuffle?: () => void;
+    onmix?: () => void;
+    actions?: Snippet;
+  }
+
+  let { kind, title, coverKey, palette = [], round = false, meta, onplay, onshuffle, onmix, actions }: Props = $props();
+  const wash = $derived(palette[0] ?? "#2a2a35");
+</script>
+
+<header class="relative overflow-hidden px-7 pt-10 pb-7">
+  <div
+    class="pointer-events-none absolute inset-0 opacity-60"
+    style:background="radial-gradient(120% 140% at 0% 0%, {wash} 0%, transparent 60%)"
+  ></div>
+  <div class="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-b from-transparent to-[#121218]/60"></div>
+
+  <div class="relative flex items-end gap-7">
+    <Cover {coverKey} size={208} rounded={round ? "full" : "lg"} class="shadow-[0_24px_60px_-20px_rgb(0_0_0/0.8)]" />
+    <div class="min-w-0 pb-1">
+      <div class="text-[12px] font-semibold tracking-wider text-ink-2 uppercase">{kind}</div>
+      <h1 class="mt-1 line-clamp-2 text-[40px] leading-[1.1] font-extrabold tracking-tight">{title}</h1>
+      {#if meta}
+        <div class="mt-3 flex flex-wrap items-center gap-x-1.5 text-[13px] text-ink-2">{@render meta()}</div>
+      {/if}
+      <div class="mt-5 flex items-center gap-2.5">
+        {#if onplay}
+          <button
+            type="button"
+            aria-label={t.player.play}
+            class="grid size-12 place-items-center rounded-full bg-(--accent) text-white shadow-[0_8px_24px_-6px_var(--accent)]
+              transition-transform hover:scale-105 active:scale-95"
+            onclick={onplay}
+          >
+            <IconPlay class="size-5" />
+          </button>
+        {/if}
+        {#if onshuffle}
+          <button
+            type="button"
+            class="flex h-10 items-center gap-2 rounded-full bg-fill-2 px-4 text-[13px] font-medium backdrop-blur hover:bg-fill-3"
+            onclick={onshuffle}
+          >
+            <IconShuffle class="size-4" />{t.player.shuffle}
+          </button>
+        {/if}
+        {#if onmix}
+          <button
+            type="button"
+            class="flex h-10 items-center gap-2 rounded-full bg-fill-2 px-4 text-[13px] font-medium backdrop-blur hover:bg-fill-3"
+            onclick={onmix}
+          >
+            <IconMix class="size-4" />{t.track.mix}
+          </button>
+        {/if}
+        {#if actions}{@render actions()}{/if}
+      </div>
+    </div>
+  </div>
+</header>
