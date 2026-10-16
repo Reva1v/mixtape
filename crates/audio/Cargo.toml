@@ -7,6 +7,15 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+symphonia = { version = "0.6.1", default-features = false, features = ["mkv", "isomp4", "aac", "ogg"] }
+symphonia-adapter-libopus = "0.3"
+cpal = "0.18.2"
+rtrb = "0.4"
+rubato = "5.0"
+ebur128 = "0.1.10"
+thiserror.workspace = true
+tracing.workspace = true
+crossbeam-channel = "0.5"
 
 [lints]
 workspace = true
