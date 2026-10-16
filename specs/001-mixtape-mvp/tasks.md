@@ -9,12 +9,12 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 Создать cargo workspace (`resolver = "3"`, `[workspace.dependencies]` с версиями из plan.md) в `Cargo.toml`, пустые крейты `crates/{core,library,artwork,yt,audio,player,sync,win}` с `lib.rs`
-- [ ] T002 Создать Tauri 2.12 приложение в `src-tauri/` (`tauri.conf.json`: identifier `dev.mixtape.app`, `decorations:false`, `transparent:true`, `shadow:true`, `visible:false`, `windowEffects: mica`, `backgroundColor` тёмный, devUrl 5173, frontendDist `../ui/dist`)
-- [ ] T003 [P] Создать UI-проект `ui/` (Vite 8 + Svelte 5.57 + TS + `@tailwindcss/vite` 4.3 + `virtua` + `unplugin-icons` с `@iconify-json/lucide` и `@iconify-json/ph`), корневой `package.json` со скриптами `tauri dev/build`
-- [ ] T004 [P] Скрипт `scripts/fetch-sidecars.ps1`: скачать `yt-dlp.exe` и `deno.exe` в `src-tauri/binaries/` с суффиксом `-x86_64-pc-windows-msvc`, прописать `externalBin` в `src-tauri/tauri.conf.json`
-- [ ] T005 [P] Линт и формат: `rustfmt.toml`, `clippy` в `Cargo.toml` (`[workspace.lints]`), `svelte-check` + `prettier` в `ui/package.json`
-- [ ] T006 [P] Подключить генерацию TS-типов из Rust (`specta` + `tauri-specta`) → `ui/src/lib/ipc/bindings.ts`
+- [x] T001 Создать cargo workspace (`resolver = "3"`, `[workspace.dependencies]` с версиями из plan.md) в `Cargo.toml`, пустые крейты `crates/{core,library,artwork,yt,audio,player,sync,win}` с `lib.rs`
+- [x] T002 Создать Tauri 2.12 приложение в `src-tauri/` (`tauri.conf.json`: identifier `dev.mixtape.app`, `decorations:false`, `transparent:true`, `shadow:true`, `visible:false`, `windowEffects: mica`, `backgroundColor` тёмный, devUrl 5173, frontendDist `../ui/dist`)
+- [x] T003 [P] Создать UI-проект `ui/` (Vite 8 + Svelte 5.57 + TS + `@tailwindcss/vite` 4.3 + `virtua` + `unplugin-icons` с `@iconify-json/lucide` и `@iconify-json/ph`), корневой `package.json` со скриптами `tauri dev/build`
+- [x] T004 [P] Скрипт `scripts/fetch-sidecars.ps1`: скачать `yt-dlp.exe` и `deno.exe` в `src-tauri/binaries/` с суффиксом `-x86_64-pc-windows-msvc`, прописать `externalBin` в `src-tauri/tauri.conf.json`
+- [x] T005 [P] Линт и формат: `rustfmt.toml`, `clippy` в `Cargo.toml` (`[workspace.lints]`), `svelte-check` + `prettier` в `ui/package.json`
+- [x] T006 [P] Подключить генерацию TS-типов из Rust (`specta` + `tauri-specta`) → `ui/src/lib/ipc/bindings.ts`
 
 ## Phase 2: Foundational (блокирует все истории)
 

@@ -1,0 +1,5 @@
+packages:
+  - ui
+minimumReleaseAgeExclude:
+  - '@iconify-json/lucide@1.2.145'
+  - svelte-check@4.7.7
