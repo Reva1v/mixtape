@@ -80,16 +80,16 @@
 
 **UI**
 
-- [ ] T042 [US1] Стор плеера `player.svelte.ts` (состояние из канала, интерполяция позиции в rAF от `{pos, ts}`) + vitest на интерполяцию в `ui/src/lib/stores/player.svelte.ts`
-- [ ] T043 [US1] `VirtualTrackList` (virtua `VList`, строки 52 px, страницы через `library_rows` с LRU в `$state.raw`, hover/active, двойной клик — play, меню трека) в `ui/src/lib/ui/VirtualTrackList.svelte`
-- [ ] T044 [US1] Меню трека (US1, сценарий 3: «Включить микс», «Следующим», «В очередь», «В плейлист», «Лайк», «Открыть альбом», «К исполнителю», «Удалить из библиотеки») в `ui/src/lib/ui/TrackMenu.svelte`
-- [ ] T045 [US1] Экран «Библиотека» с вкладками Треки / Альбомы (`VGrid`) / Артисты / Плейлисты / Понравившиеся, сортировки, пустые состояния в `ui/src/screens/Library.svelte`
-- [ ] T046 [P] [US1] Экраны «Альбом», «Артист», «Плейлист» (шапка с обложкой и палитрой, play/shuffle/микс) в `ui/src/screens/{Album,Artist,Playlist}.svelte`
-- [ ] T047 [US1] Поиск: поле в титлбаре (`/` или Ctrl+K), мгновенные результаты по секциям, клавиатурная навигация в `ui/src/screens/Search.svelte`
-- [ ] T048 [US1] Мини-плеер: обложка, название/артист (ссылки), prev/play/next, таймлайн со скрабом, громкость, repeat/shuffle, кнопка очереди и полноэкранного режима в `ui/src/lib/ui/MiniPlayer.svelte`
-- [ ] T049 [US1] Правая панель «Очередь» (текущий, «Далее», drag-n-drop перестановка, удаление, очистка) в `ui/src/lib/ui/QueuePanel.svelte`
-- [ ] T050 [US1] Полноэкранный плеер: фон — 2–3 слоя blur-мини обложки с анимацией только transform/opacity, большая обложка, контролы, Esc/F в `ui/src/screens/FullscreenPlayer.svelte`
-- [ ] T051 [US1] Горячие клавиши (Space, ←/→ seek 5 с, Shift+←/→ трек, ↑/↓ громкость, M, Q, F, /, Esc) в `ui/src/lib/stores/hotkeys.ts`
+- [x] T042 [US1] Стор плеера `player.svelte.ts` (состояние из канала, интерполяция позиции в rAF от `{pos, ts}`) + vitest на интерполяцию в `ui/src/lib/stores/player.svelte.ts`
+- [x] T043 [US1] `VirtualTrackList` (virtua `VList`, строки 52 px, страницы через `library_rows` с LRU в `$state.raw`, hover/active, двойной клик — play, меню трека) в `ui/src/lib/ui/VirtualTrackList.svelte`
+- [x] T044 [US1] Меню трека (US1, сценарий 3: «Включить микс», «Следующим», «В очередь», «В плейлист», «Лайк», «Открыть альбом», «К исполнителю», «Удалить из библиотеки») в `ui/src/lib/ui/TrackMenu.svelte`
+- [x] T045 [US1] Экран «Библиотека» с вкладками Треки / Альбомы (`VGrid`) / Артисты / Плейлисты / Понравившиеся, сортировки, пустые состояния в `ui/src/screens/Library.svelte`
+- [x] T046 [P] [US1] Экраны «Альбом», «Артист», «Плейлист» (шапка с обложкой и палитрой, play/shuffle/микс) в `ui/src/screens/{Album,Artist,Playlist}.svelte`
+- [x] T047 [US1] Поиск: поле в титлбаре (`/` или Ctrl+K), мгновенные результаты по секциям, клавиатурная навигация в `ui/src/screens/Search.svelte`
+- [x] T048 [US1] Мини-плеер: обложка, название/артист (ссылки), prev/play/next, таймлайн со скрабом, громкость, repeat/shuffle, кнопка очереди и полноэкранного режима в `ui/src/lib/ui/MiniPlayer.svelte`
+- [x] T049 [US1] Правая панель «Очередь» (текущий, «Далее», drag-n-drop перестановка, удаление, очистка) в `ui/src/lib/ui/QueuePanel.svelte`
+- [x] T050 [US1] Полноэкранный плеер по референсу пользователя (Liner): компактная колонка по центру — обложка ~280 px с кнопкой «+» в углу, название/исполнитель, тонкий таймлайн, минималистичный транспорт без кругов, громкость; тёмный фон со свечением цвета обложки (слои blur-мини, только transform/opacity), круглая «свернуть» слева сверху, Esc/F в `ui/src/screens/FullscreenPlayer.svelte`
+- [x] T051 [US1] Горячие клавиши (Space, ←/→ seek 5 с, Shift+←/→ трек, ↑/↓ громкость, M, Q, F, /, Esc) в `ui/src/lib/stores/hotkeys.ts`
 
 **Checkpoint**: сценарии Q4–Q7 проходят офлайн.
 
@@ -160,7 +160,7 @@
 
 - [ ] T088 [P] [US5] Клиент lrclib (`/api/get` по artist/title/album/duration), парсер LRC, кэш `lyrics_cache` (в т.ч. «не найдено») в `crates/sync/src/lyrics.rs` + тест парсера
 - [ ] T089 [US5] Команда `lyrics_get` в `src-tauri/src/commands/lyrics.rs`
-- [ ] T090 [US5] Кнопка текста в мини- и полноэкранном плеере, панель с подсветкой текущей строки (бинарный поиск по времени в rAF), клик — seek, «Текст не найден» в `ui/src/lib/ui/LyricsPanel.svelte`
+- [ ] T090 [US5] Кнопка текста в мини- и полноэкранном плеере. В полноэкранном: колонка плеера уезжает в левую половину, справа крупные жирные строки (~30 px), текущая — белая, остальные приглушены, плавная автопрокрутка к текущей; сверху плашка выбора провайдера и сдвиг ±0.1 с. Подсветка — бинарный поиск по времени в rAF, клик по строке — seek, «Текст не найден» в `ui/src/lib/ui/LyricsPanel.svelte`
 
 ## Phase 9: Polish & Cross-Cutting
 

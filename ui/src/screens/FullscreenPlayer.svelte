@@ -1,24 +1,32 @@
 <script lang="ts">
-  // Full-screen player. The backdrop is the 64 px cover stretched over the window in a
-  // few slowly drifting layers: upscaling blurs it for free and only transform/opacity
-  // animate, so the compositor does the work.
+  // Full-screen player: one compact centred column (cover, title, timeline, transport,
+  // volume) over a dark backdrop lit by the cover's colours. With lyrics on, the column
+  // moves to the left half and lyrics take the right half.
+  //
+  // The backdrop is the 64 px cover stretched over the window in slowly drifting layers:
+  // upscaling blurs it for free and only transform/opacity animate.
   import { coverUrl } from "$lib/ipc";
   import { player } from "$lib/stores/player.svelte";
   import { layout } from "$lib/stores/layout.svelte";
   import { router } from "$lib/stores/router.svelte";
+  import { menu } from "$lib/stores/overlay.svelte";
   import { t } from "$lib/i18n/ru";
   import { fade } from "svelte/transition";
+  import { trackMenu } from "$lib/ui/trackMenu";
   import Cover from "$lib/ui/Cover.svelte";
   import Transport from "$lib/ui/Transport.svelte";
   import Timeline from "$lib/ui/Timeline.svelte";
   import Volume from "$lib/ui/Volume.svelte";
-  import IconButton from "$lib/ui/IconButton.svelte";
   import IconCollapse from "~icons/lucide/chevron-down";
-  import IconQueue from "~icons/lucide/list-music";
+  import IconPlus from "~icons/lucide/plus";
   import IconLyrics from "~icons/lucide/mic-vocal";
 
   const track = $derived(player.track);
   const bg = $derived(coverUrl(track?.coverKey, 64));
+  const lyrics = $derived(layout.drawer === "lyrics");
+
+  let height = $state(window.innerHeight);
+  const coverSize = $derived(Math.round(Math.min(300, Math.max(200, height * 0.37))));
 
   function close() {
     layout.fullscreen = false;
@@ -37,39 +45,56 @@
   }
 </script>
 
-<svelte:window onkeydown={onKey} />
+<svelte:window onkeydown={onKey} bind:innerHeight={height} />
 
-<div class="fixed inset-0 z-40 overflow-hidden bg-[#08080b]" transition:fade={{ duration: 220 }}>
+<div class="fixed inset-0 z-40 overflow-hidden bg-[#070709]" transition:fade={{ duration: 220 }}>
   {#key bg}
-    <div class="absolute inset-0" transition:fade={{ duration: 900 }}>
+    <div class="absolute inset-0" transition:fade={{ duration: 1200 }}>
       {#if bg}
         <img src={bg} alt="" class="layer layer-a" />
         <img src={bg} alt="" class="layer layer-b" />
-        <img src={bg} alt="" class="layer layer-c" />
       {/if}
     </div>
   {/key}
-  <div class="absolute inset-0 bg-black/45"></div>
-  <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_30%,rgb(0_0_0/0.55)_100%)]"></div>
+  <!-- Darken heavily and keep only a soft glow behind the content. -->
+  <div class="absolute inset-0 bg-black/70"></div>
+  <div
+    class="absolute inset-0 transition-[background] duration-700"
+    style:background="radial-gradient(60% 75% at {lyrics ? '30%' : '50%'} 50%, transparent 0%, rgb(0 0 0 / 0.55) 70%, rgb(0 0 0 / 0.85) 100%)"
+  ></div>
 
   <div class="absolute inset-x-0 top-0 h-(--titlebar-h)" data-tauri-drag-region></div>
 
-  <div class="relative flex h-full flex-col px-12 pt-(--titlebar-h) pb-10">
-    <div class="flex items-center justify-between">
-      <IconButton label="Свернуть" onclick={close}><IconCollapse /></IconButton>
-    </div>
+  <button
+    type="button"
+    aria-label="Свернуть"
+    title="Свернуть (Esc)"
+    class="absolute top-4 left-4 z-10 grid size-9 place-items-center rounded-full bg-white/8 text-ink-2 backdrop-blur
+      transition-colors hover:bg-white/14 hover:text-ink"
+    onclick={close}
+  >
+    <IconCollapse class="size-[18px]" />
+  </button>
 
-    <div class="flex min-h-0 flex-1 items-center justify-center gap-16">
-      {#if track}
-        <Cover
-          coverKey={track.coverKey}
-          size={Math.min(460, Math.round(window.innerHeight * 0.5))}
-          rounded="lg"
-          class="shadow-[0_40px_100px_-30px_rgb(0_0_0/0.9)]"
-        />
-        <div class="flex w-[min(480px,40vw)] flex-col">
-          <h1 class="line-clamp-2 text-[34px] leading-tight font-bold tracking-tight">{track.title}</h1>
-          <div class="mt-2 truncate text-[17px] text-ink-2">
+  <div class="relative grid h-full transition-[grid-template-columns] duration-500 ease-out-soft {lyrics ? 'grid-cols-2' : 'grid-cols-1'}">
+    {#if track}
+      <!-- Player column -->
+      <section class="flex flex-col items-center justify-center px-8" style:width="100%">
+        <div class="relative" style:width="{coverSize}px">
+          <Cover coverKey={track.coverKey} size={coverSize} rounded="lg" class="shadow-[0_30px_80px_-24px_rgb(0_0_0/0.95)]" />
+          <button
+            type="button"
+            aria-label="Ещё"
+            class="absolute bottom-2.5 left-2.5 grid size-7 place-items-center rounded-full bg-black/45 text-ink backdrop-blur transition-colors hover:bg-black/65"
+            onclick={(e) => menu.showAt(trackMenu(track), e.currentTarget)}
+          >
+            <IconPlus class="size-4" />
+          </button>
+        </div>
+
+        <div class="mt-6 text-center" style:width="{coverSize + 40}px">
+          <div class="truncate text-[15px] font-semibold text-ink">{track.title}</div>
+          <div class="mt-0.5 truncate text-[13px] text-ink-2">
             {#each track.artists as a, i (i)}
               {#if i > 0},&nbsp;{/if}
               {#if a.id}
@@ -77,25 +102,33 @@
               {:else}{a.name}{/if}
             {/each}
           </div>
-          {#if track.album}
-            <button type="button" class="mt-1 self-start truncate text-[14px] text-ink-3 hover:text-ink-2 hover:underline" onclick={() => go({ name: "album", id: track.album!.id })}>
-              {track.album.title}
-            </button>
-          {/if}
-          <Timeline class="mt-8" />
-          <div class="mt-4 flex justify-center"><Transport big /></div>
-          <div class="mt-6 flex items-center justify-center gap-2">
-            <IconButton label={t.player.lyrics} size="sm" active={layout.drawer === "lyrics"} onclick={() => layout.toggleDrawer("lyrics")}>
-              <IconLyrics />
-            </IconButton>
-            <IconButton label={t.player.queue} size="sm" onclick={() => { close(); layout.drawer = "queue"; }}>
-              <IconQueue />
-            </IconButton>
-            <Volume />
-          </div>
         </div>
+
+        <Timeline class="mt-6" style="width: {coverSize + 80}px" />
+
+        <div class="mt-5"><Transport minimal /></div>
+
+        <div class="mt-6 flex items-center gap-3">
+          <Volume class="w-40" />
+          <button
+            type="button"
+            aria-label={t.player.lyrics}
+            title={t.player.lyrics}
+            class="grid size-7 place-items-center rounded-full transition-colors {lyrics ? 'bg-white/14 text-ink' : 'text-ink-3 hover:text-ink'}"
+            onclick={() => layout.toggleDrawer("lyrics")}
+          >
+            <IconLyrics class="size-4" />
+          </button>
+        </div>
+      </section>
+
+      {#if lyrics}
+        <!-- Lyrics column (US5). -->
+        <section class="flex min-w-0 items-center pr-16 pl-4" transition:fade={{ duration: 250 }}>
+          <p class="text-[30px] leading-snug font-bold text-ink-3">Тексты песен появятся позже</p>
+        </section>
       {/if}
-    </div>
+    {/if}
   </div>
 </div>
 
@@ -104,36 +137,26 @@
     position: absolute;
     left: 50%;
     top: 50%;
-    width: 140vmax;
-    height: 140vmax;
+    width: 130vmax;
+    height: 130vmax;
     object-fit: cover;
-    image-rendering: auto;
-    filter: saturate(1.4);
+    filter: saturate(1.6);
     will-change: transform;
   }
   .layer-a {
-    animation: drift-a 38s ease-in-out infinite alternate;
+    animation: drift-a 40s ease-in-out infinite alternate;
   }
   .layer-b {
-    opacity: 0.55;
+    opacity: 0.5;
     mix-blend-mode: screen;
-    animation: drift-b 46s ease-in-out infinite alternate;
-  }
-  .layer-c {
-    opacity: 0.4;
-    mix-blend-mode: overlay;
-    animation: drift-c 31s ease-in-out infinite alternate;
+    animation: drift-b 52s ease-in-out infinite alternate;
   }
   @keyframes drift-a {
     from { transform: translate(-50%, -50%) rotate(0deg) scale(1.1); }
-    to { transform: translate(-46%, -54%) rotate(24deg) scale(1.3); }
+    to { transform: translate(-47%, -53%) rotate(20deg) scale(1.25); }
   }
   @keyframes drift-b {
-    from { transform: translate(-54%, -46%) rotate(180deg) scale(1.2); }
-    to { transform: translate(-50%, -50%) rotate(140deg) scale(1); }
-  }
-  @keyframes drift-c {
-    from { transform: translate(-48%, -52%) rotate(90deg) scale(1.4); }
-    to { transform: translate(-52%, -48%) rotate(130deg) scale(1.15); }
+    from { transform: translate(-53%, -47%) rotate(170deg) scale(1.2); }
+    to { transform: translate(-50%, -50%) rotate(140deg) scale(1.05); }
   }
 </style>

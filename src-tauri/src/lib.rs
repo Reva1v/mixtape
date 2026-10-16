@@ -40,6 +40,7 @@ pub fn run() {
             commands::library::artist_get,
             commands::library::playlist_get,
             commands::library::playlist_edit,
+            commands::library::track_set_liked,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Mixtape");

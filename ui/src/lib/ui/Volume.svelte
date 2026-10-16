@@ -1,4 +1,5 @@
 <script lang="ts">
+  let { class: cls = "w-36" }: { class?: string } = $props();
   import { player } from "$lib/stores/player.svelte";
   import { t } from "$lib/i18n/ru";
   import IconButton from "./IconButton.svelte";
@@ -19,7 +20,7 @@
   }
 </script>
 
-<div class="flex w-36 items-center gap-1">
+<div class="flex items-center gap-1 {cls}">
   <IconButton label={t.player.mute} size="sm" onclick={toggleMute}>
     {#if player.state.volume === 0}<IconMute />{:else if player.state.volume < 0.5}<IconVolumeLow />{:else}<IconVolume />{/if}
   </IconButton>
