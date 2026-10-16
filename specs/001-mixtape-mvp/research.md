@@ -133,3 +133,23 @@
 
 - **Decision**: lrclib.net (`/api/get` по artist/title/album/duration) → LRC, свой простой
   парсер синхронных строк. Только по кнопке, кэш в SQLite.
+
+## Spike S1 — результаты на аккаунте пользователя (2026-10-17)
+
+- **Поток**: yt-dlp 2026.08.19 + deno 2.9.7 (`--js-runtimes deno:<path>`) с cookies отдаёт
+  itag 251 (webm/opus, 129 kbps). Полный файл 3,4 МБ скачан за 0,12 с через `&range=0-N`;
+  HTTP `Range` тоже работает (206). Разрешение URL: 5,1 с на один трек, 9,5 с на три в одном
+  вызове → предразрешение пачками в фоне. `loudness_db` в JSON yt-dlp нет → громкость
+  только через ebur128 после загрузки (до замера gain = 0 dB).
+- **yt-dlp перезаписывает файл cookies при выходе** → ему всегда передаётся временная копия.
+- **Авторизованный InnerTube** (WEB_REMIX, `Authorization: SAPISIDHASH … SAPISID1PHASH …
+  SAPISID3PHASH …`, `X-Goog-AuthUser: 0`, Origin music.youtube.com): `logged_in=1`.
+  - `next` RDAMVM: ~48 треков (+ continuation). Элементы бывают `playlistPanelVideoWrapperRenderer`
+    (primary/counterpart = аудио/клип) → брать аудио-версию.
+  - Чипы (hl=ru): «Сохранить» (действие, не фильтр), «Все», «Знакомое», «Популярное»,
+    «Рекомендованное», «Редкие треки», «Вечеринка» + жанровые. «Знакомое» явно персонализировано.
+  - `browse FEmusic_home`: первая страница — «Послушать ещё раз», «Видеоклипы для вас»,
+    сезонная подборка; остальные шелфы — через continuation.
+  - `browse VLLM` (лайки): 100 треков на первой странице.
+- **Не проверено** (переносится в фазу Foundation): вход через окно WebView2, snap layouts
+  `tauri-plugin-frame`, базовый RAM.
