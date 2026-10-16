@@ -2,9 +2,14 @@
 
 pub mod conn;
 pub mod db;
+pub mod integrity;
 pub mod normalize;
 pub mod paths;
+pub mod playlists;
+pub mod repo;
+pub mod search;
 pub mod settings;
+pub mod views;
 
 pub use conn::Db;
 pub use paths::DataPaths;

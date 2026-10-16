@@ -58,17 +58,17 @@
 
 **Очередь и плеер**
 
-- [ ] T029 [US1] Модель `Queue` (data-model.md): «следующим», «в конец блока User», remove, move, clear, repeat Off/All/One, shuffle только будущих с `original_order` + unit-тесты в `crates/player/src/queue.rs`
+- [x] T029 [US1] Модель `Queue` (data-model.md): «следующим», «в конец блока User», remove, move, clear, repeat Off/All/One, shuffle только будущих с `original_order` + unit-тесты в `crates/player/src/queue.rs`
 - [ ] T030 [US1] `Player`: связка Queue ↔ Engine, переходы next/prev (prev в первые 3 с — предыдущий трек, иначе в начало), `play_stats` (полное прослушивание = ≥ 90 % без перемотки за последние 10 %) в `crates/player/src/player.rs`
 - [ ] T031 [US1] Снимок очереди/позиции/громкости в `settings.queue_snapshot` (дебаунс 2 с + при выходе), восстановление на паузе при старте в `crates/player/src/persist.rs` + тест
 
 **Библиотека**
 
-- [ ] T032 [US1] Репозитории треков/альбомов/артистов/плейлистов (upsert, связи, правило «в библиотеке = downloaded|broken») в `crates/library/src/repo/*.rs`
-- [ ] T033 [US1] Views: `library_view(kind, sort, filter) → {viewId, count}`, `library_rows(viewId, offset, limit≤200)` с кэшем упорядоченных ID в `crates/library/src/views.rs`
-- [ ] T034 [US1] Поиск: FTS5 trigram, <3 символов — префиксный скан, OR с конвертированной раскладкой (оригинал выше) + бенчмарк 20k строк ≤ 50 мс в `crates/library/src/search.rs`, `crates/library/benches/search.rs`
-- [ ] T035 [US1] Локальные плейлисты: create/rename/delete/add/remove/move (правка `ytm`-плейлиста создаёт `local`-копию) в `crates/library/src/repo/playlists.rs` + тесты
-- [ ] T036 [US1] Проверка целостности при старте (файл пропал/битый → `broken`) в `crates/library/src/integrity.rs`
+- [x] T032 [US1] Репозитории треков/альбомов/артистов/плейлистов (upsert, связи, правило «в библиотеке = downloaded|broken») в `crates/library/src/repo/*.rs`
+- [x] T033 [US1] Views: `library_view(kind, sort, filter) → {viewId, count}`, `library_rows(viewId, offset, limit≤200)` с кэшем упорядоченных ID в `crates/library/src/views.rs`
+- [x] T034 [US1] Поиск: FTS5 trigram, <3 символов — префиксный скан, OR с конвертированной раскладкой (оригинал выше) + бенчмарк 20k строк ≤ 50 мс в `crates/library/src/search.rs`, `crates/library/benches/search.rs`
+- [x] T035 [US1] Локальные плейлисты: create/rename/delete/add/remove/move (правка `ytm`-плейлиста создаёт `local`-копию) в `crates/library/src/repo/playlists.rs` + тесты
+- [x] T036 [US1] Проверка целостности при старте (файл пропал/битый → `broken`) в `crates/library/src/integrity.rs`
 - [ ] T037 [P] [US1] Dev-команда импорта локальной папки webm/m4a (для теста истории без YouTube) в `src-tauri/src/commands/dev.rs`
 
 **Команды и интеграция с Windows**
