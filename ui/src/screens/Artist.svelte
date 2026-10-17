@@ -1,3 +1,20 @@
+<script lang="ts" module>
+  import type { ArtistPage as P } from "$lib/ipc/bindings/ArtistPage";
+  import type { ArtistCatalog as C } from "$lib/ipc/bindings/ArtistCatalog";
+  import type { ArtistSongs as S } from "$lib/ipc/bindings/ArtistSongs";
+  // Recently shown artists: going back renders at full height at once, so the scroll
+  // position is restored without a jump; fresh copies replace them quietly.
+  type Memo = { page?: P; catalog?: C; songs?: S };
+  const cache = new Map<string, Memo>();
+  function memo(id: string): Memo {
+    const m = cache.get(id) ?? {};
+    cache.delete(id);
+    cache.set(id, m);
+    if (cache.size > 20) cache.delete(cache.keys().next().value!);
+    return m;
+  }
+</script>
+
 <script lang="ts">
   import { invoke, on } from "$lib/ipc";
   import type { ArtistPage } from "$lib/ipc/bindings/ArtistPage";
@@ -26,22 +43,23 @@
 
   let { id }: { id: string } = $props();
 
-  let page = $state.raw<ArtistPage | null>(null);
+  // svelte-ignore state_referenced_locally
+  const saved = memo(id);
+  let page = $state.raw<ArtistPage | null>(saved.page ?? null);
   let error = $state<string | null>(null);
   let showAll = $state(false);
   const rows = new Fixed<Track>([]);
-  const topRows = new Fixed<Track>([]);
+  const topRows = new Fixed<Track>(saved.catalog?.top.slice(0, 10) ?? []);
 
   // What YouTube Music has beyond the library: popular tracks and the full discography.
-  let catalog = $state.raw<ArtistCatalog | null>(null);
+  let catalog = $state.raw<ArtistCatalog | null>(saved.catalog ?? null);
   $effect(() => {
     const artist = id;
-    catalog = null;
     if (!artist.startsWith("UC") || !downloads.account.connected || !net.online) return;
     void invoke<ArtistCatalog>("artist_catalog", { id: artist })
       .then((c) => {
         if (artist !== id) return;
-        catalog = c;
+        catalog = saved.catalog = c;
         topRows.items = c.top.slice(0, 10);
       })
       .catch(() => {});
@@ -52,16 +70,15 @@
 
   // «Загрузить все песни»: every album of the discography read into the library as
   // streamable tracks (nothing is downloaded); remembered per artist.
-  let songs = $state.raw<ArtistSongs | null>(null);
-  const songRows = new Fixed<Track>([]);
+  let songs = $state.raw<ArtistSongs | null>(saved.songs ?? null);
+  const songRows = new Fixed<Track>(saved.songs?.tracks ?? []);
   let loading = $state<{ done: number; total: number } | null>(null);
   $effect(() => {
     const artist = id;
-    songs = null;
     loading = null;
     void invoke<ArtistSongs | null>("artist_songs", { id: artist, load: false }).then((s) => {
       if (artist !== id || !s) return;
-      songs = s;
+      songs = saved.songs = s;
       songRows.items = s.tracks;
     });
     const un = on<{ id: string; done: number; total: number }>("artist:loading", (e) => {
@@ -76,7 +93,7 @@
     try {
       const s = await invoke<ArtistSongs | null>("artist_songs", { id: artist, load: true });
       if (artist !== id || !s) return;
-      songs = s;
+      songs = saved.songs = s;
       songRows.items = s.tracks;
     } catch (e) {
       toasts.push(e instanceof Error ? e.message : "Не удалось загрузить песни", "error");
@@ -100,7 +117,7 @@
 
   async function load() {
     try {
-      page = await invoke<ArtistPage>("artist_get", { id });
+      page = saved.page = await invoke<ArtistPage>("artist_get", { id });
     } catch (e) {
       error = (e as Error).message;
     }

@@ -1,3 +1,12 @@
+<script lang="ts" module>
+  import type { HomePage as Cached } from "$lib/ipc/bindings/HomePage";
+  import type { HomeShelf as CachedShelf } from "$lib/ipc/bindings/HomeShelf";
+  // The last data shown, so coming back to Home renders at full height at once and the
+  // scroll position can be restored without a jump; a fresh copy replaces it quietly.
+  let lastPage: Cached | null = null;
+  let lastShelves: CachedShelf[] | null = null;
+</script>
+
 <script lang="ts">
   import { untrack, type Component } from "svelte";
   import type { TransitionConfig } from "svelte/transition";
@@ -39,11 +48,11 @@
   import IconAlbum from "~icons/solar/vinyl-linear";
   import IconArtist from "~icons/solar/microphone-3-linear";
 
-  let page = $state.raw<HomePage | null>(null);
-  const top = new Fixed<Track>([]);
+  let page = $state.raw<HomePage | null>(lastPage);
+  const top = new Fixed<Track>(lastPage?.top ?? []);
 
   async function load() {
-    page = await invoke<HomePage>("home_get");
+    page = lastPage = await invoke<HomePage>("home_get");
     top.items = page.top;
   }
 
@@ -62,14 +71,14 @@
 
   // YouTube Music shelves: fetched after the local part, cached by the core for 30 min.
   // `null` while the first answer is on its way (skeletons), `[]` when there is nothing.
-  let shelves = $state.raw<HomeShelf[] | null>(null);
+  let shelves = $state.raw<HomeShelf[] | null>(lastShelves);
   const ytm = $derived(downloads.account.connected && net.online);
   let seq = 0;
 
   async function loadShelves(force = false) {
     const n = ++seq;
     const res = await invoke<HomeShelf[]>("home_shelves", { force }).catch(() => [] as HomeShelf[]);
-    if (n === seq) shelves = res;
+    if (n === seq) shelves = lastShelves = res;
   }
 
   $effect(() => {

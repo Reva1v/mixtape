@@ -48,16 +48,46 @@
   // The search screen keeps its scroll while typing.
   router.scrollSource = () => layout.scrollEl?.scrollTop ?? 0;
   let lastRoute = "";
+  let stopRestore: (() => void) | null = null;
   $effect(() => {
     const key = JSON.stringify(router.current.name === "search" ? { name: "search" } : router.current);
     if (key !== lastRoute) {
-      const top = router.restoreScroll ?? 0;
-      layout.scrollEl?.scrollTo({ top });
-      // Lists fill in after the screen mounts; try again once they have height.
-      if (top > 0) setTimeout(() => layout.scrollEl?.scrollTo({ top }), 120);
+      stopRestore?.();
+      stopRestore = restoreScroll(router.restoreScroll ?? 0);
     }
     lastRoute = key;
   });
+
+  /** Puts the page back where it was. Cached screens have their height at once; a screen
+   * still filling in gets the offset the moment it is tall enough — never a visible jump
+   * from the top, and the user's own scrolling cancels it. */
+  function restoreScroll(top: number): (() => void) | null {
+    const el = layout.scrollEl;
+    if (!el) return null;
+    el.scrollTop = top;
+    if (top <= 0 || el.scrollTop >= top - 1) return null;
+    const content = el.firstElementChild;
+    let done = false;
+    const stop = () => {
+      if (done) return;
+      done = true;
+      ro.disconnect();
+      clearTimeout(timer);
+      el.removeEventListener("wheel", stop);
+      el.removeEventListener("pointerdown", stop);
+      el.removeEventListener("keydown", stop);
+    };
+    const ro = new ResizeObserver(() => {
+      el.scrollTop = top;
+      if (el.scrollTop >= top - 1) stop();
+    });
+    if (content) ro.observe(content);
+    const timer = setTimeout(stop, 2000);
+    el.addEventListener("wheel", stop, { passive: true });
+    el.addEventListener("pointerdown", stop);
+    el.addEventListener("keydown", stop);
+    return stop;
+  }
 
   function onKey(e: KeyboardEvent) {
     if (handleHotkey(e)) e.preventDefault();
@@ -129,7 +159,7 @@
 
         <main bind:this={layout.scrollEl} class="relative h-full overflow-y-auto">
           {#key screenKey}
-          <div in:enter>
+          <div in:enter={{ y: router.restoreScroll === null ? 8 : 0, instant: router.restoreScroll !== null }}>
           {#if route.name === "home"}
             <Home />
           {:else if route.name === "library"}

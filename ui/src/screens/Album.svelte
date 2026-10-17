@@ -1,3 +1,15 @@
+<script lang="ts" module>
+  import type { AlbumPage as Cached } from "$lib/ipc/bindings/AlbumPage";
+  // Recently shown pages: going back renders at full height at once, so the scroll
+  // position is restored without a jump; a fresh copy replaces it quietly.
+  const cache = new Map<string, Cached>();
+  function remember(id: string, page: Cached) {
+    cache.delete(id);
+    cache.set(id, page);
+    if (cache.size > 20) cache.delete(cache.keys().next().value!);
+  }
+</script>
+
 <script lang="ts">
   import { invoke, on } from "$lib/ipc";
   import type { AlbumPage } from "$lib/ipc/bindings/AlbumPage";
@@ -15,13 +27,16 @@
 
   let { id }: { id: string } = $props();
 
-  let page = $state.raw<AlbumPage | null>(null);
+  // svelte-ignore state_referenced_locally
+  let page = $state.raw<AlbumPage | null>(cache.get(id) ?? null);
   let error = $state<string | null>(null);
-  const rows = new Fixed<Track>([]);
+  // svelte-ignore state_referenced_locally
+  const rows = new Fixed<Track>(page?.tracks ?? []);
 
   async function load() {
     try {
       page = await invoke<AlbumPage>("album_get", { id });
+      remember(id, page);
       rows.items = page.tracks;
     } catch (e) {
       error = (e as Error).message;
