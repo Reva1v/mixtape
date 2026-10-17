@@ -126,12 +126,6 @@ export const screens = {
     clear: "Clear",
     query: "Search",
     removeRecent: "Remove from recent searches",
-    kind: {
-      track: (artists: string) => `Track · ${artists}`,
-      album: (artists: string) => `Album · ${artists}`,
-      artist: "Artist",
-      playlist: "Playlist",
-    },
     catalogTitle: "Search YouTube Music",
     catalogHint: "Tracks, albums and artists beyond your library. Listen right away and download what you like",
     libraryTitle: "Search your library",

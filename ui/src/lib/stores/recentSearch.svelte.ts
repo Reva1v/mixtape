@@ -7,11 +7,13 @@ export type RecentItem =
       kind: "track" | "album" | "artist" | "playlist";
       id: string;
       title: string;
+      /** Artists; the kind label is added when shown, in the current language. */
       subtitle?: string;
       coverKey?: string | null;
     };
 
-const KEY = "mixtape.recentSearch";
+// v2: subtitles no longer carry the (language-bound) kind label.
+const KEY = "mixtape.recentSearch.v2";
 const MAX = 12;
 
 function load(): RecentItem[] {

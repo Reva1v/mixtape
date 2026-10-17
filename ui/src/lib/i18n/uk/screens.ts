@@ -127,12 +127,6 @@ export const screens: typeof en = {
     clear: "Очистити",
     query: "Запит",
     removeRecent: "Прибрати з нещодавнього",
-    kind: {
-      track: (artists: string) => `Трек · ${artists}`,
-      album: (artists: string) => `Альбом · ${artists}`,
-      artist: "Виконавець",
-      playlist: "Плейлист",
-    },
     catalogTitle: "Пошук у YouTube Music",
     catalogHint: "Треки, альбоми й виконавці поза бібліотекою — слухайте одразу, завантажуйте те, що сподобається",
     libraryTitle: "Пошук у бібліотеці",

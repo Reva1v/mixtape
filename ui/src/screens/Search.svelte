@@ -82,10 +82,10 @@
 
   // Recent: what was opened or played from the results, and queries confirmed with Enter.
   const names = (a: { name: string }[]) => a.map((x) => x.name).join(", ");
-  const trackItem = (x: Track): RecentItem => ({ kind: "track", id: x.id, title: x.title, subtitle: t.searchScreen.kind.track(names(x.artists)), coverKey: x.coverKey });
-  const albumItem = (a: Album): RecentItem => ({ kind: "album", id: a.id, title: a.title, subtitle: t.searchScreen.kind.album(names(a.artists)), coverKey: a.coverKey });
-  const artistItem = (a: Artist): RecentItem => ({ kind: "artist", id: a.id, title: a.name, subtitle: t.searchScreen.kind.artist, coverKey: a.imageKey });
-  const playlistItem = (p: Playlist): RecentItem => ({ kind: "playlist", id: p.id, title: p.title, subtitle: t.searchScreen.kind.playlist, coverKey: p.coverKey });
+  const trackItem = (x: Track): RecentItem => ({ kind: "track", id: x.id, title: x.title, subtitle: names(x.artists), coverKey: x.coverKey });
+  const albumItem = (a: Album): RecentItem => ({ kind: "album", id: a.id, title: a.title, subtitle: names(a.artists), coverKey: a.coverKey });
+  const artistItem = (a: Artist): RecentItem => ({ kind: "artist", id: a.id, title: a.name, coverKey: a.imageKey });
+  const playlistItem = (p: Playlist): RecentItem => ({ kind: "playlist", id: p.id, title: p.title, coverKey: p.coverKey });
 
   function openRecent(item: RecentItem) {
     recentSearch.add(item);
@@ -121,7 +121,7 @@
             {/if}
             <div class="min-w-0 flex-1">
               <div class="truncate text-[13.5px] text-ink">{item.kind === "query" ? item.text : item.title}</div>
-              <div class="truncate text-[12px] text-ink-3">{item.kind === "query" ? t.searchScreen.query : item.subtitle}</div>
+              <div class="truncate text-[12px] text-ink-3">{item.kind === "query" ? t.searchScreen.query : [t.catalog.kind[item.kind], item.subtitle].filter(Boolean).join(" · ")}</div>
             </div>
             <button
               type="button"

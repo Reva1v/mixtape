@@ -34,10 +34,10 @@
   // Remembered in «Недавнее» on the search page.
   const names = (a: { name: string }[]) => a.map((x) => x.name).join(", ");
   const pickTrack = (tr: Track) =>
-    onpick?.({ kind: "track", id: tr.id, title: tr.title, subtitle: `${t.catalog.kind.track} · ${names(tr.artists)}`, coverKey: tr.coverKey });
-  const pickAlbum = (a: Album) => onpick?.({ kind: "album", id: a.id, title: a.title, subtitle: `${t.catalog.kind.album} · ${names(a.artists)}`, coverKey: a.coverKey });
-  const pickArtist = (a: Artist) => onpick?.({ kind: "artist", id: a.id, title: a.name, subtitle: t.catalog.kind.artist, coverKey: a.imageKey });
-  const pickPlaylist = (p: Playlist) => onpick?.({ kind: "playlist", id: p.id, title: p.title, subtitle: t.catalog.kind.playlist, coverKey: p.coverKey });
+    onpick?.({ kind: "track", id: tr.id, title: tr.title, subtitle: names(tr.artists), coverKey: tr.coverKey });
+  const pickAlbum = (a: Album) => onpick?.({ kind: "album", id: a.id, title: a.title, subtitle: names(a.artists), coverKey: a.coverKey });
+  const pickArtist = (a: Artist) => onpick?.({ kind: "artist", id: a.id, title: a.name, coverKey: a.imageKey });
+  const pickPlaylist = (p: Playlist) => onpick?.({ kind: "playlist", id: p.id, title: p.title, coverKey: p.coverKey });
 
   const KINDS: { id: CatalogKind; label: string }[] = $derived([
     { id: "all", label: t.catalog.all },
