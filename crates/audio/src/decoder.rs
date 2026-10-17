@@ -354,8 +354,24 @@ impl Decoder {
         Ok(())
     }
 
+    /// Fills in a missing duration by counting packets with a second reader. Local files only:
+    /// the end of a stream still being downloaded may not be there yet.
+    pub fn measure(&mut self) {
+        if self.duration.is_some() || !matches!(self.opener, SourceOpener::File(_)) {
+            return;
+        }
+        match Decoder::open(self.opener.clone(), self.hint.as_deref())
+            .and_then(|mut d| d.count_frames())
+        {
+            Ok(frames) => self.duration = Some(frames),
+            Err(e) => tracing::debug!("cannot measure the duration: {e}"),
+        }
+    }
+
     fn reopen(&mut self) -> Result<()> {
+        let measured = self.duration;
         *self = Decoder::open(self.opener.clone(), self.hint.as_deref())?;
+        self.duration = self.duration.or(measured);
         Ok(())
     }
 

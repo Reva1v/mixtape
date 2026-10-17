@@ -12,9 +12,13 @@ pub(crate) struct Pipeline {
     pub id: String,
     /// Engine-assigned identity (ids may repeat, e.g. repeat-one).
     pub seq: u64,
+    /// Whether the transition into this source may crossfade.
+    pub crossfade: bool,
     dec: Decoder,
     resampler: Option<Resampler>,
     out_rate: u32,
+    /// Output-rate frame of the next emitted frame, counted from the start of the track.
+    out_pos: u64,
     gain: f32,
     /// Boosted tracks go through the soft limiter.
     limit: bool,
@@ -31,9 +35,11 @@ impl Pipeline {
         let mut p = Self {
             id: src.id,
             seq: 0,
+            crossfade: src.crossfade,
             dec,
             resampler: None,
             out_rate,
+            out_pos: 0,
             gain: db_to_linear(src.gain_db),
             limit: src.gain_db > 0.0,
             fade_len: 0,
@@ -87,6 +93,7 @@ impl Pipeline {
             None => out.extend_from_slice(&self.scratch),
         }
         self.apply_gain(&mut out[start..]);
+        self.out_pos += ((out.len() - start) / 2) as u64;
         self.done = !more;
         Ok(more)
     }
@@ -97,8 +104,26 @@ impl Pipeline {
             rs.reset();
         }
         self.done = false;
+        self.out_pos = self.dec.position() * self.out_rate as u64 / self.dec.rate() as u64;
         self.fade_in();
         Ok(())
+    }
+
+    /// Output-rate position of the next emitted frame.
+    pub fn out_pos(&self) -> u64 {
+        self.out_pos
+    }
+
+    /// Counts the length of a local file whose container does not state it (fragmented MP4).
+    pub fn measure(&mut self) {
+        self.dec.measure();
+    }
+
+    /// Track length in output-rate frames, when known.
+    pub fn out_len(&self) -> Option<u64> {
+        self.dec
+            .duration_frames()
+            .map(|f| f * self.out_rate as u64 / self.dec.rate() as u64)
     }
 
     /// Decode head position in ms (what has been produced, not what is audible).

@@ -12,6 +12,7 @@ use tauri::ipc::Channel;
 
 pub struct AppState {
     pub app: AppHandle,
+    #[allow(dead_code)] // used by downloads (US2)
     pub paths: DataPaths,
     pub db: Db,
     pub covers: CoverStore,
@@ -32,11 +33,13 @@ impl AppState {
         let report = mixtape_library::integrity::check(&db, &paths.root)?;
         tracing::info!(root = %paths.root.display(), ?report, "data directory ready");
         let handle = app.clone();
+        tracing::debug!("starting player");
         let player = Player::start(
             db.clone(),
             paths.root.clone(),
             Arc::new(move |ev| crate::events::on_player_event(&handle, ev)),
         )?;
+        tracing::debug!("player started");
         Ok(Self {
             app: app.clone(),
             paths,

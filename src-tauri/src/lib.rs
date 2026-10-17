@@ -30,8 +30,12 @@ pub fn run() {
         .setup(|app| {
             let state = Arc::new(state::AppState::init(app.handle())?);
             app.manage(state.clone());
+            tracing::debug!("setup: state managed");
+            state.player.set_crossfade(commands::settings::Prefs::load(&state).crossfade_ms());
+            tracing::debug!("setup: crossfade applied");
             // `setup` runs on the main (UI) thread, which the thumbnail toolbar needs.
             state.media.install(app.handle());
+            tracing::debug!("setup: media installed");
             #[cfg(debug_assertions)]
             if let Ok(dir) = std::env::var("MIXTAPE_DEV_IMPORT") {
                 let st = state.clone();
@@ -79,6 +83,8 @@ pub fn run() {
             commands::player::queue_clear,
             commands::player::queue_jump,
             commands::dev::dev_import_folder,
+            commands::settings::prefs_get,
+            commands::settings::prefs_set,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Mixtape");

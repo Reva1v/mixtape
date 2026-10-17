@@ -136,3 +136,11 @@ export function installSpringCss() {
   root.setProperty("--default-transition-timing-function", smooth.ease);
   root.setProperty("--default-transition-duration", "220ms");
 }
+
+/** Bottom sheet: slides up from below on a gentle spring, drops away quickly. */
+export function sheet(_node: Element, _opts?: unknown, ctx?: { direction: "in" | "out" | "both" }): TransitionConfig {
+  if (reduced()) return { duration: 120, css: (t) => `opacity:${t}` };
+  const out = ctx?.direction === "out";
+  const { duration, easing } = out ? { duration: 220, easing: (t: number) => t * t } : curve(springs.smooth);
+  return { duration, easing, css: (t, u) => `transform:translateY(${u * 100}%)` };
+}

@@ -3,6 +3,7 @@
   import { router } from "$lib/stores/router.svelte";
   import { layout } from "$lib/stores/layout.svelte";
   import { player } from "$lib/stores/player.svelte";
+  import { prefs } from "$lib/stores/prefs.svelte";
   import { handleHotkey } from "$lib/stores/hotkeys";
   import { enter, springWidth } from "$lib/motion";
   import { toasts } from "$lib/stores/overlay.svelte";
@@ -22,12 +23,14 @@
   import Artist from "./screens/Artist.svelte";
   import Playlist from "./screens/Playlist.svelte";
   import Search from "./screens/Search.svelte";
+  import Settings from "./screens/Settings.svelte";
   import FullscreenPlayer from "./screens/FullscreenPlayer.svelte";
   import IconSoon from "~icons/solar/widget-bold";
   import IconLyrics from "~icons/solar/microphone-2-linear";
 
   onMount(() => {
     player.init().catch((e) => console.error("player init failed", e));
+    prefs.init().catch((e) => console.error("prefs init failed", e));
     const un = on<{ level: "info" | "error"; text: string }>("toast", (e) => toasts.push(e.text, e.level));
     return () => void un.then((f) => f());
   });
@@ -79,7 +82,7 @@
       <div class="relative min-w-0 flex-1 overflow-hidden rounded-xl bg-panel">
         <!-- Artwork glow, fixed behind the scrolling content. -->
         <div
-          class="pointer-events-none absolute inset-x-0 top-0 h-[300px] transition-[background] duration-1000"
+          class="pointer-events-none absolute inset-x-0 top-0 h-[300px]"
           style:background="linear-gradient(180deg, color-mix(in srgb, var(--glow) 55%, transparent) 0%, transparent 100%)"
         ></div>
         <!-- Drag strip along the top edge, clear of the caption buttons. -->
@@ -100,6 +103,8 @@
             {#key route.id}<Playlist id={route.id} />{/key}
           {:else if route.name === "search"}
             <Search query={route.query} />
+          {:else if route.name === "settings"}
+            <Settings />
           {:else}
             <EmptyState icon={IconSoon} title={t.common.soon} />
           {/if}

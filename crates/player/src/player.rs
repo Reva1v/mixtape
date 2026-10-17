@@ -30,6 +30,8 @@ const PREV_RESTART_MS: u64 = 3_000;
 /// Stop skipping after this many tracks failed in a row.
 const MAX_SKIPS: u32 = 3;
 const SNAPSHOT_KEY: &str = "queue_snapshot";
+/// Upper bound for the blend on next/previous/jump, so skipping still feels instant.
+const MANUAL_FADE_MS: u32 = 2_000;
 const SNAPSHOT_EVERY: Duration = Duration::from_secs(2);
 
 #[derive(Serialize, Deserialize)]
@@ -56,6 +58,8 @@ struct Inner {
     seeked_forward: bool,
     skips: u32,
     last_snapshot: Instant,
+    /// Crossfade for automatic transitions, ms; 0 = gapless.
+    crossfade_ms: u32,
 }
 
 fn now_ms() -> u64 {
@@ -93,6 +97,7 @@ impl Player {
                 seeked_forward: false,
                 skips: 0,
                 last_snapshot: Instant::now(),
+                crossfade_ms: 0,
             }),
             engine,
             db,
@@ -100,7 +105,10 @@ impl Player {
             sink,
         });
         // Restore the last track paused at its position, without making a sound.
-        if let Some(id) = player.lock().queue.current().map(|i| i.track_id.clone()) {
+        // Take the id first: a guard in the `if let` scrutinee would stay locked through
+        // the body, and `load_track` locks again.
+        let restored = player.lock().queue.current().map(|i| i.track_id.clone());
+        if let Some(id) = restored {
             player.load_track(&id, position_ms, false);
         }
         let weak = Arc::downgrade(&player);
@@ -151,7 +159,17 @@ impl Player {
     fn load_track(&self, id: &TrackId, start_ms: u64, play: bool) -> bool {
         match self.source(id) {
             Ok(src) => {
-                self.engine.load(src, start_ms, play);
+                // A manual switch while music plays blends briefly when crossfade is on.
+                let fade = {
+                    let inner = self.lock();
+                    let playing = matches!(inner.state.status, Status::Playing | Status::Buffering);
+                    if play && start_ms == 0 && playing { inner.crossfade_ms.min(MANUAL_FADE_MS) } else { 0 }
+                };
+                if fade > 0 {
+                    self.engine.crossfade_to(src, fade);
+                } else {
+                    self.engine.load(src, start_ms, play);
+                }
                 let mut inner = self.lock();
                 inner.pending_next = None;
                 inner.seeked_forward = start_ms > 0;
@@ -297,6 +315,13 @@ impl Player {
         self.save_snapshot(false);
     }
 
+    /// Crossfade length for automatic transitions; 0 keeps playback gapless.
+    pub fn set_crossfade(&self, ms: u32) {
+        self.lock().crossfade_ms = ms;
+        self.engine.set_crossfade(ms);
+        self.refresh_next();
+    }
+
     pub fn set_repeat(&self, r: Repeat) {
         let mut inner = self.lock();
         inner.queue.set_repeat(r);
@@ -375,7 +400,16 @@ impl Player {
             let inner = self.lock();
             inner.queue.peek_next(true).map(|i| i.track_id.clone())
         };
-        let src = next.as_ref().and_then(|id| self.source(id).ok());
+        let mut src = next.as_ref().and_then(|id| self.source(id).ok());
+        // Consecutive tracks of one album stay gapless even with crossfade on.
+        if let (Some(s), Some(next_id)) = (src.as_mut(), next.as_ref()) {
+            let current = self.lock().state.track_id.clone();
+            let album_of = |id: &TrackId| {
+                self.db.read(|c| repo::track(c, id)).ok().flatten().and_then(|t| t.album.map(|a| a.id))
+            };
+            let same_album = current.as_ref().and_then(album_of).is_some_and(|a| Some(a) == album_of(next_id));
+            s.crossfade = !same_album;
+        }
         let mut inner = self.lock();
         inner.pending_next = src.as_ref().and(next);
         drop(inner);

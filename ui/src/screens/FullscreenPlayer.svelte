@@ -7,12 +7,13 @@
   // upscaling blurs it for free and only transform/opacity animate.
   import { coverUrl } from "$lib/ipc";
   import { player } from "$lib/stores/player.svelte";
+  import { prefs } from "$lib/stores/prefs.svelte";
   import { layout } from "$lib/stores/layout.svelte";
   import { router } from "$lib/stores/router.svelte";
   import { menu } from "$lib/stores/overlay.svelte";
   import { t } from "$lib/i18n/ru";
   import { fade } from "svelte/transition";
-  import { fadeSpring, pop, springs } from "$lib/motion";
+  import { fadeSpring, pop, sheet, springs } from "$lib/motion";
   import { trackMenu } from "$lib/ui/trackMenu";
   import Cover from "$lib/ui/Cover.svelte";
   import Transport from "$lib/ui/Transport.svelte";
@@ -21,6 +22,8 @@
   import IconCollapse from "~icons/solar/alt-arrow-down-linear";
   import IconPlus from "~icons/lucide/plus";
   import IconLyrics from "~icons/solar/microphone-2-linear";
+  import IconQueue from "~icons/solar/playlist-minimalistic-linear";
+  import QueuePanel from "$lib/ui/QueuePanel.svelte";
 
   const track = $derived(player.track);
   const bg = $derived(coverUrl(track?.coverKey, 64));
@@ -33,10 +36,13 @@
     layout.fullscreen = false;
   }
 
+  let queueOpen = $state(false);
+
   function onKey(e: KeyboardEvent) {
     if (e.key === "Escape") {
       e.stopPropagation();
-      close();
+      if (queueOpen) queueOpen = false;
+      else close();
     }
   }
 
@@ -50,7 +56,7 @@
 
 <div class="fixed inset-0 z-40 overflow-hidden bg-[#070709]" transition:fadeSpring data-tauri-drag-region>
   {#key bg}
-    <div class="pointer-events-none absolute inset-0" transition:fade={{ duration: 1200 }}>
+    <div class="pointer-events-none absolute inset-0" transition:fade={{ duration: prefs.value.smoothBackground ? 1400 : 0 }}>
       {#if bg}
         <img src={bg} alt="" class="layer layer-a" />
         <img src={bg} alt="" class="layer layer-b" />
@@ -60,7 +66,7 @@
   <!-- Darken heavily and keep only a soft glow behind the content. -->
   <div class="pointer-events-none absolute inset-0 bg-black/70"></div>
   <div
-    class="pointer-events-none absolute inset-0 transition-[background] duration-700"
+    class="pointer-events-none absolute inset-0"
     style:background="radial-gradient(60% 75% at {lyrics ? '30%' : '50%'} 50%, transparent 0%, rgb(0 0 0 / 0.55) 70%, rgb(0 0 0 / 0.85) 100%)"
   ></div>
 
@@ -120,6 +126,15 @@
           >
             <IconLyrics class="size-4" />
           </button>
+          <button
+            type="button"
+            aria-label={t.player.queue}
+            data-tip={t.player.queue}
+            class="grid size-7 place-items-center rounded-full transition-colors {queueOpen ? 'bg-white/14 text-ink' : 'text-ink-3 hover:text-ink'}"
+            onclick={() => (queueOpen = !queueOpen)}
+          >
+            <IconQueue class="size-4" />
+          </button>
         </div>
       </section>
 
@@ -131,6 +146,32 @@
       {/if}
     {/if}
   </div>
+
+  <!-- Queue as a bottom sheet over the player. -->
+  {#if queueOpen}
+    <button
+      type="button"
+      aria-label="Закрыть очередь"
+      class="absolute inset-0 z-20 cursor-default bg-black/40"
+      transition:fadeSpring
+      onclick={() => (queueOpen = false)}
+    ></button>
+    <div
+      class="absolute inset-x-0 bottom-0 z-30 mx-auto flex h-[78%] max-w-[720px] flex-col overflow-hidden rounded-t-2xl
+        bg-[#0c0c0d]/85 shadow-[0_-20px_60px_-20px_rgb(0_0_0/0.8)] ring-1 ring-white/[0.06] backdrop-blur-2xl"
+      transition:sheet
+    >
+      <button
+        type="button"
+        aria-label="Закрыть очередь"
+        class="mx-auto mt-2.5 mb-1 flex h-5 w-full shrink-0 items-start justify-center"
+        onclick={() => (queueOpen = false)}
+      >
+        <span class="h-1 w-10 rounded-full bg-white/25"></span>
+      </button>
+      <div class="min-h-0 flex-1"><QueuePanel /></div>
+    </div>
+  {/if}
 </div>
 
 <style>

@@ -1,9 +1,10 @@
-//! Audio engine: decoding (symphonia + libopus), resampling, gapless playback through cpal
-//! (WASAPI shared), EBU R128 loudness and normalisation gain.
+//! Audio engine: decoding (symphonia + libopus), resampling, gapless or crossfaded playback
+//! through cpal (WASAPI shared), EBU R128 loudness and normalisation gain.
 //!
 //! The engine thread owns every decoder and pushes interleaved stereo f32 at the device rate
 //! into a lock-free ring; the device callback only pops from it. See [`Engine`].
 
+mod crossfade;
 mod decoder;
 mod engine;
 mod gain;
@@ -50,6 +51,9 @@ pub struct Source {
     pub gain_db: f32,
     /// File extension (`"webm"`, `"m4a"`) to speed up probing.
     pub hint_ext: Option<String>,
+    /// Whether the transition into this source may crossfade (see
+    /// [`Engine::set_crossfade`]); `false` keeps it gapless, e.g. within an album.
+    pub crossfade: bool,
 }
 
 /// Opens the byte stream on the engine thread, so a slow source never blocks the caller. It may
@@ -74,6 +78,7 @@ impl Source {
             open: SourceOpener::File(path),
             gain_db,
             hint_ext,
+            crossfade: true,
         }
     }
 }
@@ -93,6 +98,7 @@ impl fmt::Debug for Source {
             .field("id", &self.id)
             .field("open", &self.open)
             .field("gain_db", &self.gain_db)
+            .field("crossfade", &self.crossfade)
             .finish()
     }
 }

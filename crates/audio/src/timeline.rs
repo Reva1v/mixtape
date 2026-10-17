@@ -1,6 +1,10 @@
 //! Maps the ring's frame counter to tracks: the engine records where each track starts in the
 //! stream of frames it pushed, the device reports how many it consumed, and this turns the
 //! difference into positions and start/end transitions of what is actually audible.
+//!
+//! A crossfaded track starts while its predecessor is still sounding: the predecessor stops
+//! being "the audible track" at the start of the overlap (positions refer to the newcomer) but
+//! only reports Ended once its last frame has played.
 
 use std::collections::VecDeque;
 
@@ -19,6 +23,16 @@ pub(crate) enum Transition {
     },
 }
 
+/// How a track takes over from its predecessor.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Handover {
+    /// The predecessor ends where this track starts.
+    Cut,
+    /// The predecessor fades out under this track for `frames` more; `completed` is what its
+    /// Ended reports.
+    Overlap { frames: u64, completed: bool },
+}
+
 #[derive(Debug)]
 enum Mark {
     Track {
@@ -27,8 +41,21 @@ enum Mark {
         start_ms: u64,
         duration_ms: u64,
         started: bool,
+        handover: Handover,
     },
     End,
+}
+
+/// A track still fading out under the audible one.
+#[derive(Debug)]
+struct Outgoing {
+    id: String,
+    /// Its mark's ring frame and track position there.
+    at: u64,
+    start_ms: u64,
+    /// Ring frame after its last one.
+    end: u64,
+    completed: bool,
 }
 
 #[derive(Debug)]
@@ -36,6 +63,7 @@ pub(crate) struct Timeline {
     rate: u32,
     /// `(ring frame index, mark)` in push order.
     marks: VecDeque<(u64, Mark)>,
+    outgoing: Option<Outgoing>,
 }
 
 impl Timeline {
@@ -43,12 +71,14 @@ impl Timeline {
         Self {
             rate,
             marks: VecDeque::new(),
+            outgoing: None,
         }
     }
 
     pub fn clear(&mut self, rate: u32) {
         self.rate = rate;
         self.marks.clear();
+        self.outgoing = None;
     }
 
     /// Track `id` begins at ring frame `at`, `start_ms` into the track. `started` skips the
@@ -71,8 +101,16 @@ impl Timeline {
             start_ms,
             duration_ms,
             started,
+            handover: Handover::Cut,
         };
         self.marks.push_back((at, mark));
+    }
+
+    /// Sets how the last pushed track takes over from the one before it.
+    pub fn set_handover(&mut self, h: Handover) {
+        if let Some((_, Mark::Track { handover, .. })) = self.marks.back_mut() {
+            *handover = h;
+        }
     }
 
     /// Nothing follows the last pushed frame, which is ring frame `at - 1`.
@@ -118,25 +156,51 @@ impl Timeline {
                     duration_ms,
                 });
             }
+            if self.outgoing.as_ref().is_some_and(|o| consumed >= o.end) {
+                out.extend(self.take_outgoing(consumed));
+            }
             let next_reached = matches!(self.marks.get(1), Some((at, mark))
                 if consumed > *at || (matches!(mark, Mark::End) && consumed >= *at));
             if !next_reached {
                 return;
             }
             let next_at = self.marks[1].0;
-            if let Some((
-                _,
+            let overlap = match self.marks[1].1 {
                 Mark::Track {
-                    id, started: true, ..
+                    handover: Handover::Overlap { frames, completed },
+                    ..
+                } => Some((frames, completed)),
+                _ => None,
+            };
+            if let Some((
+                at,
+                Mark::Track {
+                    id,
+                    start_ms,
+                    started: true,
+                    ..
                 },
             )) = self.marks.front()
             {
-                let played_ms = self.ms_at(0, next_at);
-                out.push(Transition::Ended {
-                    id: id.clone(),
-                    played_ms,
-                    completed: true,
-                });
+                let (at, id, start_ms) = (*at, id.clone(), *start_ms);
+                // A fade still running is cut by the next handover.
+                out.extend(self.take_outgoing(next_at));
+                match overlap {
+                    Some((frames, completed)) => {
+                        self.outgoing = Some(Outgoing {
+                            id,
+                            at,
+                            start_ms,
+                            end: next_at + frames,
+                            completed,
+                        });
+                    }
+                    None => out.push(Transition::Ended {
+                        id,
+                        played_ms: self.ms(at, start_ms, next_at),
+                        completed: true,
+                    }),
+                }
             }
             self.marks.pop_front();
         }
@@ -145,35 +209,48 @@ impl Timeline {
     /// The audible track and position at `consumed`.
     pub fn position(&self, consumed: u64) -> Option<(&str, u64)> {
         match self.marks.front() {
-            Some((at, Mark::Track { id, .. })) => Some((id, self.ms_at(0, consumed.max(*at)))),
+            Some((at, Mark::Track { id, start_ms, .. })) => {
+                Some((id, self.ms(*at, *start_ms, consumed.max(*at))))
+            }
             _ => None,
         }
     }
 
-    /// Ends the audible track early (load/stop); the caller clears or rebuilds the rest.
-    pub fn interrupt(&mut self, consumed: u64) -> Option<Transition> {
-        let (at, mark) = self.marks.front()?;
-        let Mark::Track {
-            id, started: true, ..
-        } = mark
-        else {
-            return None;
-        };
-        let played_ms = self.ms_at(0, consumed.max(*at));
+    /// Ends the track fading out under the audible one, if any, as of `consumed`.
+    pub fn take_outgoing(&mut self, consumed: u64) -> Option<Transition> {
+        let o = self.outgoing.take()?;
         Some(Transition::Ended {
-            id: id.clone(),
-            played_ms,
-            completed: false,
+            played_ms: self.ms(o.at, o.start_ms, consumed.min(o.end)),
+            id: o.id,
+            completed: o.completed,
         })
     }
 
-    fn ms_at(&self, idx: usize, frame: u64) -> u64 {
-        match &self.marks[idx] {
-            (at, Mark::Track { start_ms, .. }) => {
-                start_ms + frame.saturating_sub(*at) * 1000 / self.rate as u64
-            }
-            (_, Mark::End) => 0,
+    /// Ends what is audible early (load/stop): a track still fading out, then the audible
+    /// one. The caller clears or rebuilds the rest.
+    pub fn interrupt(&mut self, consumed: u64, out: &mut Vec<Transition>) {
+        out.extend(self.take_outgoing(consumed));
+        if let Some((
+            at,
+            Mark::Track {
+                id,
+                start_ms,
+                started: true,
+                ..
+            },
+        )) = self.marks.front()
+        {
+            out.push(Transition::Ended {
+                id: id.clone(),
+                played_ms: self.ms(*at, *start_ms, consumed.max(*at)),
+                completed: false,
+            });
         }
+    }
+
+    /// Track position at ring frame `frame` for a mark at `at` that starts `start_ms` in.
+    fn ms(&self, at: u64, start_ms: u64, frame: u64) -> u64 {
+        start_ms + frame.saturating_sub(at) * 1000 / self.rate as u64
     }
 }
 
@@ -247,16 +324,85 @@ mod tests {
         );
     }
 
+    fn interrupt(t: &mut Timeline, consumed: u64) -> Vec<Transition> {
+        let mut out = Vec::new();
+        t.interrupt(consumed, &mut out);
+        out
+    }
+
     #[test]
     fn interrupt_and_reprime() {
         let mut t = Timeline::new(1000);
         t.push_track(0, 1, "a", 0, 100, false);
-        assert_eq!(t.interrupt(0), None, "never audible");
+        assert_eq!(interrupt(&mut t, 0), vec![], "never audible");
         run(&mut t, 5);
-        assert_eq!(t.interrupt(40), Some(ended("a", 40, false)));
+        assert_eq!(interrupt(&mut t, 40), vec![ended("a", 40, false)]);
         t.clear(1000);
         t.push_track(0, 1, "a", 40, 100, true);
         assert_eq!(run(&mut t, 10), vec![]);
         assert_eq!(t.position(10), Some(("a", 50)));
+    }
+
+    #[test]
+    fn crossfade_starts_at_overlap_and_ends_after_it() {
+        let overlap = Handover::Overlap {
+            frames: 20,
+            completed: true,
+        };
+        let mut t = Timeline::new(1000);
+        t.push_track(0, 1, "a", 0, 100, false);
+        t.push_track(80, 2, "b", 0, 50, false);
+        t.set_handover(overlap);
+        t.push_end(130);
+        assert_eq!(run(&mut t, 1), vec![started(1, "a", 100)]);
+        assert_eq!(run(&mut t, 80), vec![]);
+        assert_eq!(run(&mut t, 81), vec![started(2, "b", 50)]);
+        assert_eq!(
+            t.position(90),
+            Some(("b", 10)),
+            "positions follow the newcomer"
+        );
+        assert!(t.started());
+        assert_eq!(run(&mut t, 99), vec![]);
+        assert_eq!(run(&mut t, 100), vec![ended("a", 100, true)]);
+        assert_eq!(run(&mut t, 130), vec![ended("b", 50, true)]);
+        assert!(t.ended());
+
+        // Both transitions in one step come out in order.
+        let mut t = Timeline::new(1000);
+        t.push_track(0, 1, "a", 0, 100, true);
+        t.push_track(80, 2, "b", 0, 50, false);
+        t.set_handover(overlap);
+        assert_eq!(
+            run(&mut t, 110),
+            vec![started(2, "b", 50), ended("a", 100, true)]
+        );
+    }
+
+    #[test]
+    fn manual_crossfade_interrupted_mid_overlap() {
+        let manual = Handover::Overlap {
+            frames: 20,
+            completed: false,
+        };
+        // Re-primed "a" at 30 ms with "b" fading in at the same frame.
+        let mut t = Timeline::new(1000);
+        t.push_track(0, 1, "a", 30, 100, true);
+        t.push_track(0, 2, "b", 0, 50, false);
+        t.set_handover(manual);
+        assert_eq!(run(&mut t, 1), vec![started(2, "b", 50)]);
+        assert_eq!(
+            interrupt(&mut t, 11),
+            vec![ended("a", 41, false), ended("b", 11, false)]
+        );
+
+        // A seek drops the fading track on its own.
+        let mut t = Timeline::new(1000);
+        t.push_track(0, 1, "a", 0, 100, true);
+        t.push_track(0, 2, "b", 0, 50, false);
+        t.set_handover(manual);
+        run(&mut t, 5);
+        assert_eq!(t.take_outgoing(5), Some(ended("a", 5, false)));
+        assert_eq!(run(&mut t, 30), vec![]);
     }
 }
