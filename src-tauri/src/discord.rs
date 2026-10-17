@@ -413,9 +413,10 @@ fn refresh(st: &AppState, p: &Presence) {
     let Some(s) = inner.last.clone() else { return };
     let want = match (&inner.current, s.track_id.as_ref()) {
         (Some(c), Some(id)) if c.track.id == *id => desired(&c.track, &s),
-        // Restored at start before this was installed: read it from the player.
-        (None, Some(_)) => match st.player.current_track() {
-            Some(t) if Some(&t.id) == s.track_id.as_ref() => {
+        // Restored at start before this was installed: read it from the library. Never from
+        // the player: this runs inside its event callback, under its lock.
+        (None, Some(id)) => match st.db.read(|c| mixtape_library::repo::track(c, id)).ok().flatten() {
+            Some(t) => {
                 let a = desired(&t, &s);
                 inner.current = Some(Current { track: t });
                 a

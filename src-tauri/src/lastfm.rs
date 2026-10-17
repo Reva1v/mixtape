@@ -154,13 +154,11 @@ pub fn on_player_event(st: &Arc<AppState>, ev: &PlayerEvent) {
         PlayerEvent::State(p) => {
             let mut tracker = s.tracker.lock().expect("tracker poisoned");
             let mut out = Vec::new();
-            // Restored at start before this was installed: read the track from the player.
+            // Restored at start before this was installed: read the track from the library.
+            // Never from the player: this runs inside its event callback, under its lock.
             if !tracker.has_play()
-                && p.track_id.is_some()
-                && let Some(t) = st
-                    .player
-                    .current_track()
-                    .filter(|t| Some(&t.id) == p.track_id.as_ref())
+                && let Some(id) = p.track_id.as_ref()
+                && let Some(t) = st.db.read(|c| mixtape_library::repo::track(c, id)).ok().flatten()
             {
                 out.extend(tracker.track_changed(t.id.as_str(), meta(&t), now));
             }
