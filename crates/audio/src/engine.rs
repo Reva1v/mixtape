@@ -113,6 +113,11 @@ enum Command {
     Toggle,
     Seek(u64),
     Volume(f32),
+    Gain {
+        id: String,
+        db: f32,
+    },
+    Normalize(bool),
     Stop,
 }
 
@@ -192,6 +197,22 @@ impl Engine {
         self.send(Command::Volume(v));
     }
 
+    /// Replaces the normalisation gain of every source with this id (playing, fading out,
+    /// queued): its loudness became known after it was handed over. A playing track glides
+    /// to it over ~50 ms; what is already in the ring (≤ 300 ms) keeps the old gain.
+    pub fn set_gain(&self, id: impl Into<String>, gain_db: f32) {
+        self.send(Command::Gain {
+            id: id.into(),
+            db: gain_db,
+        });
+    }
+
+    /// Loudness normalisation on (the default) or off: off plays every source at unity
+    /// instead of its [`Source::gain_db`]. Playing tracks glide to the new gain.
+    pub fn set_normalization(&self, on: bool) {
+        self.send(Command::Normalize(on));
+    }
+
     pub fn stop(&self) {
         self.send(Command::Stop);
     }
@@ -254,6 +275,8 @@ struct State {
     head_done: bool,
     playing: bool,
     volume: f32,
+    /// Sources play at their `gain_db` (else at unity).
+    normalize: bool,
     seq: u64,
     need_next_sent: bool,
     last_position: Instant,
@@ -297,6 +320,7 @@ impl State {
             head_done: false,
             playing: false,
             volume: 1.0,
+            normalize: true,
             seq: 0,
             need_next_sent: false,
             last_position: now,
@@ -458,8 +482,41 @@ impl State {
                         .store(self.volume.to_bits(), Ordering::Relaxed);
                 }
             }
+            Command::Gain { id, db } => self.set_gain(&id, db),
+            Command::Normalize(on) => {
+                self.normalize = on;
+                self.pipelines_mut()
+                    .for_each(|p| p.set_normalize(on, true));
+            }
             Command::Stop => self.stop(),
         }
+    }
+
+    /// Every open pipeline: the audible and decoding ones, a crossfaded-out one, the successor.
+    fn pipelines_mut(&mut self) -> impl Iterator<Item = &mut Pipeline> {
+        self.slots
+            .iter_mut()
+            .chain(&mut self.next)
+            .chain(self.fade.as_mut().and_then(|f| f.a.as_mut()))
+    }
+
+    fn set_gain(&mut self, id: &str, db: f32) {
+        self.pipelines_mut()
+            .filter(|p| p.id == id)
+            .for_each(|p| p.set_gain_db(db, true));
+        let waiting = self.waiting.as_mut().map(|(s, _)| s);
+        for src in waiting.into_iter().chain(&mut self.next_src) {
+            if src.id == id {
+                src.gain_db = db;
+            }
+        }
+    }
+
+    /// Opens `src` at the current rate, with the normalisation setting applied.
+    fn open_pipeline(&self, src: Source) -> Result<Pipeline> {
+        let mut p = Pipeline::open(src, self.rate())?;
+        p.set_normalize(self.normalize, false);
+        Ok(p)
     }
 
     fn load(&mut self, src: Source, start_ms: u64, play: bool) {
@@ -473,7 +530,7 @@ impl State {
         if !src.open.ready() {
             return self.wait_for(src, start_ms, play);
         }
-        match Pipeline::open(src.clone(), self.rate()) {
+        match self.open_pipeline(src.clone()) {
             Ok(p) => self.start_fresh(p, start_ms, play),
             Err(Error::Buffering) => self.wait_for(src, start_ms, play),
             Err(e) => {
@@ -498,7 +555,7 @@ impl State {
             return;
         };
         let id = src.id.clone();
-        match Pipeline::open(src.clone(), self.rate()) {
+        match self.open_pipeline(src.clone()) {
             Ok(p) => self.start_fresh(p, start_ms, self.playing),
             Err(Error::Buffering) => self.waiting = Some((src, start_ms)),
             Err(e) => {
@@ -534,7 +591,7 @@ impl State {
             return self.load(src, 0, true);
         }
         let id = src.id.clone();
-        let b = match Pipeline::open(src.clone(), self.rate()) {
+        let b = match self.open_pipeline(src.clone()) {
             Ok(p) => p,
             Err(Error::Buffering) => return self.load(src, 0, true),
             Err(e) => {
@@ -1056,7 +1113,7 @@ impl State {
             return;
         };
         let id = src.id.clone();
-        match Pipeline::open(src.clone(), self.rate()) {
+        match self.open_pipeline(src.clone()) {
             Ok(mut p) => {
                 if self.crossfade_ms > 0 && p.crossfade {
                     p.measure();
@@ -1314,6 +1371,69 @@ mod tests {
             );
             assert_eq!(p.story(), ["+a", "-a", "+b", "-b"]);
         }
+    }
+
+    #[test]
+    fn each_side_of_a_crossfade_keeps_its_own_gain() {
+        let unity = run(300, A, src(B, true));
+        let (mut st, rx) = start(300, A, Some(src(B, true)));
+        let mut p = Played::default();
+        play(&mut st, &rx, &mut p, RATE / 2);
+        // A's loudness arrives while it plays, B's while it waits as the successor.
+        st.handle(Command::Gain {
+            id: A.into(),
+            db: -6.0,
+        });
+        st.handle(Command::Gain {
+            id: B.into(),
+            db: -12.0,
+        });
+        play(&mut st, &rx, &mut p, u64::MAX);
+        assert_eq!(p.frames(), unity.frames());
+
+        let w = RATE / 20;
+        let ratio = |at: u64| p.rms(at, w) / unity.rms(at, w);
+        assert!((ratio(RATE / 4) - 1.0).abs() < 1e-3, "before: unity");
+        assert!((ratio(RATE) - 0.501).abs() < 0.01, "A: {}", ratio(RATE));
+        let end = p.frames();
+        let b = ratio(end - RATE / 4);
+        assert!((b - 0.251).abs() < 0.01, "B: {b}");
+        // Mid-overlap the mix lies between the two gains.
+        let x = 300 * RATE / 1000;
+        let mid = ratio(2 * RATE - x / 2 - w / 2);
+        assert!(mid < 0.5 && mid > 0.25, "overlap: {mid}");
+    }
+
+    #[test]
+    fn normalization_toggles_on_the_playing_track() {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let mut st = State::new(tx);
+        let quiet = Source::file(A, fixture(A), -6.0);
+        let head = st.open_pipeline(quiet).unwrap();
+        st.start_head(head, 0, false);
+        let mut p = Played::default();
+        play(&mut st, &rx, &mut p, RATE / 2);
+        st.handle(Command::Normalize(false));
+        play(&mut st, &rx, &mut p, RATE);
+        st.handle(Command::Normalize(true));
+        play(&mut st, &rx, &mut p, u64::MAX);
+
+        let unity = run(0, A, src(B, true));
+        let w = RATE / 20;
+        let ratio = |at: u64| p.rms(at, w) / unity.rms(at, w);
+        assert!((ratio(RATE / 4) - 0.501).abs() < 0.01, "on: {}", ratio(RATE / 4));
+        assert!((ratio(3 * RATE / 4) - 1.0).abs() < 0.01, "off: {}", ratio(3 * RATE / 4));
+        assert!((ratio(3 * RATE / 2) - 0.501).abs() < 0.01, "on again");
+        // A new track opens with the setting as it is now.
+        st.handle(Command::Normalize(false));
+        let p2 = st.open_pipeline(Source::file(B, fixture(B), -6.0)).unwrap();
+        st.start_head(p2, 0, false);
+        let mut q = Played::default();
+        play(&mut st, &rx, &mut q, RATE / 4);
+        let mut reference = Vec::new();
+        let mut r = Pipeline::open(src(B, true), FALLBACK_RATE).unwrap();
+        while reference.len() < q.pcm.len() && r.fill(&mut reference).unwrap() {}
+        assert_eq!(q.pcm[..], reference[..q.pcm.len()]);
     }
 
     #[test]

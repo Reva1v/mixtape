@@ -1,7 +1,7 @@
 //! One source on its way to the ring: decode → stereo → resample to the device rate → gain.
 
 use crate::decoder::Decoder;
-use crate::gain::{db_to_linear, soft_limit};
+use crate::gain::{GAIN_RAMP_MS, GainRamp, db_to_linear, soft_limit};
 use crate::resample::Resampler;
 use crate::{Result, Source};
 
@@ -19,13 +19,17 @@ pub(crate) struct Pipeline {
     out_rate: u32,
     /// Output-rate frame of the next emitted frame, counted from the start of the track.
     out_pos: u64,
-    gain: f32,
-    /// Boosted tracks go through the soft limiter.
-    limit: bool,
+    /// The track's normalisation gain, applied while `normalize` is on.
+    gain_db: f32,
+    normalize: bool,
+    /// Linear gain per frame, ramping on changes; above unity the soft limiter acts.
+    gain: GainRamp,
     fade_len: u32,
     /// Frames left in the current fade-in.
     fade_left: u32,
     scratch: Vec<f32>,
+    /// Something was emitted: gain changes glide from now on instead of applying at once.
+    emitted: bool,
     done: bool,
 }
 
@@ -40,11 +44,13 @@ impl Pipeline {
             resampler: None,
             out_rate,
             out_pos: 0,
-            gain: db_to_linear(src.gain_db),
-            limit: src.gain_db > 0.0,
+            gain_db: src.gain_db,
+            normalize: true,
+            gain: GainRamp::new(db_to_linear(src.gain_db)),
             fade_len: 0,
             fade_left: 0,
             scratch: Vec::new(),
+            emitted: false,
             done: false,
         };
         p.rebuild_resampler()?;
@@ -68,6 +74,33 @@ impl Pipeline {
             r => Some(Resampler::new(r, rate)?),
         };
         Ok(())
+    }
+
+    /// Changes the track's normalisation gain; `ramp` glides there (a playing track), else it
+    /// applies at once (nothing emitted yet).
+    pub fn set_gain_db(&mut self, db: f32, ramp: bool) {
+        self.gain_db = db;
+        self.retarget(ramp);
+    }
+
+    /// Turns normalisation on or off (unity gain), see [`Pipeline::set_gain_db`].
+    pub fn set_normalize(&mut self, on: bool, ramp: bool) {
+        self.normalize = on;
+        self.retarget(ramp);
+    }
+
+    fn retarget(&mut self, ramp: bool) {
+        let target = if self.normalize {
+            db_to_linear(self.gain_db)
+        } else {
+            1.0
+        };
+        let frames = if ramp && self.emitted {
+            self.out_rate * GAIN_RAMP_MS / 1000
+        } else {
+            0
+        };
+        self.gain.set(target, frames);
     }
 
     /// Starts the next emitted audio with a short fade-in.
@@ -102,6 +135,7 @@ impl Pipeline {
             None => out.extend_from_slice(&self.scratch),
         }
         self.apply_gain(&mut out[start..]);
+        self.emitted |= out.len() > start;
         self.out_pos += ((out.len() - start) / 2) as u64;
         self.done = !more;
         Ok(more)
@@ -147,15 +181,16 @@ impl Pipeline {
     }
 
     fn apply_gain(&mut self, samples: &mut [f32]) {
+        let limit = self.gain.boosts();
         for frame in samples.chunks_exact_mut(2) {
-            let mut g = self.gain;
+            let mut g = self.gain.next();
             if self.fade_left > 0 {
                 g *= 1.0 - self.fade_left as f32 / self.fade_len as f32;
                 self.fade_left -= 1;
             }
             for s in frame {
                 *s *= g;
-                if self.limit {
+                if limit {
                     *s = soft_limit(*s);
                 }
             }
@@ -246,5 +281,46 @@ mod tests {
         };
         let unity = peak(0.0);
         assert!((peak(-6.0) / unity - 0.501).abs() < 0.01);
+    }
+
+    /// Fills `p` until `out` holds at least `frames` frames.
+    fn fill_to(p: &mut Pipeline, out: &mut Vec<f32>, frames: usize) {
+        while out.len() < frames * 2 && p.fill(out).unwrap() {}
+    }
+
+    #[test]
+    fn gain_changes_ramp_without_a_jump() {
+        const RATE: u32 = 48_000;
+        let mut reference = Vec::new();
+        let mut pcm = Vec::new();
+        let mut p = open("sine_opus.webm", RATE);
+        fill_to(&mut p, &mut pcm, 4800);
+        let at = pcm.len() / 2;
+        p.set_gain_db(-6.0, true);
+        fill_to(&mut p, &mut pcm, 24_000);
+        let off_at = pcm.len() / 2;
+        // Off: unity at once, and a new track gain while off changes nothing.
+        p.set_normalize(false, false);
+        p.set_gain_db(-12.0, true);
+        fill_to(&mut p, &mut pcm, 36_000);
+        fill_to(&mut open("sine_opus.webm", RATE), &mut reference, pcm.len() / 2);
+
+        let ramp = (RATE * GAIN_RAMP_MS / 1000) as usize;
+        let target = db_to_linear(-6.0);
+        for f in 0..pcm.len() / 2 {
+            let x = reference[2 * f];
+            // The ratio is only meaningful away from zero crossings.
+            if x.abs() < 0.05 {
+                continue;
+            }
+            let expect = match f {
+                f if f < at || f >= off_at => 1.0,
+                f if f >= at + ramp => target,
+                f => 1.0 + (target - 1.0) * (f - at + 1) as f32 / ramp as f32,
+            };
+            let got = pcm[2 * f] / x;
+            assert!((got - expect).abs() < 1e-3, "frame {f}: gain {got}, expected {expect}");
+        }
+        assert_eq!(pcm[off_at * 2..], reference[off_at * 2..pcm.len()], "unity is bit-exact");
     }
 }
