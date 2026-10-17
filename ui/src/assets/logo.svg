@@ -1,14 +1,10 @@
-<svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#ff4d8d"/>
-      <stop offset="1" stop-color="#7b5cff"/>
-    </linearGradient>
-  </defs>
-  <rect x="64" y="64" width="896" height="896" rx="208" fill="url(#bg)"/>
-  <rect x="212" y="300" width="600" height="400" rx="56" fill="none" stroke="#fff" stroke-width="44"/>
-  <circle cx="392" cy="480" r="68" fill="none" stroke="#fff" stroke-width="40"/>
-  <circle cx="632" cy="480" r="68" fill="none" stroke="#fff" stroke-width="40"/>
-  <path d="M392 412 H632" stroke="#fff" stroke-width="40" stroke-linecap="round"/>
-  <path d="M300 700 L350 610 H674 L724 700" fill="none" stroke="#fff" stroke-width="40" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 512 512">
+  <defs><radialGradient id="mixtape-logo-g" cx="0.3" cy="0.25" r="0.9"><stop offset="0" stop-color="#300613"/><stop offset="0.7" stop-color="#0b0b0c"/></radialGradient></defs>
+  <rect width="512" height="512" rx="116" fill="url(#mixtape-logo-g)"/>
+  <g fill="#fff">
+    <rect x="132" y="216" width="36" height="80" rx="18"/>
+    <rect x="196" y="156" width="36" height="200" rx="18"/>
+    <rect x="260" y="196" width="36" height="120" rx="18"/>
+    <rect x="324" y="136" width="36" height="240" rx="18"/>
+  </g>
 </svg>
