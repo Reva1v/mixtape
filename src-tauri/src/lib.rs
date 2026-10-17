@@ -48,6 +48,7 @@ pub fn run() {
                 });
             }
             net::spawn(state.clone());
+            commands::sync::spawn_auto_sync(state.clone());
             // Likes made offline or before a failure go out now and then every few minutes.
             {
                 let st = state.clone();

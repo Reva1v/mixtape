@@ -10,8 +10,8 @@ use mixtape_yt::{YtError, thumbs};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-/// What the user chose on the sync screen.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// What the user chose on the sync screen; kept for the scheduled sync.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SyncPlan {
     pub liked: bool,
     pub playlist_ids: Vec<PlaylistId>,

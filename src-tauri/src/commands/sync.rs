@@ -113,6 +113,10 @@ fn sync_status(stage: &SyncStage) -> SyncStatus {
     SyncStatus { label: label.into(), done: done as u32, total: total as u32 }
 }
 
+const PLAN_KEY: &str = "sync_plan";
+/// The scheduled sync runs when the last one is older than this.
+const AUTO_SYNC_AFTER_MS: i64 = 12 * 60 * 60 * 1000;
+
 /// Runs the sync in the background; progress shows up through the downloads channel.
 #[tauri::command]
 pub async fn sync_start(
@@ -124,10 +128,16 @@ pub async fn sync_start(
 ) -> CmdResult<()> {
     let st = state.inner().clone();
     need_account(&st)?;
+    let plan = SyncPlan { liked, playlist_ids, albums, artists };
+    mixtape_library::settings::set(&st.db, PLAN_KEY, &plan)?;
+    run_sync(st, plan, false)
+}
+
+/// One sync at a time. A scheduled (`quiet`) run only logs its failure.
+fn run_sync(st: Arc<AppState>, plan: SyncPlan, quiet: bool) -> CmdResult<()> {
     if st.syncing.swap(true, Ordering::SeqCst) {
         return Err(AppError::new(ErrorKind::Invalid, "Синхронизация уже идёт"));
     }
-    let plan = SyncPlan { liked, playlist_ids, albums, artists };
     tauri::async_runtime::spawn(async move {
         let _ = st.db.write(|t| jobs::clear_done(t));
         st.downloads.set_sync(Some(sync_status(&SyncStage::Liked)));
@@ -139,7 +149,7 @@ pub async fn sync_start(
         st.downloads.set_sync(None);
         match result {
             Ok(report) => {
-                tracing::info!(tracks = report.tracks, queued = report.queued, errors = report.errors.len(), "sync done");
+                tracing::info!(tracks = report.tracks, queued = report.queued, errors = report.errors.len(), quiet, "sync done");
                 for (what, err) in &report.errors {
                     tracing::warn!(what, err, "sync source failed");
                 }
@@ -158,11 +168,40 @@ pub async fn sync_start(
             }
             Err(e) => {
                 let e = yt_error(&st, e);
-                crate::events::toast_error(&st.app, format!("Синхронизация не удалась: {}", e.message));
+                if quiet {
+                    tracing::warn!(error = %e.message, "scheduled sync failed");
+                } else {
+                    crate::events::toast_error(&st.app, format!("Синхронизация не удалась: {}", e.message));
+                }
             }
         }
     });
     Ok(())
+}
+
+/// Re-runs the last chosen sync when it is older than 12 hours (checked every 30 minutes,
+/// first a few minutes after start), so new likes and releases arrive without a click.
+pub fn spawn_auto_sync(st: Arc<AppState>) {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(180)).await;
+        loop {
+            let due = st.yt.is_authenticated()
+                && st.online.load(Ordering::SeqCst)
+                && st
+                    .db
+                    .read(mixtape_library::ytm::last_synced_at)
+                    .ok()
+                    .flatten()
+                    .is_none_or(|t| mixtape_library::repo::now_ms() - t > AUTO_SYNC_AFTER_MS);
+            if due
+                && let Ok(Some(plan)) = mixtape_library::settings::get::<SyncPlan>(&st.db, PLAN_KEY)
+            {
+                tracing::info!("scheduled sync");
+                let _ = run_sync(st.clone(), plan, true);
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(1800)).await;
+        }
+    });
 }
 
 #[tauri::command]
