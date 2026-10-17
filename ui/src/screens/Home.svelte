@@ -74,7 +74,7 @@
 {/snippet}
 
 {#snippet carousel(albums: Album[])}
-  <div class="no-scrollbar flex snap-x gap-7 overflow-x-auto scroll-px-8 px-8 pb-2">
+  <div class="no-scrollbar -mt-2 flex snap-x gap-7 overflow-x-auto scroll-px-8 px-8 pt-2 pb-2">
     {#each albums as a (a.id)}
       <div class="w-44 shrink-0 snap-start">
         <Card
