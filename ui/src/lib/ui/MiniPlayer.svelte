@@ -24,31 +24,43 @@
 
   const track = $derived(player.track);
 
-  // Progress of the now-playing block, extrapolated per frame while playing.
+  // Progress of the now-playing block, extrapolated per frame while playing. While the
+  // user scrubs, the fill follows the pointer instead.
   let pct = $state(0);
+  let scrub = $state<{ x: number; ms: number } | null>(null);
   $effect(() => {
     let raf = 0;
     const tick = () => {
-      const d = player.state.durationMs;
-      pct = d > 0 ? Math.min(100, (player.livePosition() / d) * 100) : 0;
+      if (!scrub) {
+        const d = player.state.durationMs;
+        pct = d > 0 ? Math.min(100, (player.livePosition() / d) * 100) : 0;
+      }
       if (player.playing) raf = requestAnimationFrame(tick);
     };
     void player.state.positionMs;
     void player.state.status;
+    void scrub;
     tick();
     return () => cancelAnimationFrame(raf);
   });
 
-  // Click or drag anywhere on the bar's empty space to seek; the whole bar is the
-  // timeline and its background fills up as the track plays.
+  // Press anywhere on the bar's empty space: playback jumps there at once; keep holding
+  // and drag to scrub — the fill and a time bubble follow the pointer, the audio catches
+  // up a few times a second, and the release lands exactly.
+  const SCRUB_SEEK_MS = 180;
   let bar = $state<HTMLElement>();
-  let seeking = false;
-  function seekAt(e: PointerEvent) {
+  let lastSeek = 0;
+  function scrubTo(e: PointerEvent) {
     if (!bar || !player.state.durationMs) return;
     const r = bar.getBoundingClientRect();
     const f = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
     pct = f * 100;
-    return f * player.state.durationMs;
+    scrub = { x: f * r.width, ms: f * player.state.durationMs };
+  }
+  function seekNow() {
+    if (!scrub) return;
+    lastSeek = performance.now();
+    void player.seek(scrub.ms);
   }
 </script>
 
@@ -76,20 +88,26 @@
   aria-valuemin={0}
   aria-valuemax={player.state.durationMs}
   aria-valuenow={player.state.positionMs}
-  class="relative flex h-(--player-h) shrink-0 items-center overflow-hidden rounded-xl bg-panel pr-2.5"
+  class="relative flex h-(--player-h) shrink-0 cursor-pointer items-center overflow-hidden rounded-xl bg-panel pr-2.5 select-none
+    {scrub ? 'cursor-grabbing' : ''}"
   onpointerdown={(e) => {
     if (!track || e.button !== 0 || (e.target as HTMLElement).closest("button, [data-no-seek], [role=slider]:not([data-bar])")) return;
-    seeking = true;
     bar?.setPointerCapture(e.pointerId);
-    seekAt(e);
+    scrubTo(e);
+    seekNow();
   }}
-  onpointermove={(e) => seeking && seekAt(e)}
+  onpointermove={(e) => {
+    if (!scrub) return;
+    scrubTo(e);
+    if (performance.now() - lastSeek > SCRUB_SEEK_MS) seekNow();
+  }}
   onpointerup={(e) => {
-    if (!seeking) return;
-    seeking = false;
-    const ms = seekAt(e);
-    if (ms !== undefined) void player.seek(ms);
+    if (!scrub) return;
+    scrubTo(e);
+    seekNow();
+    scrub = null;
   }}
+  onpointercancel={() => (scrub = null)}
 >
   {#if track}
     <div
@@ -97,6 +115,16 @@
       style:width="{pct}%"
       style:background="color-mix(in srgb, var(--glow) 70%, rgb(255 255 255 / 0.08))"
     ></div>
+  {/if}
+  {#if scrub}
+    <!-- Where the scrub lands: a hairline and the time. -->
+    <div class="pointer-events-none absolute inset-y-0 z-10 w-px bg-white/70" style:left="{scrub.x}px"></div>
+    <div
+      class="pointer-events-none absolute top-1.5 z-10 -translate-x-1/2 rounded-md bg-black/80 px-1.5 py-0.5 text-[11.5px] font-medium text-ink tnum"
+      style:left="clamp(24px, {scrub.x}px, calc(100% - 24px))"
+    >
+      {formatTime(scrub.ms)}
+    </div>
   {/if}
   <!-- Now playing -->
   {#if track}
