@@ -43,6 +43,8 @@ const MIN_GAP: Duration = Duration::from_secs(4);
 const SEEK_SLACK_MS: i64 = 2_000;
 /// Art asset uploaded to the Discord application, for tracks without a web cover.
 const FALLBACK_IMAGE: &str = "mixtape";
+/// A pause keeps the status this long (as «Paused»), then it goes.
+const PAUSE_KEEP_MS: i64 = 30_000;
 
 // ---------- wire format ----------
 
@@ -87,6 +89,8 @@ pub struct Activity {
     pub image: Option<String>,
     /// «Open in YouTube Music».
     pub link: Option<String>,
+    /// Paused: no time bar, «Paused» after the artist.
+    pub paused: bool,
 }
 
 /// Discord wants 2–128 characters in text fields.
@@ -106,12 +110,18 @@ pub fn set_activity(pid: u32, nonce: u64, a: Option<&Activity>) -> Value {
             // Listening.
             "type": 2,
             "details": field(&a.title),
-            "state": field(&a.artists),
-            "timestamps": { "start": a.start_ms },
+            "state": field(&if a.paused {
+                format!("{} · {}", a.artists, tr("Paused", "На паузі", "На паузе"))
+            } else {
+                a.artists.clone()
+            }),
             "assets": { "large_image": a.image.as_deref().unwrap_or(FALLBACK_IMAGE) },
         });
-        if let Some(end) = a.end_ms {
-            act["timestamps"]["end"] = json!(end);
+        if !a.paused {
+            act["timestamps"] = json!({ "start": a.start_ms });
+            if let Some(end) = a.end_ms {
+                act["timestamps"]["end"] = json!(end);
+            }
         }
         if let Some(album) = a.album.as_deref().filter(|s| !s.trim().is_empty()) {
             act["assets"]["large_text"] = json!(field(album));
@@ -327,6 +337,9 @@ pub struct Presence {
     enabled: AtomicBool,
     inner: Mutex<Inner>,
     tx: OnceLock<Sender<Msg>>,
+    /// Square album art per track id from YouTube Music's `player` answer; `None` while
+    /// asked or when it has none (the video thumbnail is used then).
+    art: Mutex<std::collections::HashMap<String, Option<String>>>,
 }
 
 impl Presence {
@@ -359,6 +372,7 @@ pub fn install(app: &tauri::AppHandle, enabled: bool) {
         enabled: AtomicBool::new(enabled),
         inner: Mutex::default(),
         tx: OnceLock::new(),
+        art: Mutex::default(),
     });
 }
 
@@ -367,13 +381,12 @@ fn is_youtube(id: &str) -> bool {
 }
 
 /// The activity for a track and a player state, or `None` when nothing plays.
-fn desired(track: &Track, s: &PlaybackState) -> Option<Activity> {
-    if !matches!(
-        s.status,
-        Status::Playing | Status::Buffering | Status::Loading
-    ) {
-        return None;
-    }
+fn desired(track: &Track, s: &PlaybackState, art: Option<&str>, now_ms: i64) -> Option<Activity> {
+    let paused = match s.status {
+        Status::Playing | Status::Buffering | Status::Loading => false,
+        Status::Paused if now_ms - (s.timestamp_ms as i64) < PAUSE_KEEP_MS => true,
+        _ => return None,
+    };
     let id = track.id.as_str();
     let start_ms = s.timestamp_ms as i64 - s.position_ms as i64;
     let duration = if s.duration_ms > 0 {
@@ -388,8 +401,11 @@ fn desired(track: &Track, s: &PlaybackState) -> Option<Activity> {
         album: track.album.as_ref().map(|a| a.title.clone()),
         start_ms,
         end_ms: (duration > 0).then_some(start_ms + duration as i64),
-        image: is_youtube(id).then(|| format!("https://i.ytimg.com/vi/{id}/hqdefault.jpg")),
+        image: art
+            .map(str::to_owned)
+            .or_else(|| is_youtube(id).then(|| format!("https://i.ytimg.com/vi/{id}/hqdefault.jpg"))),
         link: is_youtube(id).then(|| format!("https://music.youtube.com/watch?v={id}")),
+        paused,
     })
 }
 
@@ -403,21 +419,25 @@ fn changed(old: Option<&Activity>, new: Option<&Activity>) -> bool {
                 || a.title != b.title
                 || (a.start_ms - b.start_ms).abs() > SEEK_SLACK_MS
                 || a.end_ms.is_some() != b.end_ms.is_some()
+                || a.paused != b.paused
+                || a.image != b.image
         }
         _ => true,
     }
 }
 
 fn refresh(st: &AppState, p: &Presence) {
+    let now = unix_ms();
+    let art_of = |id: &str| p.art.lock().expect("art lock poisoned").get(id).cloned().flatten();
     let mut inner = p.inner.lock().expect("presence lock poisoned");
     let Some(s) = inner.last.clone() else { return };
     let want = match (&inner.current, s.track_id.as_ref()) {
-        (Some(c), Some(id)) if c.track.id == *id => desired(&c.track, &s),
+        (Some(c), Some(id)) if c.track.id == *id => desired(&c.track, &s, art_of(id.as_str()).as_deref(), now),
         // Restored at start before this was installed: read it from the library. Never from
         // the player: this runs inside its event callback, under its lock.
         (None, Some(id)) => match st.db.read(|c| mixtape_library::repo::track(c, id)).ok().flatten() {
             Some(t) => {
-                let a = desired(&t, &s);
+                let a = desired(&t, &s, art_of(id.as_str()).as_deref(), now);
                 inner.current = Some(Current { track: t });
                 a
             }
@@ -446,16 +466,70 @@ pub fn on_player_event(st: &AppState, ev: &PlayerEvent) {
     }
     match ev {
         PlayerEvent::State(s) => {
-            p.inner.lock().expect("presence lock poisoned").last = Some(s.clone());
+            let was = p.inner.lock().expect("presence lock poisoned").last.replace(s.clone());
+            if s.status == Status::Paused && was.is_none_or(|w| w.status != Status::Paused) {
+                expire_pause(st);
+            }
         }
         PlayerEvent::TrackChanged { track, .. } => {
             p.inner.lock().expect("presence lock poisoned").current = Some(Current {
                 track: track.clone(),
             });
+            fetch_art(st, track.id.as_str());
         }
         _ => return,
     }
     refresh(st, &p);
+}
+
+fn unix_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as i64)
+}
+
+/// One look a little after the pause's grace time: still paused → the status goes.
+fn expire_pause(st: &AppState) {
+    let app = st.app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(PAUSE_KEEP_MS as u64 + 500)).await;
+        if let (Some(st), Some(p)) = (app.try_state::<std::sync::Arc<AppState>>(), app.try_state::<Presence>()) {
+            refresh(&st, &p);
+        }
+    });
+}
+
+/// The album art YouTube Music shows for a song (square, unlike the video thumbnail),
+/// asked once per track; the activity is refreshed when it arrives.
+fn fetch_art(st: &AppState, id: &str) {
+    if !is_youtube(id) || !st.yt.is_authenticated() {
+        return;
+    }
+    let Some(p) = st.app.try_state::<Presence>() else { return };
+    {
+        let mut art = p.art.lock().expect("art lock poisoned");
+        if art.contains_key(id) {
+            return;
+        }
+        art.insert(id.to_owned(), None);
+    }
+    let app = st.app.clone();
+    let id = id.to_owned();
+    tauri::async_runtime::spawn(async move {
+        let Some(st) = app.try_state::<std::sync::Arc<AppState>>() else { return };
+        let Ok(v) = st.yt.player_meta(&mixtape_core::TrackId::from(id.as_str())).await else { return };
+        let url = v["videoDetails"]["thumbnail"]["thumbnails"]
+            .as_array()
+            .and_then(|t| t.last())
+            .and_then(|t| t["url"].as_str())
+            // Songs carry square Google-hosted art; videos only their 16:9 frame.
+            .filter(|u| u.contains("googleusercontent.com") || u.contains("ggpht.com"))
+            .map(mixtape_yt::thumbs::hi_res);
+        let Some(url) = url else { return };
+        let Some(p) = app.try_state::<Presence>() else { return };
+        p.art.lock().expect("art lock poisoned").insert(id, Some(url));
+        refresh(&st, &p);
+    });
 }
 
 /// The setting changed.
@@ -543,6 +617,7 @@ mod tests {
             end_ms: Some(1_700_000_225_000),
             image: Some("https://i.ytimg.com/vi/djV11Xbc914/hqdefault.jpg".into()),
             link: Some("https://music.youtube.com/watch?v=djV11Xbc914".into()),
+            paused: false,
         }
     }
 
@@ -711,7 +786,8 @@ mod tests {
             timestamp_ms: 1_700_000_060_000,
             ..Default::default()
         };
-        let a = desired(&track, &s).unwrap();
+        let now = 1_700_000_060_000;
+        let a = desired(&track, &s, None, now).unwrap();
         assert_eq!(
             (a.start_ms, a.end_ms),
             (1_700_000_000_000, Some(1_700_000_225_000))
@@ -720,21 +796,19 @@ mod tests {
             a.link.as_deref(),
             Some("https://music.youtube.com/watch?v=djV11Xbc914")
         );
-        assert!(
-            desired(
-                &track,
-                &PlaybackState {
-                    status: Status::Paused,
-                    ..s.clone()
-                }
-            )
-            .is_none()
-        );
+        let paused = PlaybackState { status: Status::Paused, ..s.clone() };
+        // A fresh pause keeps the status, marked and without the time bar…
+        let a = desired(&track, &paused, Some("https://lh3.googleusercontent.com/x=w544"), now + 1_000).unwrap();
+        assert!(a.paused && a.image.as_deref() == Some("https://lh3.googleusercontent.com/x=w544"));
+        let v = set_activity(1, 1, Some(&a));
+        assert!(v["args"]["activity"].get("timestamps").is_none());
+        // …and it goes after the grace time.
+        assert!(desired(&track, &paused, None, now + PAUSE_KEEP_MS + 1).is_none());
         let local = Track {
             id: TrackId::from("local1a2b3c4d"),
             ..track
         };
-        let a = desired(&local, &s).unwrap();
+        let a = desired(&local, &s, None, now).unwrap();
         assert!(a.image.is_none() && a.link.is_none());
     }
 }
