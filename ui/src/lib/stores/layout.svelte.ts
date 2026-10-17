@@ -7,6 +7,7 @@ class Layout {
   fullscreen = $state(false);
   /** Bumped to ask the search screen to focus its input. */
   searchFocus = $state(0);
+  shortcutsOpen = $state(false);
 
   toggleDrawer(panel: "queue" | "lyrics") {
     this.drawer = this.drawer === panel ? null : panel;

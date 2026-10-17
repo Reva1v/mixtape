@@ -8,7 +8,7 @@
   role="switch"
   aria-checked={checked}
   aria-label={label}
-  class="relative h-[22px] w-10 shrink-0 rounded-full transition-colors duration-200
+  class="relative h-[22px] w-[40px] shrink-0 rounded-full transition-colors duration-200
     {checked ? 'bg-ink' : 'bg-white/15 hover:bg-white/20'}"
   onclick={() => onchange(!checked)}
 >

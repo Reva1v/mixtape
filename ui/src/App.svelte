@@ -16,6 +16,7 @@
   import Toaster from "$lib/ui/Toaster.svelte";
   import Dialogs from "$lib/ui/Dialogs.svelte";
   import Tooltip from "$lib/ui/Tooltip.svelte";
+  import Shortcuts from "$lib/ui/Shortcuts.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Home from "./screens/Home.svelte";
   import Library from "./screens/Library.svelte";
@@ -141,3 +142,4 @@
 <Dialogs />
 <Toaster />
 <Tooltip />
+<Shortcuts />
