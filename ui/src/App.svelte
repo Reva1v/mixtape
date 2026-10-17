@@ -34,7 +34,6 @@
   import IconSoon from "~icons/solar/widget-bold";
   import IconBack from "~icons/solar/alt-arrow-left-linear";
   import IconForward from "~icons/solar/alt-arrow-right-linear";
-  import IconLyrics from "~icons/solar/microphone-2-linear";
 
   onMount(() => {
     player.init().catch((e) => console.error("player init failed", e));
@@ -71,7 +70,7 @@
   );
 
   // Panel content shown in the drawer; lags behind `layout.drawer` while closing.
-  let shownDrawer = $state<"queue" | "lyrics" | null>(null);
+  let shownDrawer = $state<"queue" | null>(null);
   let drawerCol = $state<HTMLDivElement>();
   $effect(() => {
     const open = layout.drawer;
@@ -164,8 +163,6 @@
         >
           {#if shownDrawer === "queue"}
             <QueuePanel />
-          {:else if shownDrawer === "lyrics"}
-            <EmptyState icon={IconLyrics} title="Тексты песен" hint="Появятся позже" />
           {/if}
         </aside>
       </div>

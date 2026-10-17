@@ -24,10 +24,11 @@
   import IconLyrics from "~icons/solar/microphone-2-linear";
   import IconQueue from "~icons/solar/playlist-minimalistic-linear";
   import QueuePanel from "$lib/ui/QueuePanel.svelte";
+  import LyricsPanel from "$lib/ui/LyricsPanel.svelte";
 
   const track = $derived(player.track);
   const bg = $derived(coverUrl(track?.coverKey, 64));
-  const lyrics = $derived(layout.drawer === "lyrics");
+  const lyrics = $derived(layout.lyrics);
 
   let height = $state(window.innerHeight);
   const coverSize = $derived(Math.round(Math.min(300, Math.max(200, height * 0.37))));
@@ -176,7 +177,7 @@
             aria-label={t.player.lyrics}
             data-tip={t.player.lyrics}
             class="grid size-7 place-items-center rounded-full transition-colors {lyrics ? 'bg-white/14 text-ink' : 'text-ink-3 hover:text-ink'}"
-            onclick={() => layout.toggleDrawer("lyrics")}
+            onclick={() => layout.toggleLyrics()}
           >
             <IconLyrics class="size-4" />
           </button>
@@ -196,10 +197,10 @@
         <!-- Lyrics column (US5). -->
         <section
           data-tauri-drag-region
-          class="absolute inset-y-0 right-0 flex w-1/2 min-w-0 items-center pr-16 pl-4"
+          class="absolute inset-y-0 right-0 w-1/2 min-w-0 pr-16 pl-4"
           transition:pop={{ x: 48, scale: 1, spring: springs.smooth }}
         >
-          <p class="text-[30px] leading-snug font-bold text-ink-3">Тексты песен появятся позже</p>
+          <LyricsPanel trackId={track.id} />
         </section>
       {/if}
     {/if}

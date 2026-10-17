@@ -6,6 +6,7 @@ use mixtape_library::views::ViewCache;
 use mixtape_library::{DataPaths, Db};
 use mixtape_player::{PlaybackState, Player};
 use mixtape_sync::downloader::{Downloader, DownloadsProgress};
+use mixtape_sync::lyrics::Lrclib;
 use mixtape_yt::innertube::InnerTube;
 use mixtape_yt::resolver::StreamResolver;
 use std::path::PathBuf;
@@ -35,6 +36,7 @@ pub struct AppState {
     pub syncing: AtomicBool,
     /// Last network probe succeeded (see `net.rs`).
     pub online: AtomicBool,
+    pub lrclib: Lrclib,
 }
 
 /// yt-dlp and deno sit next to the executable (Tauri `externalBin`); in a debug build
@@ -109,6 +111,7 @@ impl AppState {
             downloads_channel: Mutex::new(None),
             syncing: AtomicBool::new(false),
             online: AtomicBool::new(true),
+            lrclib: Lrclib::new()?,
         })
     }
 }

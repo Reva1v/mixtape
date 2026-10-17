@@ -113,6 +113,7 @@ pub fn run() {
             commands::player::queue_move,
             commands::player::queue_clear,
             commands::player::queue_jump,
+            commands::lyrics::lyrics_get,
             commands::dev::dev_import_folder,
             commands::settings::prefs_get,
             commands::settings::prefs_set,

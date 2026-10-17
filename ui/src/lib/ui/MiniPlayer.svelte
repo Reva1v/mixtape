@@ -182,7 +182,7 @@
       () => player.cycleRepeat(),
     )}
     <Volume compact />
-    {@render capsuleButton(t.player.lyrics, IconLyrics, layout.drawer === "lyrics", () => layout.toggleDrawer("lyrics"))}
+    {@render capsuleButton(t.player.lyrics, IconLyrics, false, () => layout.toggleLyrics(), !track)}
     {@render capsuleButton(t.player.fullscreen, IconExpand, false, () => (layout.fullscreen = true), !track)}
     {@render capsuleButton(t.player.queue, IconQueue, layout.drawer === "queue", () => layout.toggleDrawer("queue"))}
   </div>

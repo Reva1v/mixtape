@@ -6,6 +6,7 @@ pub mod db;
 pub mod integrity;
 pub mod jobs;
 pub mod likes;
+pub mod lyrics;
 pub mod normalize;
 pub mod paths;
 pub mod playlists;

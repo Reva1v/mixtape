@@ -150,7 +150,7 @@ export function handleHotkey(e: KeyboardEvent): boolean {
       layout.toggleDrawer("queue");
       return true;
     case "KeyT":
-      layout.toggleDrawer("lyrics");
+      if (player.track) layout.toggleLyrics();
       return true;
     case "KeyF":
       if (player.track) layout.fullscreen = !layout.fullscreen;

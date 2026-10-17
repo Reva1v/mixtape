@@ -7,6 +7,7 @@ pub mod disk;
 pub mod downloader;
 pub mod fetch;
 pub mod likes;
+pub mod lyrics;
 pub mod sources;
 pub mod stream;
 pub mod url_import;
