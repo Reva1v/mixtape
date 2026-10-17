@@ -26,11 +26,13 @@ pub struct Prefs {
     /// Interface language; absent until chosen, then the Windows display language decides.
     #[ts(optional)]
     pub language: Option<Lang>,
+    /// Look for a new version on start and once a day.
+    pub auto_update: bool,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        Self { smooth_background: true, crossfade: false, crossfade_sec: 6, mix_fullscreen: false, language: None }
+        Self { smooth_background: true, crossfade: false, crossfade_sec: 6, mix_fullscreen: false, language: None, auto_update: true }
     }
 }
 

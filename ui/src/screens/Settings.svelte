@@ -3,6 +3,7 @@
   import { prefs } from "$lib/stores/prefs.svelte";
   import { LANGS, locale, t } from "$lib/i18n";
   import Select from "$lib/ui/Select.svelte";
+  import { updates } from "$lib/stores/updates.svelte";
   import Switch from "$lib/ui/Switch.svelte";
   import Slider from "$lib/ui/Slider.svelte";
   import { coverUrl, invoke } from "$lib/ipc";
@@ -254,6 +255,49 @@
         t.settings.appearance.smoothBackgroundHint,
         bgSwitch,
       )}
+    </div>
+  </section>
+
+  <section class="mt-8">
+    <h2 class="mb-3 text-[13px] font-semibold tracking-wide text-ink-3 uppercase">{t.updates.title}</h2>
+    <div class="divide-y divide-line overflow-hidden rounded-lg bg-white/[0.04]">
+      {#snippet updateButton()}
+        {@const s = updates.status}
+        {#if s.kind === "available"}
+          <button
+            type="button"
+            class="h-9 shrink-0 rounded-full bg-ink px-4 text-[13px] font-semibold text-black transition-opacity hover:opacity-90"
+            onclick={() => updates.install()}
+          >
+            {t.updates.install}
+          </button>
+        {:else}
+          <button
+            type="button"
+            disabled={s.kind === "checking" || s.kind === "installing"}
+            class="h-9 shrink-0 rounded-full bg-fill-2 px-4 text-[13px] font-medium text-ink transition-colors hover:bg-fill-3 disabled:opacity-60"
+            onclick={() => updates.check()}
+          >
+            {s.kind === "checking" ? t.updates.checking : t.updates.check}
+          </button>
+        {/if}
+      {/snippet}
+      {@render row(
+        t.updates.version(updates.version),
+        (() => {
+          const s = updates.status;
+          if (s.kind === "latest") return t.updates.latest;
+          if (s.kind === "available") return `${t.updates.available(s.info.version)}. ${t.updates.restartHint}`;
+          if (s.kind === "installing") return t.updates.installing(s.total ? Math.round((s.done / s.total) * 100) : null);
+          if (s.kind === "error") return s.message;
+          return t.updates.restartHint;
+        })(),
+        updateButton,
+      )}
+      {#snippet autoSwitch()}
+        <Switch checked={p.autoUpdate} label={t.updates.auto} onchange={(v) => prefs.update({ autoUpdate: v })} />
+      {/snippet}
+      {@render row(t.updates.auto, t.updates.autoHint, autoSwitch)}
     </div>
   </section>
 

@@ -21,4 +21,8 @@ mixFullscreen: boolean,
 /**
  * Interface language; absent until chosen, then the Windows display language decides.
  */
-language?: Lang, };
+language?: Lang, 
+/**
+ * Look for a new version on start and once a day.
+ */
+autoUpdate: boolean, };

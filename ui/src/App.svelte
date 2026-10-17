@@ -1,5 +1,6 @@
 <script lang="ts">
   import { net } from "$lib/stores/net.svelte";
+  import { updates } from "$lib/stores/updates.svelte";
   import { onMount } from "svelte";
   import { router } from "$lib/stores/router.svelte";
   import { layout } from "$lib/stores/layout.svelte";
@@ -38,6 +39,7 @@
     player.init().catch((e) => console.error("player init failed", e));
     void downloads.init();
     void net.init();
+    void updates.init();
     const un = on<{ level: "info" | "error"; text: string }>("toast", (e) => toasts.push(e.text, e.level));
     return () => void un.then((f) => f());
   });

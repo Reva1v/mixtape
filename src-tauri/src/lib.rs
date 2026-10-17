@@ -9,6 +9,7 @@ mod media;
 mod net;
 mod state;
 mod streaming;
+mod updates;
 mod window;
 
 use std::sync::Arc;
@@ -48,6 +49,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(window::frame_plugin())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .register_asynchronous_uri_scheme_protocol("cover", cover_protocol::handle)
         .setup(|app| {
             let state = Arc::new(state::AppState::init(app.handle())?);
@@ -60,6 +62,7 @@ pub fn run() {
             commands::sync::spawn_auto_sync(state.clone());
             // Pending likes, artist pictures, unused covers: once, after start.
             background::spawn(state.clone());
+            updates::spawn(state.clone());
             state.player.set_crossfade(prefs.crossfade_ms());
             tracing::debug!("setup: crossfade applied");
             // `setup` runs on the main (UI) thread, which the thumbnail toolbar needs.
@@ -146,6 +149,9 @@ pub fn run() {
             commands::sync::download_retry,
             commands::sync::downloads_failed,
             commands::sync::downloads_subscribe,
+            updates::app_version,
+            updates::update_check,
+            updates::update_install,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Mixtape");

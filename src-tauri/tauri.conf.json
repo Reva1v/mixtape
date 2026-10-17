@@ -64,5 +64,16 @@
         "installerIcon": "icons/icon.ico"
       }
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE3MTBERUFBMTAyQjBGM0IKUldRN0R5c1FxdDRRcDVPN0I0VnFJRGIzd3JjMmxLaCsvVXUxaUllbmtpUU16dnhIeFZPR0hNVzMK",
+      "endpoints": [
+        "https://github.com/Reva1v/mixtape/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }
