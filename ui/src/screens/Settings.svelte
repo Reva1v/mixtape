@@ -176,6 +176,10 @@
         t.settings.playback.mixFullscreenHint,
         mixFullSwitch,
       )}
+      {#snippet normalizeSwitch()}
+        <Switch checked={p.normalizeVolume} label={t.normalize.title} onchange={(v) => prefs.update({ normalizeVolume: v })} />
+      {/snippet}
+      {@render row(t.normalize.title, t.normalize.hint, normalizeSwitch)}
     </div>
   </section>
 

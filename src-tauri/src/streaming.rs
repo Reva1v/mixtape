@@ -6,19 +6,26 @@
 //! Network use is kept low: URLs of the upcoming tracks are resolved in one yt-dlp run once
 //! fewer than [`RESOLVE_LOW_WATER`] are left, and the next track is downloaded only after
 //! the current one's download has ended (or right away when the current track is on disk).
+//!
+//! Loudness for normalisation: YouTube's value comes from one `player` call per track (signed
+//! in only), sent for the current and the upcoming tracks alongside their yt-dlp runs (it
+//! answers much sooner), so it is usually stored before the first sample plays. A late
+//! answer, and the R128 measurement of a finished download, make the player glide to the new
+//! gain.
 
 use mixtape_audio::{SparseCacheFile, Source};
 use mixtape_core::{AppError, TrackId, tr, trf};
 use mixtape_library::{Db, cache_lru, repo};
 use mixtape_player::prefetch::{CACHE_AHEAD, RESOLVE_LOW_WATER};
-use mixtape_player::{Opened, StreamProvider};
+use mixtape_player::{Opened, Player, StreamProvider};
 use mixtape_sync::fetch;
 use mixtape_sync::stream::StreamFill;
+use mixtape_yt::innertube::InnerTube;
 use mixtape_yt::resolver::{Container, StreamResolver};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::{Notify, OnceCell};
 
@@ -40,6 +47,11 @@ pub struct AppStreams {
     root: PathBuf,
     resolver: Arc<StreamResolver>,
     http: mixtape_sync::reqwest::Client,
+    yt: Arc<InnerTube>,
+    /// Told when a track's loudness becomes known; set once the player exists.
+    player: OnceLock<Weak<Player>>,
+    /// Tracks whose YouTube loudness was asked for this session (asked once, even if absent).
+    loudness_asked: Mutex<HashSet<TrackId>>,
     active: Mutex<HashMap<TrackId, Slot>>,
     /// The current track and the ones after it: kept from eviction and cancellation.
     wanted: Mutex<Vec<TrackId>>,
@@ -62,8 +74,9 @@ impl AppStreams {
         db: Db,
         root: PathBuf,
         resolver: Arc<StreamResolver>,
-        http: mixtape_sync::reqwest::Client,
+        yt: Arc<InnerTube>,
     ) -> Arc<Self> {
+        let http = yt.http().clone();
         Arc::new_cyclic(|me| Self {
             me: me.clone(),
             app,
@@ -72,12 +85,53 @@ impl AppStreams {
             root,
             resolver,
             http,
+            yt,
+            player: OnceLock::new(),
+            loudness_asked: Mutex::new(HashSet::new()),
             active: Mutex::new(HashMap::new()),
             wanted: Mutex::new(Vec::new()),
             current: Mutex::new(None),
             generation: AtomicU64::new(0),
             changed: Notify::new(),
         })
+    }
+
+    pub fn set_player(&self, player: &Arc<Player>) {
+        let _ = self.player.set(Arc::downgrade(player));
+    }
+
+    fn refresh_gain(&self, id: &TrackId) {
+        if let Some(p) = self.player.get().and_then(Weak::upgrade) {
+            p.refresh_gain(id);
+        }
+    }
+
+    /// Whether YouTube should be asked for `id`'s loudness: signed in (a guest gets no player
+    /// config), nothing known about it yet, and not asked before in this session.
+    fn wants_loudness(&self, id: &TrackId) -> bool {
+        if !self.yt.is_authenticated() || lock(&self.loudness_asked).contains(id) {
+            return false;
+        }
+        let known = self.db.read(|c| repo::track_loudness(c, id)).map(|l| l.lufs.is_some());
+        !known.unwrap_or(true) && lock(&self.loudness_asked).insert(id.clone())
+    }
+
+    /// Asks YouTube for the loudness of each of `ids` that lacks it, one after another, stores
+    /// it and lets the player apply it.
+    async fn fetch_loudness(&self, ids: Vec<TrackId>) {
+        for id in ids.into_iter().filter(|id| self.wants_loudness(id)) {
+            match self.yt.loudness(&id).await {
+                Ok(Some(lufs)) => {
+                    let id2 = id.clone();
+                    if self.db.write(move |t| repo::set_track_loudness(t, &id2, lufs)).is_ok() {
+                        tracing::debug!(%id, lufs, "loudness from YouTube");
+                        self.refresh_gain(&id);
+                    }
+                }
+                Ok(None) => tracing::debug!(%id, "YouTube sent no loudness"),
+                Err(e) => tracing::debug!(%id, error = %e, "loudness request failed"),
+            }
+        }
     }
 
     fn part_path(&self, id: &TrackId, c: Container) -> PathBuf {
@@ -230,7 +284,9 @@ impl AppStreams {
         lock(&self.active).remove(id);
         if let Ok(l) = mixtape_audio::measure_loudness(path) {
             let id2 = id.clone();
-            let _ = self.db.write(move |t| repo::set_loudness(t, &id2, l.lufs, l.true_peak));
+            if self.db.write(move |t| repo::set_loudness(t, &id2, l.lufs, l.true_peak)).is_ok() {
+                self.refresh_gain(id);
+            }
         }
         let protect = lock(&self.wanted).clone();
         let limit = cache_lru::cache_limit(&self.db).unwrap_or(cache_lru::DEFAULT_CACHE_LIMIT);
@@ -272,6 +328,9 @@ impl StreamProvider for AppStreams {
         let Some(s) = self.me.upgrade() else { return };
         let id = id.clone();
         let generation = self.generation.load(Ordering::SeqCst);
+        // In parallel with the URL: a `player` call answers well before yt-dlp does.
+        let (s2, id2) = (s.clone(), id.clone());
+        self.rt.spawn(async move { s2.fetch_loudness(vec![id2]).await });
         self.rt.spawn(async move {
             if !s.wait_turn(&id, generation, false).await {
                 done(Err(tr("The track is no longer in the queue", "Трека більше немає в черзі", "Трек больше не в очереди").into()));
@@ -308,6 +367,8 @@ impl StreamProvider for AppStreams {
             true => upcoming.iter().filter(|id| !self.ready(id)).cloned().collect(),
             false => Vec::new(),
         };
+        let (s2, loudness) = (s.clone(), upcoming.to_vec());
+        self.rt.spawn(async move { s2.fetch_loudness(loudness).await });
         self.rt.spawn(async move {
             if !to_resolve.is_empty() {
                 let _ = s.resolver.resolve(&to_resolve).await;

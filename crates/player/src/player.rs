@@ -264,10 +264,28 @@ impl Player {
             .read(|c| repo::media_file(c, id))
             .map_err(AppError::from)?
             .ok_or_else(|| err(ErrorKind::NotFound, tr("The track isn't downloaded yet", "Трек ще не завантажено", "Трек ещё не скачан")))?;
-        let gain = mixtape_audio::gain_for(media.lufs, media.true_peak);
-        let mut src = Source::file(id.as_str(), self.data_root.join(&media.path), gain);
+        let mut src = Source::file(id.as_str(), self.data_root.join(&media.path), self.track_gain(id));
         src.hint_ext = Some(media.container);
         Ok(src)
+    }
+
+    /// Normalisation gain of a track from what is known about its loudness (0 dB if nothing).
+    fn track_gain(&self, id: &TrackId) -> f32 {
+        let l = self.db.read(|c| repo::track_loudness(c, id)).unwrap_or_default();
+        mixtape_audio::gain_for(l.lufs, l.true_peak)
+    }
+
+    /// The loudness of `id` became known (YouTube answered, or its file was measured): a
+    /// playing or queued source of it glides to the new gain.
+    pub fn refresh_gain(&self, id: &TrackId) {
+        // The stream callbacks read the gain and hand the source over under this lock.
+        let _inner = self.lock();
+        self.engine.set_gain(id.as_str(), self.track_gain(id));
+    }
+
+    /// Loudness normalisation on or off; applies to the playing track at once.
+    pub fn set_normalization(&self, on: bool) {
+        self.engine.set_normalization(on);
     }
 
     fn has_audio(&self, id: &TrackId) -> bool {
@@ -362,8 +380,11 @@ impl Player {
                     return;
                 }
                 match res {
-                    Ok(src) => {
-                        let at = p.lock().live_position().max(start_ms);
+                    Ok(mut src) => {
+                        // Under the lock, so a `refresh_gain` cannot slip in between.
+                        let inner = p.lock();
+                        src.gain_db = p.track_gain(&id2);
+                        let at = inner.live_position().max(start_ms);
                         p.engine.load(src, at, true);
                     }
                     Err(message) => p.on_engine(EngineEvent::Error { id: id2.0, message }),
@@ -760,16 +781,16 @@ impl Player {
             id,
             Box::new(move |res| {
                 let Some(p) = me.upgrade() else { return };
-                let Ok(src) = res else { return };
+                let Ok(mut src) = res else { return };
                 let mut inner = p.lock();
                 let still_next = inner.next_request.as_ref() == Some(&id2)
                     && inner.queue.peek_next(true).map(|i| &i.track_id) == Some(&id2);
                 if !still_next {
                     return;
                 }
+                src.gain_db = p.track_gain(&id2);
                 inner.next_request = None;
                 inner.pending_next = Some(id2);
-                drop(inner);
                 p.engine.set_next(Some(src));
             }),
         );

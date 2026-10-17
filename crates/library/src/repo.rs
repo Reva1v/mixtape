@@ -257,6 +257,42 @@ pub fn set_loudness(conn: &Connection, id: &TrackId, lufs: f64, true_peak: f64) 
     Ok(())
 }
 
+/// What normalisation knows about a track's loudness.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct TrackLoudness {
+    /// Integrated loudness, LUFS: measured on the file when there is one, else YouTube's.
+    pub lufs: Option<f64>,
+    /// True peak, dBTP; only a measurement has it.
+    pub true_peak: Option<f64>,
+    /// YouTube's value is stored (it is fetched once per track).
+    pub has_youtube: bool,
+}
+
+pub fn track_loudness(conn: &Connection, id: &TrackId) -> Result<TrackLoudness> {
+    Ok(conn
+        .query_row(
+            "SELECT m.lufs, m.true_peak, t.loudness_lufs FROM tracks t
+             LEFT JOIN media_files m ON m.track_id = t.id WHERE t.id = ?1",
+            [id.as_str()],
+            |r| {
+                let (measured, peak, yt): (Option<f64>, Option<f64>, Option<f64>) = (r.get(0)?, r.get(1)?, r.get(2)?);
+                Ok(TrackLoudness {
+                    lufs: measured.or(yt),
+                    true_peak: measured.and(peak),
+                    has_youtube: yt.is_some(),
+                })
+            },
+        )
+        .optional()?
+        .unwrap_or_default())
+}
+
+/// Stores YouTube's loudness of a track (LUFS).
+pub fn set_track_loudness(conn: &Connection, id: &TrackId, lufs: f64) -> Result<()> {
+    conn.execute("UPDATE tracks SET loudness_lufs = ?2 WHERE id = ?1", params![id.as_str(), lufs])?;
+    Ok(())
+}
+
 /// Counts a play; `full` marks a complete listen (data-model.md, play_stats).
 pub fn record_play(conn: &Connection, id: &TrackId, full: bool) -> Result<u32> {
     conn.execute(
@@ -699,5 +735,36 @@ pub(crate) mod tests {
         assert_eq!(t.state, TrackState::Downloaded);
         let m = db.read(|c| media_file(c, &id)).unwrap().unwrap();
         assert_eq!(m.location, FileLocation::Library);
+    }
+
+    #[test]
+    fn loudness_prefers_the_measurement() {
+        let (_d, db) = db();
+        let id = TrackId::from("a");
+        let get = |db: &Db| db.read(|c| track_loudness(c, &TrackId::from("a"))).unwrap();
+        db.write(|t| upsert_track(t, &meta("a", "A", ("UC1", "X"), None))).unwrap();
+        assert_eq!(get(&db), TrackLoudness::default());
+        db.write(|t| set_track_loudness(t, &TrackId::from("a"), -8.86)).unwrap();
+        assert_eq!(get(&db), TrackLoudness { lufs: Some(-8.86), true_peak: None, has_youtube: true });
+        db.write(move |t| {
+            put_media_file(
+                t,
+                &MediaFile {
+                    track_id: id.clone(),
+                    path: "cache/a.webm".into(),
+                    container: "webm".into(),
+                    itag: Some(251),
+                    size_bytes: 10,
+                    sample_rate: Some(48_000),
+                    location: FileLocation::Cache,
+                },
+            )?;
+            // Not measured yet: YouTube's value still counts.
+            assert_eq!(track_loudness(t, &id)?.lufs, Some(-8.86));
+            set_loudness(t, &id, -9.5, -0.3)
+        })
+        .unwrap();
+        assert_eq!(get(&db), TrackLoudness { lufs: Some(-9.5), true_peak: Some(-0.3), has_youtube: true });
+        assert_eq!(db.read(|c| track_loudness(c, &TrackId::from("x"))).unwrap(), TrackLoudness::default());
     }
 }

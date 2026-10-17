@@ -6,5 +6,6 @@ import { iconStyle } from "./iconStyle";
 import { tray } from "./tray";
 import { stats } from "./stats";
 import { integrations } from "./integrations";
+import { normalize } from "./normalize";
 
-export const uk = { ...base, ...screens, ...ui, ...tray, ...stats, ...integrations, updates, iconStyle };
+export const uk = { ...base, ...screens, ...ui, ...tray, ...stats, ...integrations, ...normalize, updates, iconStyle };

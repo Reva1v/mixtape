@@ -39,6 +39,8 @@ pub struct Prefs {
     pub crossfade_sec: u32,
     /// «Включить микс» also opens the full-screen player.
     pub mix_fullscreen: bool,
+    /// Tracks play at a similar loudness (loud ones turned down, like YouTube Music).
+    pub normalize_volume: bool,
     /// Interface language; absent until chosen, then the Windows display language decides.
     #[ts(optional)]
     pub language: Option<Lang>,
@@ -53,7 +55,7 @@ pub struct Prefs {
 
 impl Default for Prefs {
     fn default() -> Self {
-        Self { smooth_background: true, crossfade: false, crossfade_sec: 6, mix_fullscreen: false, language: None, auto_update: true, icon_style: IconStyle::Outline, close_to_tray: true, discord_presence: true }
+        Self { smooth_background: true, crossfade: false, crossfade_sec: 6, mix_fullscreen: false, language: None, auto_update: true, icon_style: IconStyle::Outline, close_to_tray: true, discord_presence: true, normalize_volume: true }
     }
 }
 
@@ -91,6 +93,7 @@ pub async fn prefs_set(state: State<'_, Arc<AppState>>, prefs: Prefs) -> CmdResu
         settings::set(&st.db, KEY, &prefs)?;
         st.player.set_crossfade(prefs.crossfade_ms());
         crate::discord::set_enabled(&st, prefs.discord_presence);
+        st.player.set_normalization(prefs.normalize_volume);
         Prefs::load(&st).apply_language(&st);
         crate::tray::refresh(&st.app);
         Ok(())

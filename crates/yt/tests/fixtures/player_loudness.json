@@ -1,0 +1,24 @@
+{
+  "playabilityStatus": { "status": "OK" },
+  "playerConfig": {
+    "audioConfig": {
+      "loudnessDb": -1.8599997,
+      "perceptualLoudnessDb": -8.86,
+      "enablePerFormatLoudness": true,
+      "loudnessTargetLkfs": -7,
+      "trackAbsoluteLoudnessLkfs": -8.86,
+      "loudnessNormalizationConfig": {
+        "applyStatefulNormalization": false,
+        "maxStatefulTimeThresholdSec": 300,
+        "minimumLoudnessTargetLkfs": -31,
+        "preserveStatefulLoudnessTarget": true
+      }
+    }
+  },
+  "streamingData": {
+    "adaptiveFormats": [
+      { "itag": 140, "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"", "loudnessDb": -1.8599997 },
+      { "itag": 251, "mimeType": "audio/webm; codecs=\"opus\"", "loudnessDb": -1.8699999 }
+    ]
+  }
+}

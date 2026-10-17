@@ -85,7 +85,7 @@ impl AppState {
             db.clone(),
             paths.root.clone(),
             resolver.clone(),
-            yt.http().clone(),
+            yt.clone(),
         );
         let handle = app.clone();
         tracing::debug!("starting player");
@@ -93,8 +93,9 @@ impl AppState {
             db.clone(),
             paths.root.clone(),
             Arc::new(move |ev| crate::events::on_player_event(&handle, ev)),
-            Some(streams),
+            Some(streams.clone()),
         )?;
+        streams.set_player(&player);
         tracing::debug!("player started");
         let downloads = Downloader::start(
             tauri::async_runtime::handle().inner(),

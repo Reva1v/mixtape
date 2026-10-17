@@ -20,6 +20,10 @@ crossfadeSec: number,
  */
 mixFullscreen: boolean, 
 /**
+ * Tracks play at a similar loudness (loud ones turned down, like YouTube Music).
+ */
+normalizeVolume: boolean, 
+/**
  * Interface language; absent until chosen, then the Windows display language decides.
  */
 language?: Lang, 

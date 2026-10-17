@@ -72,6 +72,7 @@ pub fn run() {
             background::spawn(state.clone());
             updates::spawn(state.clone());
             state.player.set_crossfade(prefs.crossfade_ms());
+            state.player.set_normalization(prefs.normalize_volume);
             tracing::debug!("setup: crossfade applied");
             // `setup` runs on the main (UI) thread, which the thumbnail toolbar needs.
             state.media.install(app.handle());
