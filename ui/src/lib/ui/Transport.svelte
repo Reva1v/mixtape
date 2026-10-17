@@ -15,7 +15,18 @@
 
   let { variant = "bar" }: { variant?: "bar" | "full" } = $props();
 
-  const busy = $derived(player.state.status === "loading" || player.state.status === "buffering");
+  // Show the spinner only when loading drags on, so the icon does not flicker on
+  // every track change.
+  let busy = $state(false);
+  $effect(() => {
+    const loading = player.state.status === "loading" || player.state.status === "buffering";
+    if (!loading) {
+      busy = false;
+      return;
+    }
+    const id = setTimeout(() => (busy = true), 400);
+    return () => clearTimeout(id);
+  });
   const repeatLabel = $derived(player.state.repeat === "one" ? t.player.repeatOne : t.player.repeat);
 </script>
 
@@ -60,7 +71,7 @@
       class="grid size-10 place-items-center rounded-full bg-ink text-black transition-[background-color] hover:bg-[#dcdcdc]"
       onclick={() => player.toggle()}
     >
-      {#if busy}<IconLoader class="size-5 animate-spin" />{:else if player.playing}<IconPause class="size-5" />{:else}<IconPlay class="size-5 translate-x-px" />{/if}
+      {#if busy}<IconLoader class="size-5 animate-spin" />{:else if player.playing}<IconPause class="size-5" />{:else}<IconPlay class="size-5" />{/if}
     </button>
     <button {@attach pressable()}
     type="button" aria-label={t.player.next} class="text-ink-2 transition-colors hover:text-ink" onclick={() => player.next()}>
