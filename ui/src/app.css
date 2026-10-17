@@ -108,6 +108,11 @@ textarea {
   background: transparent;
 }
 
+/* Icons: smooth edges instead of pixel-snapped ones. */
+svg {
+  shape-rendering: geometricPrecision;
+}
+
 .tnum {
   font-variant-numeric: tabular-nums;
 }

@@ -82,7 +82,13 @@ export function pressable(amount = 0.92, release: Spring = springs.bounce): Atta
     return press(el, (target) => {
       if ((target as HTMLButtonElement).disabled || target.getAttribute("aria-current") === "page") return;
       animate(target, { scale: amount }, { type: "spring", ...springs.snappy });
-      return () => void animate(target, { scale: 1 }, { type: "spring", ...release });
+      // Drop the leftover transform once settled, so the element leaves its GPU layer
+      // and is drawn with normal anti-aliasing again.
+      return () =>
+        void animate(target, { scale: 1 }, { type: "spring", ...release }).finished.then(() => {
+          (target as HTMLElement).style.removeProperty("scale");
+          (target as HTMLElement).style.removeProperty("transform");
+        });
     });
   };
 }
@@ -93,7 +99,10 @@ export function liftable(px = 3): Attachment<HTMLElement> {
     if (reduced()) return;
     return hover(el, (target) => {
       animate(target, { y: -px }, { type: "spring", ...springs.smooth });
-      return () => void animate(target, { y: 0 }, { type: "spring", ...springs.smooth });
+      return () =>
+        void animate(target, { y: 0 }, { type: "spring", ...springs.smooth }).finished.then(() =>
+          (target as HTMLElement).style.removeProperty("transform"),
+        );
     });
   };
 }

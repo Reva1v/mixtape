@@ -38,7 +38,7 @@
     {@attach pressable(0.92, springs.soft)}
     onclick={() => !active && router.go(item.route)}
   >
-    <item.icon class="size-[26px]" />
+    <item.icon class="size-6" />
   </button>
 {/snippet}
 
