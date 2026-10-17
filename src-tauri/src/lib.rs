@@ -5,6 +5,7 @@ mod downloads;
 mod events;
 mod login_window;
 mod media;
+mod net;
 mod state;
 mod streaming;
 mod window;
@@ -46,6 +47,7 @@ pub fn run() {
                     }
                 });
             }
+            net::spawn(state.clone());
             // Likes made offline or before a failure go out now and then every few minutes.
             {
                 let st = state.clone();
@@ -114,6 +116,12 @@ pub fn run() {
             commands::dev::dev_import_folder,
             commands::settings::prefs_get,
             commands::settings::prefs_set,
+            commands::settings::storage_get,
+            commands::settings::storage_set_cache_limit,
+            commands::settings::storage_set_autosave,
+            commands::settings::cache_clear,
+            net::net_status,
+            commands::settings::open_data_dir,
             commands::sync::account_status,
             commands::sync::account_connect_cookies,
             commands::sync::account_connect_webview,

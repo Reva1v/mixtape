@@ -1,13 +1,14 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { prefs } from "$lib/stores/prefs.svelte";
-  import { t } from "$lib/i18n/ru";
+  import { plural, t } from "$lib/i18n/ru";
   import Switch from "$lib/ui/Switch.svelte";
   import Slider from "$lib/ui/Slider.svelte";
   import { coverUrl, invoke } from "$lib/ipc";
   import { prompt, toasts } from "$lib/stores/overlay.svelte";
   import { downloads } from "$lib/stores/downloads.svelte";
   import { router } from "$lib/stores/router.svelte";
+  import type { StorageInfo } from "$lib/ipc/bindings/StorageInfo";
 
   async function importFolder() {
     const path = await prompt.ask("Путь к папке с .webm / .m4a / .opus");
@@ -31,6 +32,21 @@
   const account = $derived(downloads.account);
   let avatarFailed = $state(false);
   const p = $derived(prefs.value);
+
+  let storage = $state<StorageInfo | null>(null);
+  void invoke<StorageInfo>("storage_get").then((v) => (storage = v));
+  const GB = 1024 ** 3;
+  const LIMITS = [1, 2, 5, 10, 20];
+  const PLAYS = [2, 3, 5, 10];
+  const gb = (b: number) => (b >= GB ? `${(b / GB).toFixed(1).replace(".0", "")} ГБ` : `${Math.round(b / 1024 ** 2)} МБ`);
+
+  async function storageCall(cmd: string, args?: Record<string, unknown>) {
+    try {
+      storage = await invoke<StorageInfo>(cmd, args);
+    } catch (e) {
+      toasts.push(e instanceof Error ? e.message : "Не получилось", "error");
+    }
+  }
   let fadePreview = $state<number | null>(null);
 </script>
 
@@ -142,6 +158,79 @@
       )}
     </div>
   </section>
+
+  {#snippet choice(options: number[], current: number | undefined, label: (n: number) => string, pick: (n: number) => void)}
+    <div class="flex shrink-0 gap-1 rounded-full bg-fill-1 p-1 ring-1 ring-line">
+      {#each options as n (n)}
+        <button
+          type="button"
+          class="h-7 rounded-full px-3 text-[12.5px] font-medium transition-colors
+            {current === n ? 'bg-ink text-black' : 'text-ink-2 hover:bg-fill-2 hover:text-ink'}"
+          onclick={() => pick(n)}
+        >
+          {label(n)}
+        </button>
+      {/each}
+    </div>
+  {/snippet}
+
+  {#if storage}
+    {@const st = storage}
+    <section class="mb-8">
+      <h2 class="mb-3 text-[13px] font-semibold tracking-wide text-ink-3 uppercase">Хранилище</h2>
+      <div class="divide-y divide-line overflow-hidden rounded-lg bg-white/[0.04]">
+        {#snippet limitChoice()}
+          {@render choice(LIMITS, Math.round(st.cacheLimit / GB), (n) => `${n} ГБ`, (n) =>
+            void storageCall("storage_set_cache_limit", { bytes: n * GB }),
+          )}
+        {/snippet}
+        {@render row(
+          "Кэш прослушанного",
+          `Треки из миксов и каталога, которые ещё не в библиотеке. Занято ${gb(st.cacheBytes)}; старые удаляются сами.`,
+          limitChoice,
+        )}
+        {#snippet autosaveSwitch()}
+          <div class="flex items-center gap-4">
+            {#if st.autosavePlays}
+              {@render choice(PLAYS, st.autosavePlays, (n) => `${n}×`, (n) => void storageCall("storage_set_autosave", { plays: n }))}
+            {/if}
+            <Switch
+              checked={!!st.autosavePlays}
+              label="Автосохранение"
+              onchange={(v) => void storageCall("storage_set_autosave", { plays: v ? 3 : null })}
+            />
+          </div>
+        {/snippet}
+        {@render row(
+          "Сохранять любимое из кэша",
+          st.autosavePlays
+            ? `Трек, дослушанный ${st.autosavePlays} ${plural(st.autosavePlays, "раз", "раза", "раз")}, переносится в библиотеку без новой загрузки.`
+            : "Выключено: из кэша в библиотеку попадает только то, что вы скачали или лайкнули.",
+          autosaveSwitch,
+        )}
+        {#snippet clearButton()}
+          <button
+            type="button"
+            class="h-9 shrink-0 rounded-full bg-fill-2 px-4 text-[13px] font-semibold ring-1 ring-line transition-colors hover:bg-fill-3"
+            onclick={() => void storageCall("cache_clear").then(() => toasts.push("Кэш очищен"))}
+          >
+            Очистить
+          </button>
+        {/snippet}
+        {@render row("Очистить кэш", "Скачанная музыка и лайки не пострадают.", clearButton)}
+        {#snippet openButton()}
+          <button
+            type="button"
+            class="h-9 shrink-0 rounded-full bg-fill-2 px-4 text-[13px] font-semibold ring-1 ring-line transition-colors hover:bg-fill-3"
+            onclick={() => void invoke("open_data_dir")}
+          >
+            Открыть
+          </button>
+        {/snippet}
+        {@render row("Папка данных", st.dataDir, openButton)}
+      </div>
+    </section>
+  {/if}
 
   <section>
     <h2 class="mb-3 text-[13px] font-semibold tracking-wide text-ink-3 uppercase">Внешний вид</h2>

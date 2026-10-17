@@ -2,7 +2,7 @@
 
 use super::{CmdResult, blocking};
 use crate::state::AppState;
-use mixtape_library::settings;
+use mixtape_library::{cache_lru, settings};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::State;
@@ -56,4 +56,84 @@ pub async fn prefs_set(state: State<'_, Arc<AppState>>, prefs: Prefs) -> CmdResu
         Ok(())
     })
     .await
+}
+
+/// The «Хранилище» section of settings.
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct StorageInfo {
+    #[ts(type = "number")]
+    pub cache_bytes: u64,
+    #[ts(type = "number")]
+    pub cache_limit: u64,
+    /// Full plays before a streamed track is saved; absent = autosave off.
+    #[ts(optional)]
+    pub autosave_plays: Option<u32>,
+    pub data_dir: String,
+}
+
+fn storage_info(st: &AppState) -> CmdResult<StorageInfo> {
+    Ok(StorageInfo {
+        cache_bytes: st.db.read(cache_lru::cache_size)?,
+        cache_limit: cache_lru::cache_limit(&st.db)?,
+        autosave_plays: cache_lru::autosave_threshold(&st.db)?,
+        data_dir: st.paths.root.display().to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn storage_get(state: State<'_, Arc<AppState>>) -> CmdResult<StorageInfo> {
+    let st = state.inner().clone();
+    blocking(move || storage_info(&st)).await
+}
+
+/// Sets the cache limit and trims the cache to it right away.
+#[tauri::command]
+pub async fn storage_set_cache_limit(state: State<'_, Arc<AppState>>, bytes: u64) -> CmdResult<StorageInfo> {
+    let st = state.inner().clone();
+    blocking(move || {
+        let bytes = bytes.max(512 * 1024 * 1024);
+        settings::set(&st.db, cache_lru::CACHE_LIMIT_KEY, &bytes)?;
+        trim(&st, bytes)?;
+        storage_info(&st)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn storage_set_autosave(state: State<'_, Arc<AppState>>, plays: Option<u32>) -> CmdResult<StorageInfo> {
+    let st = state.inner().clone();
+    blocking(move || {
+        settings::set(&st.db, cache_lru::AUTOSAVE_KEY, &plays.filter(|&n| n > 0))?;
+        storage_info(&st)
+    })
+    .await
+}
+
+/// Deletes every cached stream except the playing track's.
+#[tauri::command]
+pub async fn cache_clear(state: State<'_, Arc<AppState>>) -> CmdResult<StorageInfo> {
+    let st = state.inner().clone();
+    blocking(move || {
+        trim(&st, 0)?;
+        storage_info(&st)
+    })
+    .await
+}
+
+fn trim(st: &AppState, limit: u64) -> CmdResult<()> {
+    let protect: Vec<_> = st.player.state().track_id.into_iter().collect();
+    let root = st.paths.root.clone();
+    st.db.write(move |t| cache_lru::evict(t, &root, limit, &protect))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn open_data_dir(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
+    std::process::Command::new("explorer")
+        .arg(&state.paths.root)
+        .spawn()
+        .map(drop)
+        .map_err(|e| mixtape_core::AppError::new(mixtape_core::ErrorKind::Internal, e.to_string()))
 }

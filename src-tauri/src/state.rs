@@ -33,6 +33,8 @@ pub struct AppState {
     pub downloads_channel: Mutex<Option<Channel<DownloadsProgress>>>,
     /// A source sync is running (only one at a time).
     pub syncing: AtomicBool,
+    /// Last network probe succeeded (see `net.rs`).
+    pub online: AtomicBool,
 }
 
 /// yt-dlp and deno sit next to the executable (Tauri `externalBin`); in a debug build
@@ -106,6 +108,7 @@ impl AppState {
             downloads,
             downloads_channel: Mutex::new(None),
             syncing: AtomicBool::new(false),
+            online: AtomicBool::new(true),
         })
     }
 }

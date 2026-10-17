@@ -140,8 +140,19 @@ pub fn top_up(st: &Arc<AppState>) {
 pub async fn track_set_liked(state: St<'_>, id: TrackId, liked: bool) -> CmdResult<()> {
     let st = state.inner().clone();
     let st2 = st.clone();
-    blocking(move || Ok(st2.db.write(move |t| likes::queue_like(t, &id, liked))?)).await?;
-    emit_changed(&st.app, &[ViewKind::Liked, ViewKind::Tracks]);
+    let root = st.paths.root.clone();
+    // A liked track that is only cached moves into the library (T076).
+    blocking(move || {
+        Ok(st2.db.write(move |t| {
+            likes::queue_like(t, &id, liked)?;
+            if liked {
+                cache_lru::promote(t, &root, &id)?;
+            }
+            Ok(())
+        })?)
+    })
+    .await?;
+    emit_changed(&st.app, &[ViewKind::Liked, ViewKind::Tracks, ViewKind::Albums]);
     flush_likes(&st);
     Ok(())
 }
