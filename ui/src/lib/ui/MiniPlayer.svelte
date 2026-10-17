@@ -39,12 +39,13 @@
     return () => cancelAnimationFrame(raf);
   });
 
-  // Click or drag across the now-playing block to seek.
-  let block = $state<HTMLDivElement>();
+  // Click or drag anywhere on the bar's empty space to seek; the whole bar is the
+  // timeline and its background fills up as the track plays.
+  let bar = $state<HTMLElement>();
   let seeking = false;
   function seekAt(e: PointerEvent) {
-    if (!block || !player.state.durationMs) return;
-    const r = block.getBoundingClientRect();
+    if (!bar || !player.state.durationMs) return;
+    const r = bar.getBoundingClientRect();
     const f = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
     pct = f * 100;
     return f * player.state.durationMs;
@@ -66,37 +67,39 @@
   </button>
 {/snippet}
 
-<footer class="relative flex h-(--player-h) shrink-0 items-center overflow-hidden rounded-xl bg-panel pr-2.5">
-  <!-- Now playing -->
+<footer
+  bind:this={bar}
+  role="slider"
+  tabindex="-1"
+  aria-label="Позиция"
+  aria-valuemin={0}
+  aria-valuemax={player.state.durationMs}
+  aria-valuenow={player.state.positionMs}
+  class="relative flex h-(--player-h) shrink-0 items-center overflow-hidden rounded-xl bg-panel pr-2.5"
+  onpointerdown={(e) => {
+    if (!track || e.button !== 0 || (e.target as HTMLElement).closest("button, [data-no-seek], [role=slider]:not(footer)")) return;
+    seeking = true;
+    bar?.setPointerCapture(e.pointerId);
+    seekAt(e);
+  }}
+  onpointermove={(e) => seeking && seekAt(e)}
+  onpointerup={(e) => {
+    if (!seeking) return;
+    seeking = false;
+    const ms = seekAt(e);
+    if (ms !== undefined) void player.seek(ms);
+  }}
+>
   {#if track}
     <div
-      bind:this={block}
-      role="slider"
-      tabindex="-1"
-      aria-label="Позиция"
-      aria-valuemin={0}
-      aria-valuemax={player.state.durationMs}
-      aria-valuenow={player.state.positionMs}
-      class="relative flex h-full max-w-[34%] min-w-[260px] items-center gap-3.5 pr-4 pl-4"
-      onpointerdown={(e) => {
-        if ((e.target as HTMLElement).closest("button")) return;
-        seeking = true;
-        block?.setPointerCapture(e.pointerId);
-        seekAt(e);
-      }}
-      onpointermove={(e) => seeking && seekAt(e)}
-      onpointerup={(e) => {
-        if (!seeking) return;
-        seeking = false;
-        const ms = seekAt(e);
-        if (ms !== undefined) void player.seek(ms);
-      }}
-    >
-      <div
-        class="pointer-events-none absolute inset-y-0 left-0"
-        style:width="{pct}%"
-        style:background="color-mix(in srgb, var(--glow) 70%, rgb(255 255 255 / 0.08))"
-      ></div>
+      class="pointer-events-none absolute inset-y-0 left-0"
+      style:width="{pct}%"
+      style:background="color-mix(in srgb, var(--glow) 70%, rgb(255 255 255 / 0.08))"
+    ></div>
+  {/if}
+  <!-- Now playing -->
+  {#if track}
+    <div class="relative flex h-full max-w-[34%] min-w-[260px] items-center gap-3.5 pr-4 pl-4">
       <button
         type="button"
         {@attach pressable(0.94)}
@@ -145,7 +148,7 @@
     <div class="pointer-events-auto"><Transport /></div>
   </div>
 
-  <div class="ml-auto flex h-10 items-center gap-1 rounded-[10px] bg-fill-1 px-1.5 ring-1 ring-line">
+  <div data-no-seek class="relative ml-auto flex h-10 items-center gap-1 rounded-[10px] bg-fill-1 px-1.5 ring-1 ring-line">
     {@render capsuleButton(t.player.shuffle, IconShuffle, player.state.shuffle, () => player.toggleShuffle())}
     {@render capsuleButton(
       player.state.repeat === "one" ? t.player.repeatOne : t.player.repeat,
