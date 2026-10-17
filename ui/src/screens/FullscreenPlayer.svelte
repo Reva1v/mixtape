@@ -169,8 +169,8 @@
 
         <div class="mt-5"><Transport variant="full" /></div>
 
-        <div class="mt-6 flex items-center gap-3">
-          <Volume class="w-40" />
+        <!-- Lyrics and queue at the timeline's edges, volume in the middle. -->
+        <div class="mt-6 flex items-center justify-between" style:width="{coverSize + 80}px">
           <button
             type="button"
             aria-label={t.player.lyrics}
@@ -180,6 +180,7 @@
           >
             <IconLyrics class="size-4" />
           </button>
+          <Volume class="w-40" />
           <button
             type="button"
             aria-label={t.player.queue}
