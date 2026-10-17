@@ -32,7 +32,8 @@ type ReachHook = Box<dyn Fn(Reach) + Send + Sync>;
 pub struct InnerTube {
     http: reqwest::Client,
     cookies: RwLock<Option<Arc<Cookies>>>,
-    hl: String,
+    /// Language YouTube answers in (shelf titles, chips, subtitles); follows the app's.
+    hl: RwLock<String>,
     gl: String,
     on_reach: OnceLock<ReachHook>,
 }
@@ -45,7 +46,12 @@ impl InnerTube {
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(30))
             .build()?;
-        Ok(Self { http, cookies: RwLock::new(None), hl: hl.to_owned(), gl: gl.to_owned(), on_reach: OnceLock::new() })
+        Ok(Self { http, cookies: RwLock::new(None), hl: RwLock::new(hl.to_owned()), gl: gl.to_owned(), on_reach: OnceLock::new() })
+    }
+
+    /// Switches the language of later answers (`en`, `uk`, `ru`).
+    pub fn set_language(&self, hl: &str) {
+        *self.hl.write().unwrap_or_else(|e| e.into_inner()) = hl.to_owned();
     }
 
     /// Called after every InnerTube request with what it said about the network; set once.
@@ -78,8 +84,9 @@ impl InnerTube {
 
     /// POST `/youtubei/v1/{endpoint}` with the client context merged into `body`.
     pub async fn call(&self, endpoint: &str, mut body: Value) -> Result<Value> {
+        let hl = self.hl.read().unwrap_or_else(|e| e.into_inner()).clone();
         body["context"] = json!({
-            "client": { "clientName": CLIENT_NAME, "clientVersion": CLIENT_VERSION, "hl": self.hl, "gl": self.gl },
+            "client": { "clientName": CLIENT_NAME, "clientVersion": CLIENT_VERSION, "hl": hl, "gl": self.gl },
             "user": {}
         });
         let mut req = self

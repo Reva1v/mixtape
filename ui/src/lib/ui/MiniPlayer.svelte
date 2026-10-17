@@ -8,7 +8,7 @@
   import { visible } from "$lib/stores/visible.svelte";
   import { router } from "$lib/stores/router.svelte";
   import { menu } from "$lib/stores/overlay.svelte";
-  import { t } from "$lib/i18n/ru";
+  import { t } from "$lib/i18n";
   import { pressable } from "$lib/motion";
   import { setLiked, trackMenu } from "./trackMenu";
   import Cover from "./Cover.svelte";

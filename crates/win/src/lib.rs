@@ -29,6 +29,26 @@ pub enum MediaCommand {
     Seek { position_ms: u64 },
 }
 
+/// The two-letter code of the Windows display language (`ru`, `uk`, `en`…); empty when
+/// it is not one the app knows about.
+pub fn ui_language() -> &'static str {
+    #[cfg(windows)]
+    {
+        // SAFETY: a plain Win32 query with no arguments.
+        let id = unsafe { windows::Win32::Globalization::GetUserDefaultUILanguage() };
+        // The low 10 bits are the primary language (LANG_RUSSIAN, LANG_UKRAINIAN…).
+        match id & 0x3ff {
+            0x09 => "en",
+            0x19 => "ru",
+            0x22 => "uk",
+            0x23 => "be",
+            _ => "",
+        }
+    }
+    #[cfg(not(windows))]
+    ""
+}
+
 /// Puts the calling thread in background mode (low CPU, I/O and memory priority) for
 /// housekeeping that must not compete with playback or the UI. Use on a thread of its own.
 pub fn enter_background_mode() {

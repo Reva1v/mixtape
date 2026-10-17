@@ -14,7 +14,7 @@
   import { visible } from "$lib/stores/visible.svelte";
   import { router } from "$lib/stores/router.svelte";
   import { menu } from "$lib/stores/overlay.svelte";
-  import { t } from "$lib/i18n/ru";
+  import { t } from "$lib/i18n";
   import { fade } from "svelte/transition";
   import { fadeSpring, pop, sheet, springs } from "$lib/motion";
   import { trackMenu } from "$lib/ui/trackMenu";

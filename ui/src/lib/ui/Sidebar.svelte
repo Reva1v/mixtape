@@ -1,6 +1,6 @@
 <script lang="ts">
   import { router, type Route } from "$lib/stores/router.svelte";
-  import { t } from "$lib/i18n/ru";
+  import { t } from "$lib/i18n";
   import type { Component } from "svelte";
   import IconHome from "~icons/solar/home-2-bold";
   import IconSearch from "~icons/solar/magnifier-bold";

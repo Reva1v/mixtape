@@ -53,12 +53,14 @@ pub fn run() {
             let state = Arc::new(state::AppState::init(app.handle())?);
             app.manage(state.clone());
             tracing::debug!("setup: state managed");
+            let prefs = commands::settings::Prefs::load(&state);
+            prefs.apply_language(&state);
             account::restore(&state);
             net::spawn(state.clone());
             commands::sync::spawn_auto_sync(state.clone());
             // Pending likes, artist pictures, unused covers: once, after start.
             background::spawn(state.clone());
-            state.player.set_crossfade(commands::settings::Prefs::load(&state).crossfade_ms());
+            state.player.set_crossfade(prefs.crossfade_ms());
             tracing::debug!("setup: crossfade applied");
             // `setup` runs on the main (UI) thread, which the thumbnail toolbar needs.
             state.media.install(app.handle());

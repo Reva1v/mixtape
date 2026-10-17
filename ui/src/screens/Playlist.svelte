@@ -17,7 +17,7 @@
   import { Fixed } from "$lib/stores/paged.svelte";
   import { formatTime, player } from "$lib/stores/player.svelte";
   import { router } from "$lib/stores/router.svelte";
-  import { tracks } from "$lib/i18n/ru";
+  import { t } from "$lib/i18n";
   import { menu, prompt, toasts } from "$lib/stores/overlay.svelte";
   import CollectionHeader from "$lib/ui/CollectionHeader.svelte";
   import TrackList from "$lib/ui/TrackList.svelte";
@@ -93,7 +93,7 @@
     onshuffle={page.tracks.length ? () => play(0, true) : undefined}
   >
     {#snippet meta()}
-      <span>{tracks(page!.tracks.length)}{total ? `, ${formatTime(total)}` : ""}</span>
+      <span>{t.count.tracks(page!.tracks.length)}{total ? `, ${formatTime(total)}` : ""}</span>
     {/snippet}
     {#snippet actions()}
       {#if page!.playlist.origin === "ytm" && page!.tracks.some((t) => t.state === "remote" || t.state === "cached")}

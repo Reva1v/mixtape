@@ -1,12 +1,14 @@
 //! Domain types shared by every Mixtape crate and exported to the UI as TypeScript.
 
 pub mod ids;
+pub mod l10n;
 pub mod model;
 
 pub use ids::{AlbumId, ArtistId, PlaylistId, TrackId};
+pub use l10n::{Lang, tr};
 pub use model::*;
 
-/// Error type that crosses the IPC boundary: a stable kind for code and a Russian message for people.
+/// Error type that crosses the IPC boundary: a stable kind for code and a message for people, in the interface language.
 #[derive(Debug, thiserror::Error, serde::Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]

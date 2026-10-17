@@ -10,7 +10,7 @@
   import { router } from "$lib/stores/router.svelte";
   import { downloads } from "$lib/stores/downloads.svelte";
   import { net } from "$lib/stores/net.svelte";
-  import { tracks as tracksLabel } from "$lib/i18n/ru";
+  import { t } from "$lib/i18n";
   import { dragScroll } from "$lib/motion";
   import TrackList from "./TrackList.svelte";
   import Card from "./Card.svelte";
@@ -252,7 +252,7 @@
             <Card
               coverKey={p.coverKey}
               title={p.title}
-              subtitle={p.trackCount ? tracksLabel(p.trackCount) : "Плейлист"}
+              subtitle={p.trackCount ? t.count.tracks(p.trackCount) : "Плейлист"}
               onopen={() => {
                 pickPlaylist(p);
                 router.go({ name: "playlist", id: p.id });

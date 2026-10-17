@@ -1,7 +1,7 @@
 <script lang="ts">
   // Volume: an icon that mutes; the slider slides out on hover in compact mode.
   import { player } from "$lib/stores/player.svelte";
-  import { t } from "$lib/i18n/ru";
+  import { t } from "$lib/i18n";
   import Slider from "./Slider.svelte";
   import { onWheel } from "$lib/motion";
   import IconVolume from "~icons/solar/volume-loud-linear";

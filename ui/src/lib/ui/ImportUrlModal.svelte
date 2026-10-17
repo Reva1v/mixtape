@@ -5,7 +5,7 @@
   import { importUrl, parseMusicUrl, type ImportKind } from "$lib/ipc/sync";
   import { downloads } from "$lib/stores/downloads.svelte";
   import { toasts } from "$lib/stores/overlay.svelte";
-  import { t, tracks } from "$lib/i18n/ru";
+  import { t } from "$lib/i18n";
   import Modal from "./Modal.svelte";
 
   const kinds: Record<ImportKind, string> = { track: "Трек", album: "Альбом", playlist: "Плейлист", artist: "Дискография" };
@@ -39,7 +39,7 @@
       const r = await importUrl(parsed.url);
       close();
       toasts.push(
-        r.kind === "track" ? `«${r.title}» скачивается` : `${kinds[r.kind]} «${r.title}»: ${tracks(r.trackCount)} в загрузке`,
+        r.kind === "track" ? `«${r.title}» скачивается` : `${kinds[r.kind]} «${r.title}»: ${t.count.tracks(r.trackCount)} в загрузке`,
       );
     } catch (err) {
       error = err instanceof Error && err.message ? err.message : "Не удалось добавить ссылку";

@@ -18,7 +18,7 @@
   import { albumMenu, artistMenu, playlistMenu } from "$lib/ui/collectionMenu";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import { layout } from "$lib/stores/layout.svelte";
-  import { t, tracks as tracksLabel } from "$lib/i18n/ru";
+  import { t } from "$lib/i18n";
   import IconSearch from "~icons/solar/magnifier-linear";
   import IconNothing from "~icons/solar/magnifier-bug-linear";
   import IconX from "~icons/solar/close-circle-linear";
@@ -244,7 +244,7 @@
               <Card
                 coverKey={p.coverKey}
                 title={p.title}
-                subtitle={tracksLabel(p.trackCount)}
+                subtitle={t.count.tracks(p.trackCount)}
                 onopen={() => {
                   recentSearch.add(playlistItem(p));
                   router.go({ name: "playlist", id: p.id });

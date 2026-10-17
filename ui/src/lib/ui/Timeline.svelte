@@ -3,7 +3,7 @@
   // the core and redrawn about once per pixel of movement (see `followProgress`).
   import { followProgress, formatTime, player } from "$lib/stores/player.svelte";
   import { visible } from "$lib/stores/visible.svelte";
-  import { t } from "$lib/i18n/ru";
+  import { t } from "$lib/i18n";
   import Slider from "./Slider.svelte";
 
   let {

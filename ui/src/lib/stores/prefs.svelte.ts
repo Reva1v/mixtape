@@ -2,6 +2,7 @@
 
 import { invoke } from "$lib/ipc";
 import type { Prefs } from "$lib/ipc/bindings/Prefs";
+import { locale } from "$lib/i18n";
 
 class PrefsStore {
   value = $state<Prefs>({ smoothBackground: true, crossfade: false, crossfadeSec: 6, mixFullscreen: false });
@@ -19,6 +20,7 @@ class PrefsStore {
 
   #apply() {
     document.documentElement.classList.toggle("instant-bg", !this.value.smoothBackground);
+    if (this.value.language) locale.set(this.value.language);
   }
 }
 

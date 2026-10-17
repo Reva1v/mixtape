@@ -2,7 +2,7 @@
   // Playback controls. `bar`: prev / play / next for the bottom bar. `full`: the five
   // bare glyphs of the full-screen player.
   import { player } from "$lib/stores/player.svelte";
-  import { t } from "$lib/i18n/ru";
+  import { t } from "$lib/i18n";
   import { pressable } from "$lib/motion";
   import IconPlay from "~icons/solar/play-bold";
   import IconPause from "~icons/solar/pause-bold";

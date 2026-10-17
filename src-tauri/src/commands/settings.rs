@@ -2,6 +2,7 @@
 
 use super::{CmdResult, blocking};
 use crate::state::AppState;
+use mixtape_core::Lang;
 use mixtape_library::{cache_lru, settings};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -22,17 +23,30 @@ pub struct Prefs {
     pub crossfade_sec: u32,
     /// «Включить микс» also opens the full-screen player.
     pub mix_fullscreen: bool,
+    /// Interface language; absent until chosen, then the Windows display language decides.
+    #[ts(optional)]
+    pub language: Option<Lang>,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        Self { smooth_background: true, crossfade: false, crossfade_sec: 6, mix_fullscreen: false }
+        Self { smooth_background: true, crossfade: false, crossfade_sec: 6, mix_fullscreen: false, language: None }
     }
 }
 
 impl Prefs {
+    /// Stored preferences with the language always filled in.
     pub fn load(st: &AppState) -> Self {
-        settings::get(&st.db, KEY).ok().flatten().unwrap_or_default()
+        let mut p: Self = settings::get(&st.db, KEY).ok().flatten().unwrap_or_default();
+        p.language = Some(p.language.unwrap_or_else(|| Lang::from_locale(mixtape_win::ui_language())));
+        p
+    }
+
+    /// Makes the core's own messages and YouTube's answers follow the chosen language.
+    pub fn apply_language(&self, st: &AppState) {
+        let lang = self.language.unwrap_or_default();
+        mixtape_core::l10n::set_lang(lang);
+        st.yt.set_language(lang.code());
     }
 
     /// Crossfade in ms as the player wants it (0 = off, gapless).
@@ -53,6 +67,7 @@ pub async fn prefs_set(state: State<'_, Arc<AppState>>, prefs: Prefs) -> CmdResu
     blocking(move || {
         settings::set(&st.db, KEY, &prefs)?;
         st.player.set_crossfade(prefs.crossfade_ms());
+        Prefs::load(&st).apply_language(&st);
         Ok(())
     })
     .await

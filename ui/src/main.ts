@@ -3,6 +3,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import "./app.css";
 import App from "./App.svelte";
 import { installSpringCss } from "$lib/motion";
+import { prefs } from "$lib/stores/prefs.svelte";
 
 installSpringCss();
 
@@ -23,6 +24,10 @@ window.addEventListener(
   },
   true,
 );
+
+// Preferences carry the interface language: read them before the first frame, so the
+// window never shows in one language and then switches.
+await prefs.init().catch((e) => console.error("prefs init failed", e));
 
 const app = mount(App, { target: document.getElementById("app")! });
 

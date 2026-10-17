@@ -4,13 +4,12 @@
   import { router } from "$lib/stores/router.svelte";
   import { layout } from "$lib/stores/layout.svelte";
   import { player } from "$lib/stores/player.svelte";
-  import { prefs } from "$lib/stores/prefs.svelte";
   import { downloads } from "$lib/stores/downloads.svelte";
   import { handleHotkey } from "$lib/stores/hotkeys";
   import { enter, fadeSpring, pressable, springWidth } from "$lib/motion";
   import { toasts } from "$lib/stores/overlay.svelte";
   import { on } from "$lib/ipc";
-  import { t } from "$lib/i18n/ru";
+  import { t } from "$lib/i18n";
   import Sidebar from "$lib/ui/Sidebar.svelte";
   import MiniPlayer from "$lib/ui/MiniPlayer.svelte";
   import QueuePanel from "$lib/ui/QueuePanel.svelte";
@@ -37,7 +36,6 @@
 
   onMount(() => {
     player.init().catch((e) => console.error("player init failed", e));
-    prefs.init().catch((e) => console.error("prefs init failed", e));
     void downloads.init();
     void net.init();
     const un = on<{ level: "info" | "error"; text: string }>("toast", (e) => toasts.push(e.text, e.level));

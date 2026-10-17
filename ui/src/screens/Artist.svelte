@@ -24,7 +24,7 @@
   import { layout } from "$lib/stores/layout.svelte";
   import { router } from "$lib/stores/router.svelte";
   import { openAlbum } from "$lib/stores/actions";
-  import { tracks } from "$lib/i18n/ru";
+  import { t } from "$lib/i18n";
   import CollectionHeader from "$lib/ui/CollectionHeader.svelte";
   import TrackList from "$lib/ui/TrackList.svelte";
   import Card from "$lib/ui/Card.svelte";
@@ -166,7 +166,7 @@
     onmix={seed ? () => player.mix(seed!) : undefined}
   >
     {#snippet meta()}
-      <span>{tracks(page!.tracks.length)} в библиотеке</span>
+      <span>{t.count.tracks(page!.tracks.length)} в библиотеке</span>
     {/snippet}
     {#snippet actions()}
       {#if canLoad && !songs}
@@ -219,7 +219,7 @@
       <section>
         <div class="flex items-baseline gap-3 px-7 pb-2">
           <h2 class="text-[20px] font-bold">Все песни</h2>
-          <span class="text-[13px] text-ink-3">{tracks(songs.tracks.length)}</span>
+          <span class="text-[13px] text-ink-3">{t.count.tracks(songs.tracks.length)}</span>
           {#if canLoad}
             <button
               type="button"

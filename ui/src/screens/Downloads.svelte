@@ -5,7 +5,8 @@
   import { downloads } from "$lib/stores/downloads.svelte";
   import { toasts } from "$lib/stores/overlay.svelte";
   import { pressable } from "$lib/motion";
-  import { plural, t, tracks } from "$lib/i18n/ru";
+  import { t } from "$lib/i18n";
+  import { plural } from "$lib/i18n/ru/legacy";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import IconButton from "$lib/ui/IconButton.svelte";
   import Cover from "$lib/ui/Cover.svelte";
@@ -168,7 +169,7 @@
               {:else if finished}
                 Всё, что удалось, уже в библиотеке
               {:else}
-                Осталось {tracks(Math.max(0, progress.total - progress.done - progress.failed))}
+                Осталось {t.count.tracks(Math.max(0, progress.total - progress.done - progress.failed))}
               {/if}
             </div>
           </div>
@@ -204,7 +205,7 @@
 
         <div class="divide-y divide-line overflow-hidden rounded-lg bg-white/[0.04]">
           {#if preview}
-            {@render sourceRow(pick.liked, t.library.liked, tracks(preview.liked), IconHeart, (v) => (pick.liked = v))}
+            {@render sourceRow(pick.liked, t.library.liked, t.count.tracks(preview.liked), IconHeart, (v) => (pick.liked = v))}
             {@render sourceRow(
               pick.albums,
               "Сохранённые альбомы",
@@ -225,7 +226,7 @@
                 <Cover coverKey={pl.coverKey} size={40} rounded="sm" />
                 <div class="min-w-0 flex-1">
                   <div class="truncate text-[14px]">{pl.title}</div>
-                  <div class="truncate text-[12.5px] text-ink-3">Плейлист · {tracks(pl.trackCount)}</div>
+                  <div class="truncate text-[12.5px] text-ink-3">Плейлист · {t.count.tracks(pl.trackCount)}</div>
                 </div>
               </label>
             {/each}

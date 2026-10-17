@@ -23,7 +23,7 @@
   import { net } from "$lib/stores/net.svelte";
   import { openAlbum } from "$lib/stores/actions";
   import { menu, prompt, toasts, type MenuItem } from "$lib/stores/overlay.svelte";
-  import { t, tracks } from "$lib/i18n/ru";
+  import { t } from "$lib/i18n";
   import { dragScroll, enter } from "$lib/motion";
   import Card from "$lib/ui/Card.svelte";
   import ArtistLinks from "$lib/ui/ArtistLinks.svelte";
@@ -307,7 +307,7 @@
         <div class="grid size-14 shrink-0 place-items-center bg-white/[0.06]"><IconHeart class="size-6" /></div>
         <div class="min-w-0">
           <div class="truncate text-[14px] font-medium">{t.library.liked}</div>
-          <div class="text-[12.5px] text-ink-3">{tracks(page.likedCount)}</div>
+          <div class="text-[12.5px] text-ink-3">{t.count.tracks(page.likedCount)}</div>
         </div>
       </button>
       {#each tiles as a (a.id)}

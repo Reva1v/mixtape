@@ -1,7 +1,9 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { prefs } from "$lib/stores/prefs.svelte";
-  import { plural, t } from "$lib/i18n/ru";
+  import { plural } from "$lib/i18n/ru/legacy";
+  import { LANGS, locale, t } from "$lib/i18n";
+  import Select from "$lib/ui/Select.svelte";
   import Switch from "$lib/ui/Switch.svelte";
   import Slider from "$lib/ui/Slider.svelte";
   import { coverUrl, invoke } from "$lib/ipc";
@@ -235,6 +237,15 @@
   <section>
     <h2 class="mb-3 text-[13px] font-semibold tracking-wide text-ink-3 uppercase">Внешний вид</h2>
     <div class="divide-y divide-line overflow-hidden rounded-lg bg-white/[0.04]">
+      {#snippet langSelect()}
+        <Select
+          value={locale.lang}
+          options={LANGS.map((l) => ({ id: l.id, label: l.name }))}
+          label={t.language.title}
+          onchange={(language) => prefs.update({ language })}
+        />
+      {/snippet}
+      {@render row(t.language.title, t.language.hint, langSelect)}
       {#snippet bgSwitch()}
         <Switch checked={p.smoothBackground} label="Плавная смена фона" onchange={(v) => prefs.update({ smoothBackground: v })} />
       {/snippet}

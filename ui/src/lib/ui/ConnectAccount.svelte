@@ -4,7 +4,7 @@
   // stays as a fallback for when Google refuses the embedded window.
   import { downloads } from "$lib/stores/downloads.svelte";
   import { toasts } from "$lib/stores/overlay.svelte";
-  import { t } from "$lib/i18n/ru";
+  import { t } from "$lib/i18n";
   import Modal from "./Modal.svelte";
   import IconFile from "~icons/solar/file-text-linear";
   import IconGoogle from "~icons/ph/google-logo-bold";

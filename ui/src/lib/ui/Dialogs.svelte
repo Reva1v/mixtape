@@ -6,7 +6,7 @@
   import type { Playlist } from "$lib/ipc/bindings/Playlist";
   import { prompt, toasts } from "$lib/stores/overlay.svelte";
   import { playlistPicker } from "$lib/stores/playlistPicker.svelte";
-  import { t, tracks } from "$lib/i18n/ru";
+  import { t } from "$lib/i18n";
   import Modal from "./Modal.svelte";
   import Cover from "./Cover.svelte";
   import IconPlus from "~icons/lucide/plus";
@@ -77,7 +77,7 @@
         <Cover coverKey={p.coverKey} size={40} rounded="sm" />
         <div class="min-w-0">
           <div class="truncate text-[14px]">{p.title}</div>
-          <div class="text-[12px] text-ink-3">{tracks(p.trackCount)}</div>
+          <div class="text-[12px] text-ink-3">{t.count.tracks(p.trackCount)}</div>
         </div>
       </button>
     {/each}

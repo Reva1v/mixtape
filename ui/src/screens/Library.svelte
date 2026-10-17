@@ -17,7 +17,7 @@
   import { openAlbum } from "$lib/stores/actions";
   import { player } from "$lib/stores/player.svelte";
   import { prompt, toasts } from "$lib/stores/overlay.svelte";
-  import { t, tracks } from "$lib/i18n/ru";
+  import { t } from "$lib/i18n";
   import TrackList from "$lib/ui/TrackList.svelte";
   import CardGrid from "$lib/ui/CardGrid.svelte";
   import Card from "$lib/ui/Card.svelte";
@@ -242,7 +242,7 @@
               <Card
                 coverKey={p?.coverKey}
                 title={p?.title}
-                subtitle={p ? tracks(p.trackCount) : undefined}
+                subtitle={p ? t.count.tracks(p.trackCount) : undefined}
                 onopen={() => p && router.go({ name: "playlist", id: p.id })}
                 menu={p && (() => playlistMenu(p))}
                 onplay={() => p && player.play({ kind: "playlist", id: p.id })}

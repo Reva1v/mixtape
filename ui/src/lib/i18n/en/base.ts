@@ -1,0 +1,77 @@
+// Strings shared across the app. English is the reference: uk and ru must have the same keys.
+import { english } from "../plural";
+
+export const base = {
+  appName: "Mixtape",
+  nav: {
+    home: "Home",
+    search: "Search",
+    library: "Library",
+    downloads: "Downloads",
+    settings: "Settings",
+    back: "Back",
+    forward: "Forward",
+  },
+  search: {
+    placeholder: "Tracks, albums, artists",
+    hint: "Ctrl+K",
+  },
+  library: {
+    tracks: "Tracks",
+    albums: "Albums",
+    artists: "Artists",
+    playlists: "Playlists",
+    liked: "Liked",
+    empty: "Your library is empty",
+    emptyHint: "Connect YouTube Music or paste a link to a track, album or playlist",
+  },
+  player: {
+    play: "Play",
+    pause: "Pause",
+    next: "Next",
+    prev: "Previous",
+    shuffle: "Shuffle",
+    repeat: "Repeat",
+    repeatOne: "Repeat track",
+    volume: "Volume",
+    mute: "Mute",
+    queue: "Queue",
+    lyrics: "Lyrics",
+    fullscreen: "Full-screen player",
+    nothing: "Nothing is playing",
+  },
+  queue: {
+    title: "Queue",
+    nowPlaying: "Now playing",
+    upNext: "Up next",
+    clear: "Clear",
+    building: "Building the mix…",
+    empty: "The queue is empty",
+  },
+  track: {
+    mix: "Start mix",
+    playNext: "Play next",
+    addToQueue: "Add to queue",
+    addToPlaylist: "Add to playlist",
+    like: "Like",
+    unlike: "Remove from liked",
+    openAlbum: "Go to album",
+    openArtist: "Go to artist",
+    download: "Download",
+    remove: "Remove from library",
+  },
+  albumType: { album: "Album", ep: "EP", single: "Single" },
+  language: {
+    title: "Language",
+    hint: "Menus, buttons and YouTube Music sections. Track and artist names stay as they are.",
+  },
+  common: {
+    soon: "Soon",
+    retry: "Retry",
+    cancel: "Cancel",
+    ok: "Done",
+  },
+  count: {
+    tracks: (n: number) => `${n} ${english(n, "track")}`,
+  },
+};

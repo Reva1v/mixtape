@@ -2,7 +2,7 @@
 
 import type { Track } from "$lib/ipc/bindings/Track";
 import { invoke } from "$lib/ipc";
-import { t } from "$lib/i18n/ru";
+import { t } from "$lib/i18n";
 import { player } from "$lib/stores/player.svelte";
 import { router } from "$lib/stores/router.svelte";
 import { toasts, type MenuItem } from "$lib/stores/overlay.svelte";

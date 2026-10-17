@@ -7,7 +7,7 @@
   import { player } from "$lib/stores/player.svelte";
   import IconShuffle from "~icons/solar/shuffle-linear";
   import IconMix from "~icons/solar/radio-minimalistic-linear";
-  import { t } from "$lib/i18n/ru";
+  import { t } from "$lib/i18n";
   import { pressable } from "$lib/motion";
 
   interface Props {

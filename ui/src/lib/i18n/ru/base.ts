@@ -1,5 +1,7 @@
-// All interface strings live here. The app is Russian-only (FR-028).
-export const t = {
+import type { base as en } from "../en/base";
+import { slavic } from "../plural";
+
+export const base: typeof en = {
   appName: "Mixtape",
   nav: {
     home: "Главная",
@@ -58,21 +60,18 @@ export const t = {
     download: "Скачать",
     remove: "Удалить из библиотеки",
   },
+  albumType: { album: "Альбом", ep: "EP", single: "Сингл" },
+  language: {
+    title: "Язык",
+    hint: "Меню, кнопки и разделы YouTube Music. Названия треков и исполнителей не меняются.",
+  },
   common: {
     soon: "Скоро",
     retry: "Повторить",
     cancel: "Отмена",
     ok: "Готово",
   },
-} as const;
-
-/** Russian plural form: plural(1, "трек", "трека", "треков") → "трек". */
-export function plural(n: number, one: string, few: string, many: string): string {
-  const m10 = n % 10;
-  const m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return one;
-  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
-  return many;
-}
-
-export const tracks = (n: number) => `${n} ${plural(n, "трек", "трека", "треков")}`;
+  count: {
+    tracks: (n: number) => `${n} ${slavic(n, "трек", "трека", "треков")}`,
+  },
+};

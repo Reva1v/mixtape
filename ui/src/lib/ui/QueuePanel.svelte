@@ -13,7 +13,7 @@
   import type { QueueEntry } from "$lib/ipc/bindings/QueueEntry";
   import { player, formatTime } from "$lib/stores/player.svelte";
   import { menu } from "$lib/stores/overlay.svelte";
-  import { t } from "$lib/i18n/ru";
+  import { t } from "$lib/i18n";
   import { trackMenu } from "./trackMenu";
   import Cover from "./Cover.svelte";
   import Equalizer from "./Equalizer.svelte";
