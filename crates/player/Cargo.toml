@@ -8,6 +8,9 @@ publish.workspace = true
 
 [dependencies]
 mixtape-core.workspace = true
+mixtape-library.workspace = true
+mixtape-audio.workspace = true
+tracing.workspace = true
 serde.workspace = true
 ts-rs.workspace = true
 fastrand = "2"

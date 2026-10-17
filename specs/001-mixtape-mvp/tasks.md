@@ -49,18 +49,18 @@
 
 **Аудиодвижок**
 
-- [ ] T023 [US1] Декодер: symphonia 0.6.1 (mkv, isomp4, aac) + регистрация `symphonia-adapter-libopus`, применение `trim_start/trim_end`, точный seek (grubый seek + досчёт, pre-roll 80 мс для Opus) в `crates/audio/src/decoder.rs` + тесты на `crates/audio/tests/fixtures/*.webm|*.m4a`
-- [ ] T024 [US1] Вывод: cpal 0.18 WASAPI shared, `rtrb` кольцо ~300 мс f32, колбэк без аллокаций и локов, атомарный счётчик фреймов, тишина при underrun в `crates/audio/src/output.rs`
-- [ ] T025 [US1] Поток движка: команды `Load/QueueNext/Play/Pause/Seek/SetVolume/SetGainDb`, открытие следующего трека за 10 с до конца, PCM подряд в одно кольцо (gapless), маркеры `(frame, track_id)` для позиции и смены трека, fade 10 мс на паузу/seek в `crates/audio/src/engine.rs`
-- [ ] T026 [US1] Ресемплинг `rubato` только при частоте устройства ≠ источнику; пересоздание потока при ошибке cpal / смене устройства по умолчанию с сохранением позиции в `crates/audio/src/device.rs`
-- [ ] T027 [P] [US1] Громкость: `gain_dB` из `media_files.lufs` (цель −14 LUFS, clamp −20…+6), мягкий лимитер при усилении в `crates/audio/src/gain.rs` + тест
-- [ ] T028 [P] [US1] Замер EBU R128 (`ebur128`) для файла в фоне → `media_files.lufs/true_peak` в `crates/audio/src/loudness.rs`
+- [x] T023 [US1] Декодер: symphonia 0.6.1 (mkv, isomp4, aac) + регистрация `symphonia-adapter-libopus`, применение `trim_start/trim_end`, точный seek (grubый seek + досчёт, pre-roll 80 мс для Opus) в `crates/audio/src/decoder.rs` + тесты на `crates/audio/tests/fixtures/*.webm|*.m4a`
+- [x] T024 [US1] Вывод: cpal 0.18 WASAPI shared, `rtrb` кольцо ~300 мс f32, колбэк без аллокаций и локов, атомарный счётчик фреймов, тишина при underrun в `crates/audio/src/output.rs`
+- [x] T025 [US1] Поток движка: команды `Load/QueueNext/Play/Pause/Seek/SetVolume/SetGainDb`, открытие следующего трека за 10 с до конца, PCM подряд в одно кольцо (gapless), маркеры `(frame, track_id)` для позиции и смены трека, fade 10 мс на паузу/seek в `crates/audio/src/engine.rs`
+- [x] T026 [US1] Ресемплинг `rubato` только при частоте устройства ≠ источнику; пересоздание потока при ошибке cpal / смене устройства по умолчанию с сохранением позиции в `crates/audio/src/device.rs`
+- [x] T027 [P] [US1] Громкость: `gain_dB` из `media_files.lufs` (цель −14 LUFS, clamp −20…+6), мягкий лимитер при усилении в `crates/audio/src/gain.rs` + тест
+- [x] T028 [P] [US1] Замер EBU R128 (`ebur128`) для файла в фоне → `media_files.lufs/true_peak` в `crates/audio/src/loudness.rs`
 
 **Очередь и плеер**
 
 - [x] T029 [US1] Модель `Queue` (data-model.md): «следующим», «в конец блока User», remove, move, clear, repeat Off/All/One, shuffle только будущих с `original_order` + unit-тесты в `crates/player/src/queue.rs`
-- [ ] T030 [US1] `Player`: связка Queue ↔ Engine, переходы next/prev (prev в первые 3 с — предыдущий трек, иначе в начало), `play_stats` (полное прослушивание = ≥ 90 % без перемотки за последние 10 %) в `crates/player/src/player.rs`
-- [ ] T031 [US1] Снимок очереди/позиции/громкости в `settings.queue_snapshot` (дебаунс 2 с + при выходе), восстановление на паузе при старте в `crates/player/src/persist.rs` + тест
+- [x] T030 [US1] `Player`: связка Queue ↔ Engine, переходы next/prev (prev в первые 3 с — предыдущий трек, иначе в начало), `play_stats` (полное прослушивание = ≥ 90 % без перемотки за последние 10 %) в `crates/player/src/player.rs`
+- [x] T031 [US1] Снимок очереди/позиции/громкости в `settings.queue_snapshot` (дебаунс 2 с + при выходе), восстановление на паузе при старте в `crates/player/src/persist.rs` + тест
 
 **Библиотека**
 
@@ -69,14 +69,14 @@
 - [x] T034 [US1] Поиск: FTS5 trigram, <3 символов — префиксный скан, OR с конвертированной раскладкой (оригинал выше) + бенчмарк 20k строк ≤ 50 мс в `crates/library/src/search.rs`, `crates/library/benches/search.rs`
 - [x] T035 [US1] Локальные плейлисты: create/rename/delete/add/remove/move (правка `ytm`-плейлиста создаёт `local`-копию) в `crates/library/src/repo/playlists.rs` + тесты
 - [x] T036 [US1] Проверка целостности при старте (файл пропал/битый → `broken`) в `crates/library/src/integrity.rs`
-- [ ] T037 [P] [US1] Dev-команда импорта локальной папки webm/m4a (для теста истории без YouTube) в `src-tauri/src/commands/dev.rs`
+- [x] T037 [P] [US1] Dev-команда импорта локальной папки webm/m4a (для теста истории без YouTube) в `src-tauri/src/commands/dev.rs`
 
 **Команды и интеграция с Windows**
 
-- [ ] T038 [US1] Команды библиотеки и плеера из contracts/ipc.md (library_*, album_get/artist_get/playlist_* локально, play, toggle, next, prev, seek, set_volume, set_repeat, set_shuffle, queue_*) в `src-tauri/src/commands/{library,player}.rs`
-- [ ] T039 [US1] Канал `player_subscribe` (`PlaybackState` 10 Гц + на изменениях), события `track:changed` (с палитрой), `queue:changed` в `src-tauri/src/commands/player.rs`
-- [ ] T040 [P] [US1] SMTC через `windows` 0.62 (`GetForWindow`, кнопки, метаданные + обложка 300 px, таймлайн каждые 5 с, Min/MaxSeekTime) в `crates/win/src/smtc.rs`
-- [ ] T041 [P] [US1] Кнопки миниатюры (prev/play-pause/next) через `ITaskbarList3` + `SetWindowSubclass` в `crates/win/src/thumbbar.rs`
+- [x] T038 [US1] Команды библиотеки и плеера из contracts/ipc.md (library_*, album_get/artist_get/playlist_* локально, play, toggle, next, prev, seek, set_volume, set_repeat, set_shuffle, queue_*) в `src-tauri/src/commands/{library,player}.rs`
+- [x] T039 [US1] Канал `player_subscribe` (`PlaybackState` 10 Гц + на изменениях), события `track:changed` (с палитрой), `queue:changed` в `src-tauri/src/commands/player.rs`
+- [x] T040 [P] [US1] SMTC через `windows` 0.62 (`GetForWindow`, кнопки, метаданные + обложка 300 px, таймлайн каждые 5 с, Min/MaxSeekTime) в `crates/win/src/smtc.rs`
+- [x] T041 [P] [US1] Кнопки миниатюры (prev/play-pause/next) через `ITaskbarList3` + `SetWindowSubclass` в `crates/win/src/thumbbar.rs`
 
 **UI**
 

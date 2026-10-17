@@ -5,6 +5,8 @@
   import { layout } from "$lib/stores/layout.svelte";
   import { player } from "$lib/stores/player.svelte";
   import { handleHotkey } from "$lib/stores/hotkeys";
+  import { toasts } from "$lib/stores/overlay.svelte";
+  import { on } from "$lib/ipc";
   import { t } from "$lib/i18n/ru";
   import TitleBar from "$lib/ui/TitleBar.svelte";
   import Sidebar from "$lib/ui/Sidebar.svelte";
@@ -27,6 +29,8 @@
 
   onMount(() => {
     player.init().catch((e) => console.error("player init failed", e));
+    const un = on<{ level: "info" | "error"; text: string }>("toast", (e) => toasts.push(e.text, e.level));
+    return () => void un.then((f) => f());
   });
 
   // Scroll to top on navigation, but keep the search screen's scroll while typing.

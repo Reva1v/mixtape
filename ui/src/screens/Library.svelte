@@ -11,6 +11,7 @@
   import { Paged } from "$lib/stores/paged.svelte";
   import { router, type LibraryTab } from "$lib/stores/router.svelte";
   import { player } from "$lib/stores/player.svelte";
+  import { prompt, toasts } from "$lib/stores/overlay.svelte";
   import { t } from "$lib/i18n/ru";
   import TrackList from "$lib/ui/TrackList.svelte";
   import CardGrid from "$lib/ui/CardGrid.svelte";
@@ -82,6 +83,13 @@
     return () => void un.then((f) => f());
   });
 
+  async function importFolder() {
+    const path = await prompt.ask("Путь к папке с .webm / .m4a / .opus");
+    if (!path) return;
+    const n = await invoke<number>("dev_import_folder", { path });
+    toasts.push(`Импортировано треков: ${n}`);
+  }
+
   function playAll(start = 0, shuffle = false) {
     if (viewId === null) return;
     if (shuffle !== player.state.shuffle) void player.toggleShuffle();
@@ -144,7 +152,15 @@
   </div>
 
   {#if loaded && rows && rows.count === 0}
-    <EmptyState icon={IconLibrary} title={t.library.empty} hint={t.library.emptyHint} />
+    <EmptyState icon={IconLibrary} title={t.library.empty} hint={t.library.emptyHint}>
+      <button
+        type="button"
+        class="h-9 rounded-full bg-fill-2 px-4 text-[13px] font-medium text-ink-2 hover:bg-fill-3 hover:text-ink"
+        onclick={importFolder}
+      >
+        Импортировать папку с аудио
+      </button>
+    </EmptyState>
   {:else if rows}
     {#key viewId}
       <div class="pt-2">

@@ -1,6 +1,7 @@
 mod commands;
 mod cover_protocol;
 mod events;
+mod media;
 mod state;
 mod window;
 
@@ -27,9 +28,18 @@ pub fn run() {
         .plugin(window::frame_plugin())
         .register_asynchronous_uri_scheme_protocol("cover", cover_protocol::handle)
         .setup(|app| {
-            let state = state::AppState::init()?;
-            app.manage(Arc::new(state));
+            let state = Arc::new(state::AppState::init(app.handle())?);
+            app.manage(state.clone());
+            // `setup` runs on the main (UI) thread, which the thumbnail toolbar needs.
+            state.media.install(app.handle());
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event
+                && let Some(st) = window.app_handle().try_state::<Arc<state::AppState>>()
+            {
+                st.player.save_snapshot(true);
+            }
         })
         .invoke_handler(tauri::generate_handler![
             window::app_ready,
@@ -41,6 +51,22 @@ pub fn run() {
             commands::library::playlist_get,
             commands::library::playlist_edit,
             commands::library::track_set_liked,
+            commands::player::player_subscribe,
+            commands::player::play,
+            commands::player::player_toggle,
+            commands::player::player_next,
+            commands::player::player_prev,
+            commands::player::player_seek,
+            commands::player::player_set_volume,
+            commands::player::player_set_repeat,
+            commands::player::player_set_shuffle,
+            commands::player::queue_get,
+            commands::player::queue_add,
+            commands::player::queue_remove,
+            commands::player::queue_move,
+            commands::player::queue_clear,
+            commands::player::queue_jump,
+            commands::dev::dev_import_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Mixtape");

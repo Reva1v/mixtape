@@ -1,4 +1,6 @@
 pub mod library;
+pub mod dev;
+pub mod player;
 
 use mixtape_core::{AppError, ErrorKind};
 
