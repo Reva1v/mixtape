@@ -206,10 +206,12 @@
     position: absolute;
     left: 50%;
     top: 50%;
-    width: 130vmax;
-    height: 130vmax;
+    width: 150vmax;
+    height: 150vmax;
     object-fit: cover;
-    filter: saturate(1.6);
+    /* The source is a 64 px thumbnail: a real blur hides its pixels and any lettering.
+       The filtered layer is rasterised once; only its transform animates. */
+    filter: blur(56px) saturate(1.5);
     will-change: transform;
   }
   .layer-a {
