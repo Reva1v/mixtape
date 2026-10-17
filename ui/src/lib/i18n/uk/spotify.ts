@@ -1,0 +1,35 @@
+// Spotify import: a playlist or album link, or a pasted track list (SpotifyImport.svelte).
+import type { spotify as en } from "../en/spotify";
+
+export const spotify: typeof en = {
+  spotify: {
+    kind: { playlist: "Плейлист Spotify", album: "Альбом Spotify" },
+    hint: "Плейлисти й альбоми Spotify шукаються в YouTube Music і зберігаються як плейлист.",
+    import: "Імпортувати",
+    pasteList: "Вставити список треків",
+    listTitle: "Імпорт списку треків",
+    listIntro: "Один трек на рядок: Виконавець — Назва (дефіс чи коротке тире теж підходять). Кожен шукається в YouTube Music.",
+    listPlaceholder: "a-ha — Take On Me\nОкеан Ельзи - Обійми",
+    listCount: (tracks: string) => `Розпізнано: ${tracks}`,
+    name: "Назва плейлиста",
+    defaultName: "Імпортований плейлист",
+    back: "Назад до посилання",
+    reading: "Читаємо плейлист у Spotify…",
+    matching: (done: number, total: number) => `Шукаємо треки в YouTube Music: ${done} з ${total}`,
+    doneTitle: "Імпорт завершено",
+    matched: (matched: number, total: number) => `Знайдено ${matched} з ${total}`,
+    savedAs: (title: string) => `Збережено як плейлист «${title}»`,
+    nothingMatched: "У YouTube Music нічого не знайшлося, тому плейлист не створено.",
+    cutKnown: (read: number, total: string) => `Spotify віддав ${read} з ${total}: імпортовано лише їх.`,
+    cutUnknown: (tracks: string) => `Spotify віддав лише перші ${tracks}: плейлист може бути довшим.`,
+    notFound: (n: number) => `Не знайдено (${n})`,
+    copy: "Скопіювати список",
+    copied: "Список скопійовано",
+    open: "Відкрити плейлист",
+    download: "Завантажити плейлист",
+    queued: (tracks: string) => `У завантаженнях: ${tracks}`,
+    alreadyDownloaded: "Усе вже в бібліотеці або в завантаженнях",
+    close: "Закрити",
+    failed: "Не вдалося імпортувати",
+  },
+};

@@ -123,7 +123,7 @@ export const ui = {
     volume: "Volume up / down by 5%",
     lyrics: "Lyrics",
     tabs: "Home, search, library, downloads",
-    pasteLink: "Paste a YouTube link to download it",
+    pasteLink: "Paste a YouTube or Spotify link to add it",
     backForward: "Back / forward",
     escape: "Close a panel or full screen",
     help: "This help",

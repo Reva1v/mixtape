@@ -7,5 +7,17 @@ import { tray } from "./tray";
 import { stats } from "./stats";
 import { integrations } from "./integrations";
 import { normalize } from "./normalize";
+import { spotify } from "./spotify";
 
-export const en = { ...base, ...screens, ...ui, ...tray, ...stats, ...integrations, ...normalize, updates, iconStyle };
+export const en = {
+  ...base,
+  ...screens,
+  ...ui,
+  ...tray,
+  ...stats,
+  ...integrations,
+  ...normalize,
+  ...spotify,
+  updates,
+  iconStyle,
+};
