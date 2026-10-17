@@ -54,6 +54,7 @@
   UI обновляется на лету (Vite HMR); если «залип» — `touch ui/src/main.ts` или Ctrl+R.
 - Тесты: `cargo test --workspace`, `cargo clippy --workspace -- -D warnings`, `pnpm -C ui check`.
 - `.cargo/config.toml` задаёт `CMAKE` (libopus) и `TS_RS_EXPORT_DIR` (TS-типы из Rust).
+- Репозиторий: приватный https://github.com/Reva1v/mixtape (ветка main, пушить после коммитов по просьбе).
 - Секреты: `.secrets/cookies.txt` (YouTube Music cookies пользователя, в .gitignore).
 - Тестовая музыка: `C:\Users\Reva1v\AppData\Local\Temp\claude\D--Projects-liner\<session>\scratchpad\testmusic`
   (16 треков из лайков с обложками); yt-dlp и deno — `src-tauri/binaries/` (скрипт
