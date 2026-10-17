@@ -48,6 +48,14 @@ class Downloads {
       console.warn("account_status unavailable", e);
       return;
     }
+    // Sign-in finished in its own window; the call that opened it may be gone (reload).
+    await on("account:changed", async () => {
+      await this.refreshAccount();
+      if (this.connectOpen && this.account.connected) {
+        this.connectOpen = false;
+        toasts.push(this.account.name ? `Подключено: ${this.account.name}` : "YouTube Music подключён");
+      }
+    }).catch(() => {});
     await on("account:expired", () => {
       this.account = { ...this.account, connected: false };
       toasts.push("Сессия YouTube Music истекла — загрузки остановлены", "error", 10000, {

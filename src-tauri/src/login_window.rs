@@ -9,7 +9,7 @@ use mixtape_core::{AppError, ErrorKind};
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
 use tauri::webview::cookie::Cookie;
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 const LABEL: &str = "login";
 const START: &str = "https://accounts.google.com/ServiceLogin?service=youtube&passive=true&hl=ru\
@@ -22,18 +22,28 @@ fn cancelled() -> AppError {
 }
 
 pub async fn sign_in(st: &AppState) -> Result<AccountStatus, AppError> {
-    if let Some(w) = st.app.get_webview_window(LABEL) {
-        let _ = w.set_focus();
-        return Err(AppError::new(ErrorKind::Invalid, "Окно входа уже открыто"));
-    }
-    let url = START.parse().map_err(|e| AppError::new(ErrorKind::Internal, format!("{e}")))?;
-    let window = WebviewWindowBuilder::new(&st.app, LABEL, WebviewUrl::External(url))
-        .title("Вход в YouTube Music")
-        .inner_size(480.0, 720.0)
-        .center()
-        .incognito(true)
-        .build()
-        .map_err(|e| AppError::new(ErrorKind::Internal, format!("Не удалось открыть окно входа: {e}")))?;
+    // A second click just brings the open window forward and waits on it as well.
+    let window = match st.app.get_webview_window(LABEL) {
+        Some(w) => w,
+        None => {
+            let url = START.parse().map_err(|e| AppError::new(ErrorKind::Internal, format!("{e}")))?;
+            let mut builder = WebviewWindowBuilder::new(&st.app, LABEL, WebviewUrl::External(url))
+                .title("Вход в YouTube Music")
+                .inner_size(480.0, 720.0)
+                .center()
+                .focused(true)
+                .incognito(true);
+            // Owned by the main window, so it always stays above it.
+            if let Some(main) = st.app.get_webview_window("main") {
+                builder = builder.parent(&main).map_err(|e| AppError::new(ErrorKind::Internal, e.to_string()))?;
+            }
+            builder
+                .build()
+                .map_err(|e| AppError::new(ErrorKind::Internal, format!("Не удалось открыть окно входа: {e}")))?
+        }
+    };
+    let _ = window.unminimize();
+    let _ = window.set_focus();
 
     let music = "https://music.youtube.com/".parse().expect("static url");
     let started = Instant::now();
@@ -58,6 +68,10 @@ pub async fn sign_in(st: &AppState) -> Result<AccountStatus, AppError> {
         }
         let result = account::connect(st, &netscape(&cookies)).await;
         let _ = window.close();
+        if result.is_ok() {
+            // The page that asked may have reloaded meanwhile; tell every listener.
+            let _ = st.app.emit("account:changed", ());
+        }
         return result;
     }
 }

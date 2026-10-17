@@ -25,6 +25,8 @@
   });
 
   function done() {
+    // The `account:changed` listener may have closed the dialog and announced it already.
+    if (!downloads.connectOpen) return;
     downloads.connectOpen = false;
     toasts.push(downloads.account.name ? `Подключено: ${downloads.account.name}` : "YouTube Music подключён");
   }
