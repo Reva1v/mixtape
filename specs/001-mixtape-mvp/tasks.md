@@ -143,7 +143,7 @@
 **Goal**: искать вне библиотеки, слушать стримом, скачивать.
 **Independent Test**: сценарий Q10.
 
-- [ ] T081 [US4] `search(q, kind)`, `suggest(q)`, страницы каталога с токеном продолжения в `crates/yt/src/rustypipe_impl.rs`
+- [x] T081 [US4] `search(q, kind)`, `suggest(q)`, страницы каталога с токеном продолжения в `crates/yt/src/rustypipe_impl.rs`
 - [ ] T082 [US4] Сохранение элементов каталога как `remote` (без загрузки) для открытия и проигрывания в `crates/library/src/repo/catalog.rs`
 - [ ] T083 [US4] Команды `catalog_search`, `catalog_more`, `catalog_suggest`; `album_get`/`artist_get` с фолбэком на каталог в `src-tauri/src/commands/catalog.rs`
 - [ ] T084 [US4] Вкладка «Каталог» в поиске (метки «скачано»), страницы альбома/артиста из каталога с кнопками «Скачать альбом» / «Скачать дискографию» в `ui/src/screens/{Search,Album,Artist}.svelte`
@@ -164,12 +164,12 @@
 
 ## Phase 9: Polish & Cross-Cutting
 
-- [ ] T091 [P] Настройки: лимит кэша, N автосохранения (вкл/выкл), каталог данных, аккаунт, очистка кэша в `ui/src/screens/Settings.svelte` + команды в `src-tauri/src/commands/settings.rs`
-- [ ] T092 [P] Тосты и обработка ошибок сети/YouTube (локальное воспроизведение никогда не падает), событие `net:status` в `src-tauri/src/net.rs`, `ui/src/lib/ui/Toast.svelte`
+- [x] T091 [P] Настройки: лимит кэша, N автосохранения (вкл/выкл), каталог данных, аккаунт, очистка кэша в `ui/src/screens/Settings.svelte` + команды в `src-tauri/src/commands/settings.rs`
+- [x] T092 [P] Тосты и обработка ошибок сети/YouTube (локальное воспроизведение никогда не падает), событие `net:status` в `src-tauri/src/net.rs`, `ui/src/lib/ui/Toast.svelte`
 - [ ] T093 [P] Канал спектра (16 полос, ≤ 30 Гц, только при открытом полноэкранном плеере) и его визуализация в фоне в `crates/audio/src/spectrum.rs`, `ui/src/screens/FullscreenPlayer.svelte`
 - [ ] T094 Микро-анимации и переходы экранов (только transform/opacity), проверка 60 fps в `ui/src/app.css` и экранах
 - [ ] T095 Замер всех бюджетов по quickstart.md на релизной сборке с синтетической библиотекой 20k треков; результаты в `specs/001-mixtape-mvp/quickstart.md`
-- [ ] T096 Сборка NSIS-инсталлятора с sidecar'ами, иконка приложения в `src-tauri/icons/`
+- [x] T096 Сборка NSIS-инсталлятора с sidecar'ами, иконка приложения в `src-tauri/icons/`
 
 ## Dependencies & Execution Order
 
