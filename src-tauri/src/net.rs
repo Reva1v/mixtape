@@ -45,6 +45,7 @@ fn set_online(st: &Arc<AppState>, online: bool) {
     let _ = st.app.emit("net:status", NetStatus { online });
     if online {
         crate::commands::mix::flush_likes(st);
+        crate::lastfm::flush(st);
         crate::commands::mix::top_up(st);
         st.downloads.wake();
         crate::commands::sync::nudge_auto_sync();

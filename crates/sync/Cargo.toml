@@ -21,6 +21,7 @@ tokio = { workspace = true, features = ["io-util"] }
 tracing.workspace = true
 reqwest = { version = "0.13", default-features = false, features = ["native-tls", "http2", "stream"] }
 url = "2.5"
+md-5 = "0.10"
 
 # Same major as Tauri 2 so only one copy of `windows` is compiled.
 [target.'cfg(windows)'.dependencies]

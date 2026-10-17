@@ -5,5 +5,6 @@ import { updates } from "./updates";
 import { iconStyle } from "./iconStyle";
 import { tray } from "./tray";
 import { stats } from "./stats";
+import { integrations } from "./integrations";
 
-export const uk = { ...base, ...screens, ...ui, ...tray, ...stats, updates, iconStyle };
+export const uk = { ...base, ...screens, ...ui, ...tray, ...stats, ...integrations, updates, iconStyle };

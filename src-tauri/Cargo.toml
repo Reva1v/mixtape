@@ -12,6 +12,7 @@ crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2.7", features = [] }
+serde_json.workspace = true
 
 [dependencies]
 mixtape-core.workspace = true

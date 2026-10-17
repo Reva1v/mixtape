@@ -3,8 +3,10 @@ mod autostart;
 mod background;
 mod commands;
 mod cover_protocol;
+mod discord;
 mod downloads;
 mod events;
+mod lastfm;
 mod login_window;
 mod media;
 mod mini;
@@ -62,6 +64,8 @@ pub fn run() {
             let prefs = commands::settings::Prefs::load(&state);
             prefs.apply_language(&state);
             account::restore(&state);
+            discord::install(app.handle(), prefs.discord_presence);
+            lastfm::install(&state);
             net::spawn(state.clone());
             commands::sync::spawn_auto_sync(state.clone());
             // Pending likes, artist pictures, unused covers: once, after start.
@@ -154,6 +158,10 @@ pub fn run() {
             commands::settings::cache_clear,
             net::net_status,
             commands::settings::open_data_dir,
+            lastfm::integrations_status,
+            lastfm::lastfm_connect,
+            lastfm::lastfm_confirm,
+            lastfm::lastfm_disconnect,
             commands::sync::account_status,
             commands::sync::account_connect_cookies,
             commands::sync::account_connect_webview,

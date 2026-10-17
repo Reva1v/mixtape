@@ -68,6 +68,8 @@ pub fn announce_track(st: &AppState, track: Track) {
 /// Forwards player events. Called on the player's event thread.
 pub fn on_player_event(app: &AppHandle, ev: PlayerEvent) {
     let Some(st) = app.try_state::<std::sync::Arc<AppState>>() else { return };
+    crate::lastfm::on_player_event(st.inner(), &ev);
+    crate::discord::on_player_event(&st, &ev);
     match ev {
         PlayerEvent::State(s) => {
             if let Some(ch) = st.player_channel.lock().expect("channel slot poisoned").as_ref() {

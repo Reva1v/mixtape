@@ -47,11 +47,13 @@ pub struct Prefs {
     pub icon_style: IconStyle,
     /// The window's close button hides it to the tray; the music keeps playing.
     pub close_to_tray: bool,
+    /// Discord shows what plays ("Listening to …"); only in builds with a Discord app id.
+    pub discord_presence: bool,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        Self { smooth_background: true, crossfade: false, crossfade_sec: 6, mix_fullscreen: false, language: None, auto_update: true, icon_style: IconStyle::Outline, close_to_tray: true }
+        Self { smooth_background: true, crossfade: false, crossfade_sec: 6, mix_fullscreen: false, language: None, auto_update: true, icon_style: IconStyle::Outline, close_to_tray: true, discord_presence: true }
     }
 }
 
@@ -88,6 +90,7 @@ pub async fn prefs_set(state: State<'_, Arc<AppState>>, prefs: Prefs) -> CmdResu
     blocking(move || {
         settings::set(&st.db, KEY, &prefs)?;
         st.player.set_crossfade(prefs.crossfade_ms());
+        crate::discord::set_enabled(&st, prefs.discord_presence);
         Prefs::load(&st).apply_language(&st);
         crate::tray::refresh(&st.app);
         Ok(())

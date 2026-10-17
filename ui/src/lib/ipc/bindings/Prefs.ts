@@ -30,4 +30,8 @@ autoUpdate: boolean, iconStyle: IconStyle,
 /**
  * The window's close button hides it to the tray; the music keeps playing.
  */
-closeToTray: boolean, };
+closeToTray: boolean, 
+/**
+ * Discord shows what plays ("Listening to …"); only in builds with a Discord app id.
+ */
+discordPresence: boolean, };

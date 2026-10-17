@@ -54,23 +54,23 @@ fn apply(st: &AppState, cookies: Option<Cookies>) {
 }
 
 #[cfg(windows)]
-fn seal(text: &str) -> Result<Vec<u8>, AppError> {
+pub(crate) fn seal(text: &str) -> Result<Vec<u8>, AppError> {
     mixtape_win::dpapi::protect(text.as_bytes()).map_err(|e| AppError::new(ErrorKind::Internal, e.to_string()))
 }
 
 #[cfg(windows)]
-fn open(sealed: &[u8]) -> Result<String, AppError> {
+pub(crate) fn open(sealed: &[u8]) -> Result<String, AppError> {
     let bytes = mixtape_win::dpapi::unprotect(sealed).map_err(|e| AppError::new(ErrorKind::Auth, e.to_string()))?;
     String::from_utf8(bytes).map_err(|e| AppError::new(ErrorKind::Auth, e.to_string()))
 }
 
 #[cfg(not(windows))]
-fn seal(text: &str) -> Result<Vec<u8>, AppError> {
+pub(crate) fn seal(text: &str) -> Result<Vec<u8>, AppError> {
     Ok(text.as_bytes().to_vec())
 }
 
 #[cfg(not(windows))]
-fn open(sealed: &[u8]) -> Result<String, AppError> {
+pub(crate) fn open(sealed: &[u8]) -> Result<String, AppError> {
     String::from_utf8(sealed.to_vec()).map_err(|e| AppError::new(ErrorKind::Auth, e.to_string()))
 }
 

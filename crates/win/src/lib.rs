@@ -83,6 +83,25 @@ pub fn show_child_windows(parent: isize, class: &str, show: bool) {
     let _ = (parent, class, show);
 }
 
+/// Opens an `https://` link in the default browser. Returns whether the shell took it.
+pub fn open_url(url: &str) -> bool {
+    if !url.starts_with("https://") {
+        return false;
+    }
+    #[cfg(windows)]
+    // SAFETY: both strings outlive the call; no window handle is passed.
+    unsafe {
+        use windows::Win32::UI::Shell::ShellExecuteW;
+        use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+        use windows::core::{HSTRING, PCWSTR, w};
+        let r = ShellExecuteW(None, w!("open"), &HSTRING::from(url), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL);
+        // Values above 32 mean success.
+        r.0 as usize > 32
+    }
+    #[cfg(not(windows))]
+    false
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[cfg(windows)]

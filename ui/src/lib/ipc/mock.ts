@@ -434,7 +434,7 @@ mockIPC(
       case "app_ready":
         return null;
       case "prefs_get":
-        return { smoothBackground: true, crossfade: false, crossfadeSec: 6, mixFullscreen: false, autoUpdate: true, iconStyle: "outline", language: lang, closeToTray: true };
+        return { smoothBackground: true, crossfade: false, crossfadeSec: 6, mixFullscreen: false, autoUpdate: true, iconStyle: "outline", language: lang, closeToTray: true, discordPresence: true };
       case "prefs_set":
         return null;
       case "autostart_get":
@@ -518,6 +518,8 @@ mockIPC(
       }
       case "stats_get":
         return demoStats(a.period as string);
+      case "integrations_status":
+        return { lastfmAvailable: true, lastfmUser: account.connected ? "demo" : undefined, lastfmPending: false, discordAvailable: true };
       case "storage_get":
         return { cacheBytes: 1_830_000_000, cacheLimit: 5 * 1024 ** 3, autosavePlays: 3, dataDir: "C:\\Users\\demo\\AppData\\Local\\Mixtape" };
     }
