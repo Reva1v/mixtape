@@ -1,17 +1,16 @@
 <script lang="ts">
-  // Play triangle drawn over the whole round button, like PauseGlyph: it shares the
-  // circle's box, so it stays centred and moves with the circle instead of snapping to
-  // whole pixels on its own. Nudged right by a little for optical balance.
+  // The Solar play triangle drawn over the whole round button, like PauseGlyph: it shares
+  // the circle's box, so it stays centred and moves with the circle instead of snapping to
+  // whole pixels on its own. Solar's 24-unit path already carries its optical nudge right.
   let { size = 20, box = 40 }: { size?: number; box?: number } = $props();
-  const h = $derived((size / box) * 100 * 0.82);
-  const w = $derived(h * 0.88);
-  const x = $derived(50 - w / 2 + w * 0.08);
-  const y = $derived(50 - h / 2);
-  const d = $derived(
-    `M${x} ${y + h * 0.1}Q${x} ${y} ${x + w * 0.09} ${y + h * 0.05}L${x + w * 0.95} ${50 - h * 0.05}Q${x + w} 50 ${x + w * 0.95} ${50 + h * 0.05}L${x + w * 0.09} ${y + h * 0.95}Q${x} ${y + h} ${x} ${y + h * 0.9}Z`,
-  );
+  const scale = $derived((size / box) * (100 / 24));
+  const shift = $derived(50 - 12 * scale);
 </script>
 
 <svg viewBox="0 0 100 100" class="pointer-events-none absolute inset-0 size-full" aria-hidden="true">
-  <path {d} fill="currentColor" />
+  <path
+    transform="translate({shift} {shift}) scale({scale})"
+    fill="currentColor"
+    d="M21.4086 9.35258C23.5305 10.5065 23.5305 13.4935 21.4086 14.6474L8.59662 21.6145C6.53435 22.736 4 21.2763 4 18.9671L4 5.0329C4 2.72368 6.53435 1.26402 8.59661 2.38548L21.4086 9.35258Z"
+  />
 </svg>
