@@ -9,6 +9,7 @@
   import IconSettings from "~icons/solar/settings-bold";
   import Logo from "../../assets/logo.svg?raw";
   import { pressable, springs } from "$lib/motion";
+  import { layout } from "$lib/stores/layout.svelte";
 
   type Item = { label: string; icon: Component; route: Route; match: Route["name"][] };
 
@@ -47,8 +48,11 @@
   <button
     type="button"
     aria-label={t.nav.home}
-    class="mb-5 size-11 [&>svg]:size-full {router.current.name === 'home' ? 'cursor-default' : ''}"
-    onclick={() => router.current.name !== "home" && router.go({ name: "home" })}
+    class="mb-5 size-11 [&>svg]:pointer-events-none [&>svg]:size-full"
+    onclick={() =>
+      router.current.name === "home"
+        ? layout.scrollEl?.scrollTo({ top: 0, behavior: "smooth" })
+        : router.go({ name: "home" })}
     {@attach pressable(0.92, springs.soft)}
   >
     {@html Logo}
