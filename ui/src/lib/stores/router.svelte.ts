@@ -1,5 +1,7 @@
 // A tiny in-memory router: a desktop app has no URL bar, just screens and history.
 
+import { layout } from "./layout.svelte";
+
 export type LibraryTab = "tracks" | "albums" | "artists" | "playlists" | "liked";
 
 export type Route =
@@ -35,6 +37,8 @@ class Router {
   }
 
   go(route: Route) {
+    // Pages open underneath the full-screen player, so leave it first.
+    layout.fullscreen = false;
     if (JSON.stringify(route) === JSON.stringify(this.current)) return;
     this.#back.push(this.#here());
     if (this.#back.length > 50) this.#back.shift();

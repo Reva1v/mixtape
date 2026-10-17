@@ -2,7 +2,6 @@
   // Artist names as links to their pages; names without an id stay plain text.
   import type { ArtistRef } from "$lib/ipc/bindings/ArtistRef";
   import { router } from "$lib/stores/router.svelte";
-  import { layout } from "$lib/stores/layout.svelte";
 
   let { artists }: { artists: ArtistRef[] } = $props();
 </script>
@@ -15,8 +14,6 @@
       class="hover:text-ink hover:underline"
       onclick={(e) => {
         e.stopPropagation();
-        // From the full-screen player (e.g. its queue) the page opens underneath it.
-        layout.fullscreen = false;
         router.go({ name: "artist", id: a.id! });
       }}>{a.name}</button
     >
