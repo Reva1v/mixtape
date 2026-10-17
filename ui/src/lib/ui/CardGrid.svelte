@@ -19,11 +19,28 @@
   let width = $state(0);
   const cols = $derived(Math.max(2, Math.floor((width + GAP) / (minWidth + GAP))));
   const rowIndices = $derived(Array.from({ length: Math.ceil(rows.count / cols) }, (_, i) => i));
+
+  // Where the grid starts inside the scroll content (see TrackList).
+  let host = $state<HTMLDivElement>();
+  let startMargin = $state(0);
+  $effect(() => {
+    const scroller = layout.scrollEl;
+    if (!host || !scroller) return;
+    const measure = () => {
+      startMargin = Math.round(
+        host!.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop,
+      );
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(scroller.firstElementChild ?? scroller);
+    return () => ro.disconnect();
+  });
 </script>
 
-<div class="px-7" bind:clientWidth={width}>
+<div class="px-8" bind:clientWidth={width} bind:this={host}>
   {#if layout.scrollEl && width > 0}
-    <Virtualizer data={rowIndices} scrollRef={layout.scrollEl} itemSize={cardHeight + GAP} getKey={(r) => r}>
+    <Virtualizer data={rowIndices} scrollRef={layout.scrollEl} itemSize={cardHeight + GAP} {startMargin} getKey={(r) => r}>
       {#snippet children(r: number)}
         <div class="grid pb-5" style:grid-template-columns="repeat({cols}, minmax(0, 1fr))" style:column-gap="{GAP}px">
           {#each { length: cols } as _, c (c)}
