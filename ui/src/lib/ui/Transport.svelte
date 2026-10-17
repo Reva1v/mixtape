@@ -30,7 +30,7 @@
     <button type="button" aria-label={t.player.prev} class="opacity-90 transition-transform hover:opacity-100 active:scale-90" onclick={() => player.prev()}>
       <IconPrev class="size-6" />
     </button>
-    <button type="button" aria-label={player.playing ? t.player.pause : t.player.play} class="transition-transform hover:scale-105 active:scale-90" onclick={() => player.toggle()}>
+    <button type="button" aria-label={player.playing ? t.player.pause : t.player.play} class="transition-[opacity,transform] duration-100 hover:opacity-80 active:scale-[0.93]" onclick={() => player.toggle()}>
       {#if busy}<IconLoader class="size-8 animate-spin" />{:else if player.playing}<IconPause class="size-8" />{:else}<IconPlay class="size-8" />{/if}
     </button>
     <button type="button" aria-label={t.player.next} class="opacity-90 transition-transform hover:opacity-100 active:scale-90" onclick={() => player.next()}>
@@ -49,7 +49,7 @@
     <button
       type="button"
       aria-label={player.playing ? t.player.pause : t.player.play}
-      class="grid size-10 place-items-center rounded-full bg-ink text-black transition-transform duration-150 hover:scale-105 active:scale-95"
+      class="grid size-10 place-items-center rounded-full bg-ink text-black transition-[background-color,transform] duration-100 hover:bg-[#dcdcdc] active:scale-[0.93]"
       onclick={() => player.toggle()}
     >
       {#if busy}<IconLoader class="size-5 animate-spin" />{:else if player.playing}<IconPause class="size-5" />{:else}<IconPlay class="size-5 translate-x-px" />{/if}

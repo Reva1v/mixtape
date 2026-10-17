@@ -52,7 +52,7 @@
           aria-label="Играть"
           class="absolute right-2.5 bottom-2.5 grid size-11 translate-y-1.5 place-items-center rounded-full bg-ink text-black
             opacity-0 shadow-[0_6px_20px_-4px_rgb(0_0_0/0.7)] transition-all duration-200 ease-out-soft
-            group-hover:translate-y-0 group-hover:opacity-100 hover:scale-105 active:scale-95"
+            group-hover:translate-y-0 group-hover:opacity-100 hover:bg-[#dcdcdc] active:scale-[0.93]"
           onclick={onplay}
         >
           <IconPlay class="size-5" />

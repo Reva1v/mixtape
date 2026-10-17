@@ -45,7 +45,7 @@
             type="button"
             aria-label={t.player.play}
             class="grid size-12 place-items-center rounded-full bg-ink text-black
-              transition-transform hover:scale-105 active:scale-95"
+              transition-[background-color,transform] duration-100 hover:bg-[#dcdcdc] active:scale-[0.93]"
             onclick={onplay}
           >
             <IconPlay class="size-5" />

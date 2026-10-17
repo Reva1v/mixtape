@@ -105,7 +105,7 @@
         <div class="flex items-center gap-2">
           <button
             type="button"
-            class="flex h-9 items-center gap-2 rounded-full bg-ink px-4 text-[13px] font-semibold text-black transition-transform hover:scale-[1.03] active:scale-95"
+            class="flex h-9 items-center gap-2 rounded-full bg-ink px-4 text-[13px] font-semibold text-black transition-[background-color,transform] duration-100 hover:bg-[#dcdcdc] active:scale-[0.96]"
             onclick={() => playAll(0, false)}
           >
             <IconPlay class="size-4" />{t.player.play}
