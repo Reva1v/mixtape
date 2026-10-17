@@ -99,8 +99,8 @@
   <!-- Darken heavily and keep only a soft glow behind the content. -->
   <div class="pointer-events-none absolute inset-0 bg-black/70"></div>
   <div
-    class="pointer-events-none absolute inset-0"
-    style:background="radial-gradient(60% 75% at {lyrics ? '30%' : '50%'} 50%, transparent 0%, rgb(0 0 0 / 0.55) 70%, rgb(0 0 0 / 0.85) 100%)"
+    class="vignette pointer-events-none absolute inset-0"
+    style:--vx={lyrics ? "30%" : "50%"}
   ></div>
 
 
@@ -118,13 +118,20 @@
 
   <div
     data-tauri-drag-region
-    class="relative grid h-full transition-[grid-template-columns,filter,opacity] duration-500 ease-out-soft {lyrics ? 'grid-cols-2' : 'grid-cols-1'}"
+    class="relative h-full transition-[filter,opacity] duration-500 ease-out-soft"
     style:filter={queueOpen ? "blur(28px)" : "none"}
     style:opacity={queueOpen ? 0.45 : 1}
   >
     {#if track}
       <!-- Player column -->
-      <section data-tauri-drag-region class="flex flex-col items-center justify-center px-8" style:width="100%" in:pop={{ scale: 0.97, y: 18, spring: springs.gentle }}>
+      <!-- The column slides from the centre to the middle of the left half with lyrics on;
+           only its transform animates. -->
+      <section
+        data-tauri-drag-region
+        class="absolute inset-0 flex flex-col items-center justify-center px-8 transition-transform duration-[650ms] ease-out-soft"
+        style:transform="translateX({lyrics ? '-25%' : '0'})"
+        in:pop={{ scale: 0.97, y: 18, spring: springs.gentle }}
+      >
         <div class="relative" style:width="{coverSize}px">
           <Cover coverKey={track.coverKey} size={coverSize} rounded="lg" class="shadow-[0_30px_80px_-24px_rgb(0_0_0/0.95)]" />
           <button
@@ -187,7 +194,11 @@
 
       {#if lyrics}
         <!-- Lyrics column (US5). -->
-        <section data-tauri-drag-region class="flex min-w-0 items-center pr-16 pl-4" transition:fade={{ duration: 250 }}>
+        <section
+          data-tauri-drag-region
+          class="absolute inset-y-0 right-0 flex w-1/2 min-w-0 items-center pr-16 pl-4"
+          transition:pop={{ x: 48, scale: 1, spring: springs.smooth }}
+        >
           <p class="text-[30px] leading-snug font-bold text-ink-3">Тексты песен появятся позже</p>
         </section>
       {/if}
@@ -212,6 +223,11 @@
 </div>
 
 <style>
+  /* Follows the player column; --vx is a registered property, so it animates. */
+  .vignette {
+    background: radial-gradient(60% 75% at var(--vx) 50%, transparent 0%, rgb(0 0 0 / 0.55) 70%, rgb(0 0 0 / 0.85) 100%);
+    transition: --vx 650ms var(--ease-out-soft);
+  }
   .layer {
     position: absolute;
     left: 50%;

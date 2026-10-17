@@ -28,6 +28,12 @@
 }
 
 /* Registered so the artwork glow can be animated between tracks. */
+@property --vx {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 50%;
+}
+
 @property --glow {
   syntax: "<color>";
   inherits: true;
