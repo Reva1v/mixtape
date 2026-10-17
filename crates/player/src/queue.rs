@@ -107,7 +107,8 @@ impl Queue {
 
     /// Replaces the queue with `tracks`, starting at `start`.
     pub fn set(&mut self, tracks: Vec<TrackId>, start: usize, context: QueueContext) {
-        self.items = tracks.into_iter().map(|t| self.make(t, Origin::Context)).collect::<Vec<_>>();
+        let origin = if matches!(context, QueueContext::Mix(_)) { Origin::Mix } else { Origin::Context };
+        self.items = tracks.into_iter().map(|t| self.make(t, origin)).collect::<Vec<_>>();
         self.current = (!self.items.is_empty()).then(|| start.min(self.items.len() - 1));
         self.context = context;
         self.original_order = None;

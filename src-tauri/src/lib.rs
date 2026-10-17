@@ -45,6 +45,16 @@ pub fn run() {
                     }
                 });
             }
+            // Likes made offline or before a failure go out now and then every few minutes.
+            {
+                let st = state.clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        commands::mix::flush_likes(&st);
+                        tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+                    }
+                });
+            }
             state.player.set_crossfade(commands::settings::Prefs::load(&state).crossfade_ms());
             tracing::debug!("setup: crossfade applied");
             // `setup` runs on the main (UI) thread, which the thumbnail toolbar needs.
@@ -79,7 +89,11 @@ pub fn run() {
             commands::library::artist_get,
             commands::library::playlist_get,
             commands::library::playlist_edit,
-            commands::library::track_set_liked,
+            commands::mix::track_set_liked,
+            commands::mix::track_download,
+            commands::mix::mix_start,
+            commands::mix::mix_select_chip,
+            commands::mix::mix_continue_local,
             commands::library::home_get,
             commands::player::player_subscribe,
             commands::player::play,

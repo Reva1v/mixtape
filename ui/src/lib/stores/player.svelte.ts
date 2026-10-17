@@ -44,6 +44,13 @@ class Player {
       applyAccent(e.palette);
     });
     await on("queue:changed", () => this.queueVersion++);
+    // The mix ran out and YouTube Music is out of reach.
+    await on("mix:offline", () =>
+      toasts.push("Нет связи с YouTube Music — микс не продолжается", "error", 12000, {
+        label: "Продолжить из библиотеки",
+        run: () => void invoke("mix_continue_local").catch(() => {}),
+      }),
+    );
     await invoke("player_subscribe", { channel });
   }
 
@@ -95,10 +102,11 @@ class Player {
   }
   /** Replaces the queue with a mix built from this track (US3). */
   async mix(trackId: string) {
+    toasts.push("Собираю микс…");
     try {
       await invoke("mix_start", { trackId });
-    } catch {
-      toasts.push("Миксы появятся на этапе «Включить микс» — нужен доступ к YouTube Music", "error");
+    } catch (e) {
+      toasts.push(e instanceof Error && e.message ? e.message : "Не удалось включить микс", "error");
     }
   }
 }

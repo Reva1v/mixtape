@@ -59,6 +59,10 @@ export function trackMenu(track: Track, extra: MenuItem[] = []): MenuItem[] {
     "separator",
     owned
       ? { label: t.track.remove, icon: IconTrash, danger: true, disabled: true, action: () => {} }
-      : { label: t.track.download, icon: IconDownload, disabled: true, action: () => {} },
+      : {
+          label: t.track.download,
+          icon: IconDownload,
+          action: () => void invoke("track_download", { id: track.id }).then(() => toasts.push("Добавлено в загрузки")),
+        },
   ];
 }

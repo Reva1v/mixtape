@@ -925,8 +925,10 @@ mod tests {
         let left = std::fs::read_dir(&tmp).unwrap().count();
         assert_eq!(left, 0, "cookie copy must not outlive the call");
 
-        // Cached now: a second call does not need the process.
-        assert!(r.cached(&TrackId::new("dQw4w9WgXcQ")).is_some());
+        // Cached now: a second call does not need the process. The fixture URL carries a real
+        // `expire`, so once that date passes the entry counts as stale.
+        let fresh = res[0].1.as_ref().unwrap().expires_at > now_unix() + EXPIRY_MARGIN_SECS;
+        assert_eq!(r.cached(&TrackId::new("dQw4w9WgXcQ")).is_some(), fresh);
         std::fs::remove_dir_all(&dir).ok();
     }
 

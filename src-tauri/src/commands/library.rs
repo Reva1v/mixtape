@@ -248,20 +248,6 @@ pub async fn playlist_edit(
     Ok(res)
 }
 
-/// Likes are local for now; sending them to YouTube Music arrives with the like outbox (T077).
-#[tauri::command]
-pub async fn track_set_liked(
-    app: AppHandle,
-    state: State<'_, Arc<AppState>>,
-    id: TrackId,
-    liked: bool,
-) -> CmdResult<()> {
-    let st = state.inner().clone();
-    blocking(move || Ok(st.db.write(move |t| repo::set_liked(t, &id, liked))?)).await?;
-    emit_changed(&app, &[ViewKind::Liked, ViewKind::Tracks]);
-    Ok(())
-}
-
 #[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]

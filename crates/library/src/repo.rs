@@ -549,6 +549,27 @@ pub fn liked_count(conn: &Connection) -> Result<u32> {
     Ok(conn.query_row("SELECT count(*) FROM tracks WHERE liked = 1", [], |r| r.get(0))?)
 }
 
+/// Library tracks by the artists of `seeds` in random order, then other library tracks:
+/// what a mix plays when YouTube Music is out of reach.
+pub fn offline_mix_ids(conn: &Connection, seeds: &[TrackId], limit: usize) -> Result<Vec<TrackId>> {
+    let seeds_json = serde_json::to_string(&seeds.iter().map(|t| t.as_str()).collect::<Vec<_>>())
+        .unwrap_or_else(|_| "[]".into());
+    let mut stmt = conn.prepare_cached(
+        "WITH seed_artists AS (
+             SELECT DISTINCT ta.name FROM track_artists ta
+             WHERE ta.track_id IN (SELECT value FROM json_each(?1))
+         )
+         SELECT t.id FROM tracks t
+         WHERE t.state = 'downloaded' AND t.id NOT IN (SELECT value FROM json_each(?1))
+         ORDER BY EXISTS (
+             SELECT 1 FROM track_artists ta WHERE ta.track_id = t.id AND ta.name IN (SELECT name FROM seed_artists)
+         ) DESC, random()
+         LIMIT ?2",
+    )?;
+    let ids = stmt.query_map(params![seeds_json, limit as i64], |r| Ok(TrackId(r.get(0)?)))?;
+    Ok(ids.collect::<std::result::Result<_, _>>()?)
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -570,6 +591,24 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().unwrap();
         let db = Db::open(&dir.path().join("t.db")).unwrap();
         (dir, db)
+    }
+
+    #[test]
+    fn offline_mix_prefers_seed_artists_and_skips_queued() {
+        let (_d, db) = db();
+        db.write(|t| {
+            for (id, artist) in [("s", ("a1", "A")), ("x", ("a1", "A")), ("y", ("a2", "B")), ("r", ("a1", "A"))] {
+                upsert_track(t, &meta(id, id, artist, None))?;
+                if id != "r" {
+                    set_state(t, &TrackId::from(id), TrackState::Downloaded)?;
+                }
+            }
+            Ok(())
+        })
+        .unwrap();
+        let ids = db.read(|c| offline_mix_ids(c, &[TrackId::from("s")], 10)).unwrap();
+        let names: Vec<&str> = ids.iter().map(|t| t.as_str()).collect();
+        assert_eq!(names, ["x", "y"], "same artist first, no seed, no remote tracks");
     }
 
     #[test]

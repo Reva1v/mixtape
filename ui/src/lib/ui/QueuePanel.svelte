@@ -13,6 +13,8 @@
   import IconButton from "./IconButton.svelte";
   import IconX from "~icons/solar/close-circle-linear";
   import IconRadio from "~icons/solar/radio-minimalistic-linear";
+  import IconStream from "~icons/solar/cloud-linear";
+  import IconCached from "~icons/solar/cloud-check-linear";
 
   /** `cards`: every row is its own translucent card (full-screen player). */
   let { variant = "panel" }: { variant?: "panel" | "cards" } = $props();
@@ -229,6 +231,11 @@
       <div class="flex items-center gap-2">
         {#if isCurrent}<Equalizer playing={player.playing} />{/if}
         <span class="truncate text-[13.5px] {isCurrent ? 'font-semibold text-ink' : 'text-ink'}">{e.track.title}</span>
+        {#if e.track.state === "remote"}
+          <span class="shrink-0 text-ink-3" title="Играет из сети"><IconStream class="size-3.5" /></span>
+        {:else if e.track.state === "cached"}
+          <span class="shrink-0 text-ink-3" title="В кэше"><IconCached class="size-3.5" /></span>
+        {/if}
       </div>
       <div class="truncate text-[12px] text-ink-3"><ArtistLinks artists={e.track.artists} /></div>
     </div>

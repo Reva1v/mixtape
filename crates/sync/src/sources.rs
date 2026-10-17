@@ -85,7 +85,7 @@ pub async fn run<Y: YtMusic>(
     stage(SyncStage::Covers { done: 0, total: 0 });
     let covers = fetch_covers(http, covers, &collected, &stage).await;
     stage(SyncStage::Saving);
-    save(db, collected, covers).map_err(|e| YtError::Parse(format!("библиотека: {e}")))
+    save(db, collected, covers, true).map_err(|e| YtError::Parse(format!("библиотека: {e}")))
 }
 
 async fn collect<Y: YtMusic>(yt: &Y, plan: &SyncPlan, stage: &impl Fn(SyncStage)) -> Result<Collected, YtError> {
@@ -212,7 +212,7 @@ async fn fetch_covers(http: &reqwest::Client, covers: &CoverStore, c: &Collected
     Covers { available, palettes }
 }
 
-fn save(db: &Db, c: Collected, covers: Covers) -> mixtape_library::Result<SyncReport> {
+fn save(db: &Db, c: Collected, covers: Covers, enqueue: bool) -> mixtape_library::Result<SyncReport> {
     let mut report = SyncReport { errors: c.errors.clone(), ..Default::default() };
     report.tracks = c.tracks.iter().map(|t| &t.id).collect::<HashSet<_>>().len();
     let queued = db.write(move |t| {
@@ -272,7 +272,7 @@ fn save(db: &Db, c: Collected, covers: Covers) -> mixtape_library::Result<SyncRe
                 },
             )?;
             let source = c.sources.get(&tr.id).map(String::as_str).unwrap_or("sync");
-            if jobs::enqueue(t, &tr.id, source)?.is_some() {
+            if enqueue && jobs::enqueue(t, &tr.id, source)?.is_some() {
                 queued += 1;
             }
         }
@@ -305,6 +305,21 @@ pub fn save_library_artists(db: &Db, artists: Vec<Artist>) -> mixtape_library::R
         }
         Ok(())
     })
+}
+
+/// Stores catalog tracks (a mix page, search results) with their covers, without queueing
+/// downloads; they stay `remote` until played or saved. Returns their ids in order.
+pub async fn store_tracks(
+    http: &reqwest::Client,
+    db: &Db,
+    covers: &CoverStore,
+    tracks: Vec<YtTrack>,
+) -> mixtape_library::Result<Vec<TrackId>> {
+    let ids = tracks.iter().map(|t| t.id.clone()).collect();
+    let c = Collected { tracks, ..Default::default() };
+    let covers = fetch_covers(http, covers, &c, &|_| {}).await;
+    save(db, c, covers, false)?;
+    Ok(ids)
 }
 
 /// Counts for the sync screen before anything is written.
@@ -389,6 +404,6 @@ pub async fn import_link<Y: YtMusic>(
         }
     };
     let covers = fetch_covers(http, covers, &c, &|_| {}).await;
-    save(db, c, covers).map_err(|e| YtError::Parse(format!("библиотека: {e}")))?;
+    save(db, c, covers, true).map_err(|e| YtError::Parse(format!("библиотека: {e}")))?;
     Ok(result)
 }

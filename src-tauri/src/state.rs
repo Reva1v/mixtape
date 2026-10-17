@@ -68,6 +68,7 @@ impl AppState {
             db.clone(),
             paths.root.clone(),
             Arc::new(move |ev| crate::events::on_player_event(&handle, ev)),
+            None,
         )?;
         tracing::debug!("player started");
         let yt = Arc::new(InnerTube::new("ru", "RU")?);

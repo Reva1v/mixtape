@@ -18,6 +18,12 @@ pub trait LikeApi: Send + Sync {
     ) -> impl Future<Output = Result<(), YtError>> + Send;
 }
 
+impl LikeApi for mixtape_yt::innertube::InnerTube {
+    async fn set_like(&self, id: &TrackId, liked: bool) -> Result<(), YtError> {
+        mixtape_yt::innertube::InnerTube::set_like(self, id, liked).await
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FlushReport {
     pub sent: u32,

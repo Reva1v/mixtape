@@ -1,5 +1,6 @@
 pub mod library;
 pub mod dev;
+pub mod mix;
 pub mod player;
 pub mod settings;
 pub mod sync;

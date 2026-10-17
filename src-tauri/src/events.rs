@@ -54,8 +54,13 @@ pub fn on_player_event(app: &AppHandle, ev: PlayerEvent) {
         }
         PlayerEvent::QueueChanged => {
             let _ = app.emit("queue:changed", ());
+            crate::commands::mix::top_up(st.inner());
         }
-        PlayerEvent::Played { .. } => {}
+        PlayerEvent::Played { track_id, full, full_plays } => {
+            if full {
+                crate::commands::mix::autosave(st.inner(), &track_id, full_plays);
+            }
+        }
         PlayerEvent::Error(msg) => toast_error(app, msg),
     }
 }
