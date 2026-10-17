@@ -1,6 +1,7 @@
 <script lang="ts">
-  import type { Snippet } from "svelte";
+  import { untrack, type Snippet } from "svelte";
   import { blurIn, fadeSpring, rise } from "$lib/motion";
+  import { visible } from "$lib/stores/visible.svelte";
 
   interface Props {
     open: boolean;
@@ -11,6 +12,14 @@
   }
 
   let { open, title, onclose, width = 440, children }: Props = $props();
+
+  // The backdrop blur is recomputed whenever anything under it changes: progress bars,
+  // equalizers and the full-screen backdrop hold still while a modal is open.
+  $effect(() => {
+    if (!open) return;
+    untrack(() => visible.modals++);
+    return () => untrack(() => visible.modals--);
+  });
 
   function onKey(e: KeyboardEvent) {
     if (open && e.key === "Escape") {

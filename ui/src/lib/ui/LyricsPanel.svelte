@@ -23,18 +23,20 @@
 </script>
 
 <script lang="ts">
-  // Lyrics beside the full-screen player (US5). Synced lines follow playback: the current
-  // one is found by binary search every animation frame and springs to ~40 % of the
+  // Lyrics beside the full-screen player (US5). Synced lines follow playback: a timer
+  // fires when the next line starts, and the current line springs to ~40 % of the
   // height; scrolling by hand pauses that for a few seconds. Clicking a line seeks.
   import { untrack } from "svelte";
   import { invoke, type IpcError } from "$lib/ipc";
   import { player } from "$lib/stores/player.svelte";
-  import { animate, fadeSpring, springs } from "$lib/motion";
+  import { visible } from "$lib/stores/visible.svelte";
+  import { fadeSpring, springCss, springs } from "$lib/motion";
   import IconMinus from "~icons/solar/minus-linear";
   import IconPlus from "~icons/solar/add-linear";
   import IconLyrics from "~icons/solar/microphone-2-linear";
 
-  let { trackId }: { trackId: string } = $props();
+  /** `paused`: covered (the queue sheet), so the current line stops moving. */
+  let { trackId, paused = false }: { trackId: string; paused?: boolean } = $props();
 
   type View =
     | { status: "loading" }
@@ -84,47 +86,67 @@
   }
   const offsetLabel = $derived(`${offset > 0 ? "+" : offset < 0 ? "−" : ""}${Math.abs(offset / 1000).toFixed(1)} с`);
 
-  // Current line: per frame while playing, once per update otherwise.
+  // Current line: worked out on every position/status change, then again by a timer set
+  // for the moment the next line starts (no per-frame loop).
   let active = $state(-1);
   $effect(() => {
     const ls = lines;
     const off = offset;
     void player.state.positionMs;
-    void player.state.status;
+    const playing = player.playing && visible.live && !paused;
     if (!ls.length) return;
-    let raf = 0;
+    let id = 0;
     const tick = () => {
-      const i = lineAt(ls, player.livePosition() - off);
+      const pos = player.livePosition() - off;
+      const i = lineAt(ls, pos);
       if (i !== active) active = i;
-      if (player.playing) raf = requestAnimationFrame(tick);
+      const next = ls[i + 1];
+      if (playing && next) id = window.setTimeout(tick, Math.max(16, next.ms - pos + 4));
     };
-    tick();
-    return () => cancelAnimationFrame(raf);
+    untrack(tick);
+    return () => clearTimeout(id);
   });
 
-  // Following the current line.
+  // Following the current line. The glide is a spring on the compositor: the list jumps
+  // to its new scroll position and the lines' container is shifted back by the same
+  // amount, then springs to rest (WAAPI transform), so no script runs per frame.
   const PAUSE_MS = 4000;
+  const glide = springCss(springs.gentle);
   let scroller = $state<HTMLElement>();
+  let content = $state<HTMLElement>();
   let pausedUntil = 0;
   let resumeTimer = 0;
-  let scrollAnim: { stop: () => void } | null = null;
+  let scrollAnim: Animation | null = null;
+
+  /** Stops a glide where it is: the offset still in the transform goes into scrollTop. */
+  function settle() {
+    if (!scrollAnim) return;
+    const shift = content ? new DOMMatrixReadOnly(getComputedStyle(content).transform).m42 : 0;
+    scrollAnim.cancel();
+    scrollAnim = null;
+    if (scroller && shift) scroller.scrollTop -= shift;
+  }
 
   function follow(instant = false) {
     const el = scroller;
-    if (!el || performance.now() < pausedUntil) return;
-    const row = active >= 0 ? el.querySelector<HTMLElement>(`[data-line="${active}"]`) : null;
+    if (!el || !content || performance.now() < pausedUntil) return;
+    settle();
+    const row = active >= 0 ? content.querySelector<HTMLElement>(`[data-line="${active}"]`) : null;
     const max = el.scrollHeight - el.clientHeight;
-    const target = row ? Math.min(max, Math.max(0, row.offsetTop + row.offsetHeight / 2 - el.clientHeight * 0.4)) : 0;
-    scrollAnim?.stop();
-    if (instant) {
-      el.scrollTop = target;
-      return;
-    }
-    scrollAnim = animate(el.scrollTop, target, {
-      type: "spring",
-      ...springs.gentle,
-      onUpdate: (v: number) => (el.scrollTop = v),
+    const top = row ? content.offsetTop + row.offsetTop : 0;
+    const target = row ? Math.min(max, Math.max(0, top + row.offsetHeight / 2 - el.clientHeight * 0.4)) : 0;
+    const from = el.scrollTop;
+    el.scrollTop = target;
+    const d = el.scrollTop - from;
+    if (instant || Math.abs(d) < 0.5) return;
+    const anim = content.animate([{ transform: `translateY(${d}px)` }, { transform: "translateY(0)" }], {
+      duration: parseFloat(glide.ms),
+      easing: glide.ease,
     });
+    anim.onfinish = () => {
+      if (scrollAnim === anim) scrollAnim = null;
+    };
+    scrollAnim = anim;
   }
 
   $effect(() => {
@@ -143,7 +165,7 @@
 
   /** Wheel, drag or keys on the list: stop following for a while. */
   function userScroll() {
-    scrollAnim?.stop();
+    settle();
     pausedUntil = performance.now() + PAUSE_MS;
     clearTimeout(resumeTimer);
     resumeTimer = window.setTimeout(() => follow(), PAUSE_MS + 20);
@@ -158,7 +180,15 @@
 
   $effect(() => () => {
     clearTimeout(resumeTimer);
-    scrollAnim?.stop();
+    scrollAnim?.cancel();
+  });
+
+  // Passive: following stops, but the wheel never waits for script to scroll the list.
+  $effect(() => {
+    const el = scroller;
+    if (!el) return;
+    el.addEventListener("wheel", userScroll, { passive: true });
+    return () => el.removeEventListener("wheel", userScroll);
   });
 </script>
 
@@ -219,12 +249,12 @@
     <div
       bind:this={scroller}
       class="scroller h-full overflow-y-auto"
-      onwheel={userScroll}
       onpointerdown={(e) => e.target === scroller && userScroll()}
       onkeydown={userScroll}
       ontouchmove={userScroll}
       in:fadeSpring
     >
+      <div class="relative" bind:this={content}>
       {#each view.lyrics.lines as line, i (i)}
         <button
           type="button"
@@ -236,6 +266,7 @@
           {line.text || "• • •"}
         </button>
       {/each}
+      </div>
     </div>
   {:else if view.status === "ready"}
     <div class="scroller plain h-full overflow-y-auto" in:fadeSpring>

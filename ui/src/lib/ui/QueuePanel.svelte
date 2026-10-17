@@ -1,5 +1,12 @@
 <script lang="ts">
-  import { dragScroll } from "$lib/motion";
+  // The queue: one list, the playing track highlighted. Virtualized (only the rows in
+  // view, plus a margin, exist), so a long queue costs no more than a short one. Rows are
+  // dragged with the pointer; the others slide aside; dropping on the playing row plays
+  // the dragged track instead.
+  import { Virtualizer, type VirtualizerHandle } from "virtua/svelte";
+  import type { Attachment } from "svelte/attachments";
+  import type { TransitionConfig } from "svelte/transition";
+  import { dragScroll, springCss, springs } from "$lib/motion";
   import ArtistLinks from "./ArtistLinks.svelte";
   import { invoke } from "$lib/ipc";
   import type { QueueView } from "$lib/ipc/bindings/QueueView";
@@ -15,22 +22,102 @@
   import IconRadio from "~icons/solar/radio-minimalistic-linear";
   import IconStream from "~icons/solar/cloud-linear";
   import IconCached from "~icons/solar/cloud-check-linear";
+  import IconLoader from "~icons/lucide/loader-circle";
 
   /** `cards`: every row is its own translucent card (full-screen player). */
   let { variant = "panel" }: { variant?: "panel" | "cards" } = $props();
   const cards = $derived(variant === "cards");
 
   let view = $state.raw<QueueView | null>(null);
+  let fetchSeq = 0;
+
+  function refetch() {
+    const n = ++fetchSeq;
+    return invoke<QueueView>("queue_get").then((v) => {
+      if (n === fetchSeq) apply(v);
+    });
+  }
 
   $effect(() => {
     void player.queueVersion;
     void player.currentId;
-    void invoke<QueueView>("queue_get").then((v) => (view = v));
+    void refetch();
   });
 
   const items = $derived(view?.items ?? []);
   const currentIndex = $derived(view?.current ?? -1);
-  const hasUpcoming = $derived(items.length > currentIndex + 1);
+
+  // Building a mix (started anywhere, or another chip picked): from the request until the
+  // queue that follows it has arrived, the list keeps what has played and the playing
+  // track, and placeholder rows stand in for what comes next.
+  let awaiting = $state(false);
+  const building = $derived(player.mixPending || awaiting);
+  let wasPending = false;
+  $effect(() => {
+    if (player.mixPending) {
+      wasPending = true;
+      fading = true;
+      scrolledOnce = false;
+      return;
+    }
+    if (!wasPending) return;
+    wasPending = false;
+    awaiting = true;
+    void refetch().finally(() => (awaiting = false));
+  });
+
+  const shown = $derived(building ? items.slice(0, currentIndex + 1) : items);
+  const hasUpcoming = $derived(!building && items.length > currentIndex + 1);
+
+  // Rows that appear in an update (new mix, another chip, the next page of a mix, tracks
+  // added) slide up and fade in, staggered; only rows mounted right then (the ones in
+  // view) animate, and never on the panel's first load. Rows a mix replaces fade out.
+  const ENTER = springCss(springs.snappy);
+  const STAGGER_MS = 35;
+  const MAX_STAGGERED = 12;
+  let entering = new Set<number>();
+  let enterCount = 0;
+  let fading = false;
+  let settleTimer = 0;
+  const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function apply(v: QueueView) {
+    if (view && !reducedMotion()) {
+      const before = new Set(shown.map((e) => e.uid));
+      const fresh = v.items.filter((e) => !before.has(e.uid)).map((e) => e.uid);
+      if (fresh.length) {
+        entering = new Set(fresh);
+        enterCount = 0;
+      }
+      fading ||= building;
+      clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(() => {
+        entering.clear();
+        fading = player.mixPending;
+      }, 400);
+    }
+    view = v;
+  }
+
+  function enterRow(uid: number): Attachment<HTMLElement> {
+    return (el) => {
+      if (!entering.delete(uid)) return;
+      const anim = el.animate(
+        [
+          { opacity: 0, transform: "translateY(10px)" },
+          { opacity: 1, transform: "translateY(0)" },
+        ],
+        { duration: parseFloat(ENTER.ms), easing: ENTER.ease, delay: Math.min(enterCount++, MAX_STAGGERED) * STAGGER_MS, fill: "backwards" },
+      );
+      return () => anim.cancel();
+    };
+  }
+
+  function leaveRow(_node: Element): TransitionConfig {
+    return fading && !reducedMotion() ? { duration: 140, easing: (t) => t, css: (t) => `opacity:${t}` } : { duration: 0 };
+  }
+
+  $effect(() => () => clearTimeout(settleTimer));
 
   // Drag to reorder queue items: the grabbed row follows the pointer, the others
   // slide aside, and on release it settles into its slot before the move is sent.
@@ -51,19 +138,18 @@
   let drag = $state<Drag | null>(null);
   let instant = $state(false);
   let listEl = $state<HTMLDivElement>();
-  let upEl = $state<HTMLDivElement>();
+  let vlist = $state<VirtualizerHandle>();
   let raf = 0;
 
-  function rowStep(): number {
-    const rows = upEl?.querySelectorAll<HTMLElement>("[data-row]");
-    if (!rows?.length) return 56;
-    if (rows.length > 1) return rows[1].offsetTop - rows[0].offsetTop;
-    const cs = getComputedStyle(rows[0]);
-    return rows[0].offsetHeight + parseFloat(cs.marginBottom);
+  /** Row pitch: 56 px rows, or 64 px cards with an 8 px gap. */
+  const ROW = $derived(cards ? 72 : 56);
+
+  function rowStep(i: number): number {
+    return vlist?.getItemSize(i) || ROW;
   }
 
   function down(ev: PointerEvent, i: number, uid: number) {
-    if (ev.button !== 0 || (ev.target as HTMLElement).closest("button")) return;
+    if (building || ev.button !== 0 || (ev.target as HTMLElement).closest("button")) return;
     drag = {
       uid,
       from: i,
@@ -72,7 +158,7 @@
       startScroll: listEl?.scrollTop ?? 0,
       y: ev.clientY,
       dy: 0,
-      step: rowStep(),
+      step: rowStep(i),
       active: false,
       settling: false,
       replace: false,
@@ -188,23 +274,18 @@
     return `transform: translateY(${shift}px);`;
   }
 
-  // Bring the playing track into view when the queue opens.
+  // Bring the playing track into view when the queue opens. Only the list scrolls:
+  // scrollIntoView would also scroll every ancestor, including the full-screen player.
   let scrolledOnce = false;
   $effect(() => {
-    if (scrolledOnce || !view || !upEl) return;
+    if (scrolledOnce || !view || !vlist) return;
     scrolledOnce = true;
-    // Scroll only the list: scrollIntoView would also scroll every ancestor, including
-    // the full-screen player, and shift it under its fixed background.
-    queueMicrotask(() => {
-      const row = upEl?.querySelector<HTMLElement>("[data-current]");
-      if (!row || !listEl) return;
-      const top = row.getBoundingClientRect().top - listEl.getBoundingClientRect().top + listEl.scrollTop;
-      listEl.scrollTop = top - listEl.clientHeight / 2 + row.offsetHeight / 2;
-    });
+    const at = currentIndex;
+    if (at > 0) queueMicrotask(() => vlist?.scrollToIndex(at, { align: "center" }));
   });
 
   function selectChip(id: string) {
-    void invoke("mix_select_chip", { chipId: id });
+    void player.selectChip(id);
   }
 </script>
 
@@ -220,6 +301,8 @@
       {isCurrent && drag?.active && drag.replace ? 'ring-2! ring-white/70!' : ''}
       {!isCurrent ? (drag?.active && drag.from === i ? 'cursor-grabbing bg-[#1a1a1c]/90 shadow-[0_16px_40px_-10px_rgb(0_0_0/0.8)]' : 'cursor-grab') : ''}"
     style={rowStyle(i)}
+    {@attach enterRow(e.uid)}
+    out:leaveRow|global
     onpointerdown={(ev) => !isCurrent && down(ev, i, e.uid)}
     oncontextmenu={(ev) => {
       ev.preventDefault();
@@ -275,14 +358,43 @@
   {/if}
 
   <div bind:this={listEl} class="min-h-0 flex-1 overflow-y-auto px-3 pb-4 {drag?.active ? 'select-none' : ''}" role="list">
-    {#if !view || items.length === 0}
+    {#if (!view || items.length === 0) && !building}
       <p class="px-2 pt-6 text-center text-[13px] text-ink-3">{t.queue.empty}</p>
-    {:else}
-      <div bind:this={upEl}>
-        {#each items as e, i (e.uid)}
+    {:else if listEl}
+      <!-- The dragged row stays mounted however far it travels, and above its
+           neighbours (each item is its own stacking context). -->
+      <Virtualizer
+        bind:this={vlist}
+        data={shown}
+        scrollRef={listEl}
+        itemSize={ROW}
+        getKey={(e) => e.uid}
+        keepMounted={drag?.active ? [drag.from] : undefined}
+        itemProps={({ index }) => (drag?.active && index === drag.from ? { style: { "z-index": "10" } } : undefined)}
+      >
+        {#snippet children(e: QueueEntry, i: number)}
           {@render row(e, i, i === currentIndex)}
-        {/each}
-      </div>
+        {/snippet}
+      </Virtualizer>
+      {#if building}
+        <div aria-busy="true">
+          <div class="flex items-center gap-2 px-2 pt-2 pb-2.5 text-[12.5px] text-ink-3">
+            <IconLoader class="size-3.5 animate-spin" />{t.queue.building}
+          </div>
+          {#each [0.9, 0.7, 0.5, 0.35, 0.2] as fade, k (k)}
+            <div
+              class="flex h-14 items-center gap-3 px-2 {cards ? 'mb-2 h-16 rounded-xl bg-[#0e0e10]/60 px-3 ring-1 ring-white/[0.04]' : ''}"
+              style:opacity={fade}
+            >
+              <div class="size-10 shrink-0 animate-pulse rounded-sm bg-fill-3" style:animation-delay="{k * 120}ms"></div>
+              <div class="min-w-0 flex-1 space-y-2">
+                <div class="h-3 animate-pulse rounded bg-fill-3" style:width="{[58, 44, 66, 50, 40][k]}%" style:animation-delay="{k * 120}ms"></div>
+                <div class="h-2.5 animate-pulse rounded bg-fill-2" style:width="{[34, 28, 40, 30, 24][k]}%" style:animation-delay="{k * 120}ms"></div>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
     {/if}
   </div>
 </div>

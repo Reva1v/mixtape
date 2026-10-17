@@ -43,17 +43,29 @@
 /* The header tint: the track's glow, or a page's own colour (an artist page). */
 @property --page-glow {
   syntax: "<color>";
-  inherits: true;
+  inherits: false;
   initial-value: #2a2a2e;
 }
 
-:root {
-  transition: --glow 1.1s cubic-bezier(0.4, 0, 0.2, 1);
+/* The progress fill's copy of the glow. */
+@property --glow-fill {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: #2a2a2e;
 }
+
+/* --glow itself changes at once; only the few elements that paint it fade to the new
+   colour. Transitioning an inherited property on :root would restyle the whole
+   document on every frame of the fade. */
 [data-page-glow] {
-  transition: --page-glow 0.9s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: --page-glow 1.1s cubic-bezier(0.4, 0, 0.2, 1);
 }
-:root.instant-bg {
+.glow-fill {
+  --glow-fill: var(--glow);
+  transition: --glow-fill 1.1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+:root.instant-bg [data-page-glow],
+:root.instant-bg .glow-fill {
   transition: none;
 }
 

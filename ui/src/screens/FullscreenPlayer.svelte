@@ -3,12 +3,15 @@
   // volume) over a dark backdrop lit by the cover's colours. With lyrics on, the column
   // moves to the left half and lyrics take the right half.
   //
-  // The backdrop is the 64 px cover stretched over the window in slowly drifting layers:
-  // upscaling blurs it for free and only transform/opacity animate.
+  // The backdrop is the 64 px cover stretched over the window in slowly drifting layers
+  // (`CoverBackdrop`). While the queue sheet covers the player, everything under its blur
+  // holds still, so the blur is not recomputed.
+  import { setContext } from "svelte";
   import { coverUrl } from "$lib/ipc";
   import { player } from "$lib/stores/player.svelte";
   import { prefs } from "$lib/stores/prefs.svelte";
   import { layout } from "$lib/stores/layout.svelte";
+  import { visible } from "$lib/stores/visible.svelte";
   import { router } from "$lib/stores/router.svelte";
   import { menu } from "$lib/stores/overlay.svelte";
   import { t } from "$lib/i18n/ru";
@@ -25,6 +28,10 @@
   import IconQueue from "~icons/solar/playlist-minimalistic-linear";
   import QueuePanel from "$lib/ui/QueuePanel.svelte";
   import LyricsPanel from "$lib/ui/LyricsPanel.svelte";
+  import CoverBackdrop from "$lib/ui/CoverBackdrop.svelte";
+
+  // Equalizers in the queue here are not hidden by this overlay.
+  setContext("fullscreen-player", true);
 
   const track = $derived(player.track);
   const bg = $derived(coverUrl(track?.coverKey, 64));
@@ -90,10 +97,7 @@
 <div class="fixed inset-0 z-40 overflow-hidden bg-[#070709]" transition:fadeSpring data-tauri-drag-region>
   {#key bg}
     <div class="pointer-events-none absolute inset-0" transition:fade={{ duration: prefs.value.smoothBackground ? 1400 : 0 }}>
-      {#if bg}
-        <img src={bg} alt="" class="layer layer-a" />
-        <img src={bg} alt="" class="layer layer-b" />
-      {/if}
+      <CoverBackdrop src={bg} running={player.playing && visible.live && !queueOpen} />
     </div>
   {/key}
   <!-- Darken heavily and keep only a soft glow behind the content. -->
@@ -166,7 +170,7 @@
           </div>
         </div>
 
-        <Timeline class="mt-6" style="width: {coverSize + 80}px" />
+        <Timeline class="mt-6" style="width: {coverSize + 80}px" paused={queueOpen} />
 
         <div class="mt-5"><Transport variant="full" /></div>
 
@@ -200,7 +204,7 @@
           class="absolute inset-y-0 right-0 w-1/2 min-w-0 pr-16 pl-4"
           transition:pop={{ x: 48, scale: 1, spring: springs.smooth }}
         >
-          <LyricsPanel trackId={track.id} />
+          <LyricsPanel trackId={track.id} paused={queueOpen} />
         </section>
       {/if}
     {/if}
@@ -228,33 +232,5 @@
   .vignette {
     background: radial-gradient(60% 75% at var(--vx) 50%, transparent 0%, rgb(0 0 0 / 0.55) 70%, rgb(0 0 0 / 0.85) 100%);
     transition: --vx 650ms var(--ease-out-soft);
-  }
-  .layer {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    width: 130vmax;
-    height: 130vmax;
-    object-fit: cover;
-    /* Softens the edges between the 64 px thumbnail's upscaled pixels without
-       changing the look; the filtered layer is rasterised once. */
-    filter: blur(12px) saturate(1.6);
-    will-change: transform;
-  }
-  .layer-a {
-    animation: drift-a 40s ease-in-out infinite alternate;
-  }
-  .layer-b {
-    opacity: 0.5;
-    mix-blend-mode: screen;
-    animation: drift-b 52s ease-in-out infinite alternate;
-  }
-  @keyframes drift-a {
-    from { transform: translate(-50%, -50%) rotate(0deg) scale(1.1); }
-    to { transform: translate(-47%, -53%) rotate(20deg) scale(1.25); }
-  }
-  @keyframes drift-b {
-    from { transform: translate(-53%, -47%) rotate(170deg) scale(1.2); }
-    to { transform: translate(-50%, -50%) rotate(140deg) scale(1.05); }
   }
 </style>

@@ -72,9 +72,15 @@
       y: Math.round(Math.min(Math.max(4, y), window.innerHeight - r.height - 4)),
     };
   });
+
+  // Passive, so scrolling never waits for this handler.
+  $effect(() => {
+    document.addEventListener("wheel", hide, { passive: true });
+    return () => document.removeEventListener("wheel", hide);
+  });
 </script>
 
-<svelte:document onpointerover={over} onpointerdown={hide} onwheel={hide} onkeydown={hide} />
+<svelte:document onpointerover={over} onpointerdown={hide} onkeydown={hide} />
 <svelte:window onblur={hide} />
 
 {#if anchor}

@@ -10,7 +10,7 @@
     <div
       animate:flip={{ duration: 260, easing: (t) => 1 - (1 - t) ** 3 }}
       transition:pop={{ y: 14, scale: 0.9 }}
-      class="pointer-events-auto flex items-center rounded-full text-[13px] shadow-pop backdrop-blur-xl {tone}"
+      class="pointer-events-auto flex items-center rounded-full text-[13px] shadow-pop {tone}"
     >
       <button type="button" class="py-2 pl-4 {toast.action ? 'pr-2' : 'pr-4'}" onclick={() => toasts.dismiss(toast.id)}>
         {toast.text}

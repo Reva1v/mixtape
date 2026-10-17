@@ -148,16 +148,19 @@ export function springWidth(el: HTMLElement, to: number | string, s: Spring = sp
 
 export { animate };
 
+/** A spring as a CSS duration (`"512ms"`) and `linear()` easing, for CSS and WAAPI. */
+export function springCss(s: Spring): { ms: string; ease: string } {
+  const [ms, ...rest] = String(spring({ keyframes: [0, 1], ...s })).split(" ");
+  return { ms, ease: rest.join(" ") };
+}
+
 /**
  * Makes plain CSS transitions spring-shaped: `--ease-spring` / `--ease-out-soft` and
  * Tailwind's default timing function become `linear()` curves sampled from springs.
  */
 export function installSpringCss() {
   const root = document.documentElement.style;
-  const css = (s: Spring) => {
-    const [ms, ...rest] = String(spring({ keyframes: [0, 1], ...s })).split(" ");
-    return { ms, ease: rest.join(" ") };
-  };
+  const css = springCss;
   const smooth = css(springs.smooth);
   const snappy = css(springs.snappy);
   root.setProperty("--ease-out-soft", smooth.ease);

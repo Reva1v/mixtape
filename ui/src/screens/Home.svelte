@@ -62,9 +62,14 @@
     return () => void un.then((f) => f());
   });
 
-  // Refresh "recently played" when the track changes.
+  // Refresh "recently played" when the track changes (`currentId` changes only then; the
+  // page has just loaded on mount).
+  let seenTrack: string | null | undefined;
   $effect(() => {
-    void player.currentId;
+    const now = player.currentId;
+    const first = seenTrack === undefined;
+    seenTrack = now;
+    if (first) return;
     const id = setTimeout(() => void load(), 1500);
     return () => clearTimeout(id);
   });

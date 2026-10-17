@@ -80,15 +80,17 @@
   onkeydown={key}
   {@attach onWheel(wheel)}
 >
+  <!-- Fill and thumb move by transform: no layout when the value changes. -->
   <div class="relative h-1.5 w-full scale-y-[0.667] overflow-hidden rounded-full bg-fill-3 transition-transform duration-150 group-hover:scale-y-100">
     <div
-      class="absolute inset-y-0 left-0 rounded-full bg-ink"
-      style:width="{pct}%"
+      class="absolute inset-0 rounded-full bg-ink"
+      style:transform="translateX({pct - 100}%)"
     ></div>
   </div>
-  <div
-    class="pointer-events-none absolute size-3 -translate-x-1/2 rounded-full bg-ink shadow transition-opacity duration-150
-      {dragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}"
-    style:left="{pct}%"
-  ></div>
+  <div class="pointer-events-none absolute inset-0 flex items-center" style:transform="translateX({pct}%)">
+    <div
+      class="size-3 -translate-x-1/2 rounded-full bg-ink shadow transition-opacity duration-150
+        {dragging ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}"
+    ></div>
+  </div>
 </div>

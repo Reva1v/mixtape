@@ -3,8 +3,9 @@
   // (its background fills up as the track plays), three buttons in the exact centre,
   // everything else in one capsule on the right.
   import type { Component } from "svelte";
-  import { formatTime, player } from "$lib/stores/player.svelte";
+  import { followProgress, formatTime, player } from "$lib/stores/player.svelte";
   import { layout } from "$lib/stores/layout.svelte";
+  import { visible } from "$lib/stores/visible.svelte";
   import { router } from "$lib/stores/router.svelte";
   import { menu } from "$lib/stores/overlay.svelte";
   import { t } from "$lib/i18n/ru";
@@ -25,24 +26,20 @@
 
   const track = $derived(player.track);
 
-  // Progress of the now-playing block, extrapolated per frame while playing. While the
-  // user scrubs, the fill follows the pointer instead.
+  // Progress of the now-playing block, redrawn about once per pixel of movement while
+  // playing (see `followProgress`); paused under the full-screen player, which covers
+  // the bar. While the user scrubs, the fill follows the pointer instead.
   let pct = $state(0);
   let scrub = $state<{ x: number; ms: number } | null>(null);
+  let barWidth = $state(0);
+  const scrubbing = $derived(scrub !== null);
   $effect(() => {
-    let raf = 0;
-    const tick = () => {
-      if (!scrub) {
-        const d = player.state.durationMs;
-        pct = d > 0 ? Math.min(100, (player.livePosition() / d) * 100) : 0;
-      }
-      if (player.playing) raf = requestAnimationFrame(tick);
-    };
-    void player.state.positionMs;
-    void player.state.status;
-    void scrub;
-    tick();
-    return () => cancelAnimationFrame(raf);
+    if (scrubbing) return;
+    const live = visible.live && !layout.fullscreen;
+    return followProgress(barWidth, (ms) => {
+      const d = player.state.durationMs;
+      pct = d > 0 ? Math.min(100, (ms / d) * 100) : 0;
+    }, live);
   });
 
   // Press anywhere on the bar's empty space: playback jumps there at once; keep holding
@@ -83,12 +80,13 @@
 <div
   data-bar
   bind:this={bar}
+  bind:clientWidth={barWidth}
   role="slider"
   tabindex="-1"
   aria-label="Позиция"
   aria-valuemin={0}
-  aria-valuemax={player.state.durationMs}
-  aria-valuenow={player.state.positionMs}
+  aria-valuemax={Math.round(player.state.durationMs / 1000)}
+  aria-valuenow={Math.round(player.state.positionMs / 1000)}
   class="relative flex h-(--player-h) shrink-0 cursor-pointer items-center overflow-hidden rounded-xl bg-panel pr-2.5 select-none
     {scrub ? 'cursor-grabbing' : ''}"
   onpointerdown={(e) => {
@@ -115,10 +113,11 @@
   }}
 >
   {#if track}
+    <!-- Full width, slid left by what is still to play: moving it needs no layout. -->
     <div
-      class="pointer-events-none absolute inset-y-0 left-0"
-      style:width="{pct}%"
-      style:background="color-mix(in srgb, var(--glow) 70%, rgb(255 255 255 / 0.08))"
+      class="glow-fill pointer-events-none absolute inset-0"
+      style:transform="translateX({pct - 100}%)"
+      style:background="color-mix(in srgb, var(--glow-fill) 70%, rgb(255 255 255 / 0.08))"
     ></div>
   {/if}
   {#if scrub}

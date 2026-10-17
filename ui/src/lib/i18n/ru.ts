@@ -43,6 +43,7 @@ export const t = {
     nowPlaying: "Сейчас играет",
     upNext: "Далее",
     clear: "Очистить",
+    building: "Собираю микс…",
     empty: "Очередь пуста",
   },
   track: {

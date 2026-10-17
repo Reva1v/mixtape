@@ -1,7 +1,10 @@
-// Player state mirrored from the Rust core. Position arrives at ≤10 Hz; components
-// that draw progress call `livePosition()` inside requestAnimationFrame instead of
-// re-rendering on every tick.
+// Player state mirrored from the Rust core. Updates are applied field by field, so a
+// position update only wakes what reads the position; `playing` and `currentId` change
+// only when the status or the track does. Position arrives now and then (and on every
+// status/track/seek change); progress UI extrapolates it with `livePosition()` and
+// redraws through `followProgress()`, a few times a second rather than every frame.
 
+import { untrack } from "svelte";
 import { Channel, invoke, on } from "$lib/ipc";
 import { toasts } from "./overlay.svelte";
 import { prefs } from "./prefs.svelte";
@@ -27,18 +30,23 @@ class Player {
   /** Bumped when the queue changes so panels refetch. */
   queueVersion = $state(0);
 
-  get playing() {
-    return this.state.status === "playing";
-  }
-  get currentId() {
-    return this.state.trackId ?? null;
-  }
+  playing = $derived(this.state.status === "playing");
+  currentId = $derived(this.state.trackId ?? null);
 
   async init() {
     const channel = new Channel<PlaybackState>();
     channel.onmessage = (s) => {
-      this.state = s;
       this.#receivedAt = performance.now();
+      // Only fields whose value changed notify their readers.
+      const st = this.state;
+      st.trackId = s.trackId;
+      st.status = s.status;
+      st.positionMs = s.positionMs;
+      st.durationMs = s.durationMs;
+      st.volume = s.volume;
+      st.repeat = s.repeat;
+      st.shuffle = s.shuffle;
+      st.timestampMs = s.timestampMs;
     };
     await on<TrackChanged>("track:changed", (e) => {
       this.track = e.track;
@@ -125,10 +133,30 @@ class Player {
     const opened = prefs.value.mixFullscreen && !layout.fullscreen;
     if (opened) layout.fullscreen = true;
     try {
-      await start();
+      await this.#building(start);
     } catch (e) {
       if (opened) layout.fullscreen = false;
       toasts.push(e instanceof Error && e.message ? e.message : "Не удалось включить микс", "error");
+    }
+  }
+
+  /** Switches the mix to another chip; the queue shows the building state meanwhile. */
+  selectChip(chipId: string) {
+    return this.#building(() => invoke("mix_select_chip", { chipId })).catch(() => {});
+  }
+
+  /** A mix is being built (started or switched to another chip): the queue shows the
+   * playing track and placeholder rows until the new tracks arrive. */
+  mixPending = $state(false);
+  #pendingCount = 0;
+
+  async #building<T>(run: () => Promise<T>): Promise<T> {
+    this.#pendingCount++;
+    this.mixPending = true;
+    try {
+      return await run();
+    } finally {
+      if (--this.#pendingCount === 0) this.mixPending = false;
     }
   }
 }
@@ -158,6 +186,30 @@ export function glowOf(palette: string[]): string {
 }
 
 export const player = new Player();
+
+/**
+ * Keeps a progress display current without a per-frame loop. Call it inside `$effect`
+ * and return its result: `draw` gets the live position now and, while playing and
+ * `live`, again whenever the position has moved about one device pixel along a bar
+ * `widthPx` wide (at most every 50 ms, at least every `maxStepMs`). That looks as smooth
+ * as redrawing every frame, but wakes the page a few times a second instead of 60+.
+ * Re-runs (and redraws at once) when the position, status or duration changes.
+ */
+export function followProgress(widthPx: number, draw: (ms: number) => void, live = true, maxStepMs = 1000): () => void {
+  const { status, durationMs } = player.state;
+  void player.state.positionMs;
+  untrack(() => draw(player.livePosition()));
+  if (status !== "playing" || !live || durationMs <= 0) return () => {};
+  const px = Math.max(1, widthPx * (window.devicePixelRatio || 1));
+  const step = Math.min(maxStepMs, Math.max(50, durationMs / px));
+  let id = 0;
+  const tick = () => {
+    draw(player.livePosition());
+    id = window.setTimeout(tick, step);
+  };
+  id = window.setTimeout(tick, step);
+  return () => clearTimeout(id);
+}
 
 export function formatTime(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
