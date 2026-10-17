@@ -12,6 +12,19 @@
 
   let restore = 0.8;
 
+  // Compact mode opens on hover intent, not on a passing cursor: the capsule is anchored
+  // right, so an instant open grows it leftwards under the pointer heading elsewhere.
+  const OPEN_DELAY = 300;
+  const CLOSE_DELAY = 350;
+  let open = $state(false);
+  let timer = 0;
+  function hover(inside: boolean) {
+    clearTimeout(timer);
+    if (inside === open) return;
+    timer = window.setTimeout(() => (open = inside), inside ? OPEN_DELAY : CLOSE_DELAY);
+  }
+  $effect(() => () => clearTimeout(timer));
+
   // The wheel works over the icon too, not only over the slider.
   function wheel(e: WheelEvent) {
     if (e.deltaY === 0) return;
@@ -31,7 +44,14 @@
   }
 </script>
 
-<div class="group/vol flex items-center {compact ? '' : `gap-2 ${cls}`}" {@attach onWheel(wheel)} role="group" aria-label={t.player.volume}>
+<div
+  class="group/vol flex items-center {compact ? '' : `gap-2 ${cls}`}"
+  {@attach onWheel(wheel)}
+  role="group"
+  aria-label={t.player.volume}
+  onpointerenter={() => compact && hover(true)}
+  onpointerleave={() => compact && hover(false)}
+>
   <button
     type="button"
     aria-label={t.player.mute}
@@ -43,7 +63,7 @@
   </button>
   <div
     class={compact
-      ? "w-0 overflow-hidden opacity-0 transition-all duration-200 ease-out-soft group-hover/vol:w-24 group-hover/vol:pr-2 group-hover/vol:opacity-100 group-focus-within/vol:w-24 group-focus-within/vol:opacity-100"
+      ? `overflow-hidden transition-all duration-200 ease-out-soft group-has-[:focus-visible]/vol:w-24 group-has-[:focus-visible]/vol:opacity-100 ${open ? "w-24 pr-2 opacity-100" : "w-0 opacity-0"}`
       : "flex-1"}
   >
     <Slider
