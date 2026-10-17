@@ -470,6 +470,10 @@ pub fn on_player_event(st: &AppState, ev: &PlayerEvent) {
             if s.status == Status::Paused && was.is_none_or(|w| w.status != Status::Paused) {
                 expire_pause(st);
             }
+            // A track restored at start never announces itself: ask for its art here too.
+            if let Some(id) = s.track_id.as_ref() {
+                fetch_art(st, id.as_str());
+            }
         }
         PlayerEvent::TrackChanged { track, .. } => {
             p.inner.lock().expect("presence lock poisoned").current = Some(Current {
