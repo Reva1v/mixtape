@@ -2,6 +2,8 @@
   // Album / artist / playlist card: square cover, title, subtitle, hover play button.
   import { coverUrl } from "$lib/ipc";
   import IconPlay from "~icons/solar/play-bold";
+  import IconPause from "~icons/solar/pause-bold";
+  import { player } from "$lib/stores/player.svelte";
   import { liftable, pressable } from "$lib/motion";
   import IconMusic from "~icons/solar/music-note-2-linear";
 
@@ -12,10 +14,13 @@
     round?: boolean;
     onopen?: () => void;
     onplay?: () => void;
+    /** This card is what is playing: the button pauses and resumes, and stays visible. */
+    current?: boolean;
     oncontextmenu?: (e: MouseEvent) => void;
   }
 
-  let { coverKey, title, subtitle, round = false, onopen, onplay, oncontextmenu }: Props = $props();
+  let { coverKey, title, subtitle, round = false, onopen, onplay, oncontextmenu, current = false }: Props = $props();
+  const showPause = $derived(current && player.playing);
   let failed = $state(false);
   const shape = $derived(round ? "rounded-full" : "rounded-md");
 </script>
@@ -50,14 +55,15 @@
       {#if onplay}
         <button
           type="button"
-          aria-label="Играть"
+          aria-label={showPause ? "Пауза" : "Играть"}
           class="absolute right-2.5 bottom-2.5 grid size-11 translate-y-2 place-items-center rounded-full bg-ink text-black
             opacity-0 shadow-[0_6px_20px_-4px_rgb(0_0_0/0.7)] transition-[opacity,translate,background-color] duration-(--spring-smooth-ms) ease-out-soft
-            group-hover:translate-y-0 group-hover:opacity-100 hover:bg-[#dcdcdc]"
+            group-hover:translate-y-0 group-hover:opacity-100 hover:bg-[#dcdcdc]
+            {current ? 'translate-y-0 opacity-100' : ''}"
           {@attach pressable(0.9)}
-          onclick={onplay}
+          onclick={() => (current ? player.toggle() : onplay?.())}
         >
-          <IconPlay class="size-5" />
+          {#if showPause}<IconPause class="size-5" />{:else}<IconPlay class="size-5" />{/if}
         </button>
       {/if}
     </div>

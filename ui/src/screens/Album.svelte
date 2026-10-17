@@ -4,6 +4,7 @@
   import { Fixed } from "$lib/stores/paged.svelte";
   import { formatTime, player } from "$lib/stores/player.svelte";
   import { router } from "$lib/stores/router.svelte";
+  import { tracks } from "$lib/i18n/ru";
   import type { Track } from "$lib/ipc/bindings/Track";
   import CollectionHeader from "$lib/ui/CollectionHeader.svelte";
   import TrackList from "$lib/ui/TrackList.svelte";
@@ -55,6 +56,7 @@
     coverKey={page.album.coverKey}
     palette={page.album.palette}
     onplay={() => play(0)}
+    current={page.tracks.some((x) => x.id === player.currentId)}
     onshuffle={() => play(0, true)}
     onmix={page.tracks[0] ? () => player.mix(page!.tracks[0].id) : undefined}
   >
@@ -66,7 +68,7 @@
         {:else}<span class="font-semibold text-ink">{a.name}</span>{/if}
       {/each}
       {#if page!.album.year}<span>• {page!.album.year}</span>{/if}
-      <span>• {page!.tracks.length} треков, {formatTime(total)}</span>
+      <span>• {tracks(page!.tracks.length)}, {formatTime(total)}</span>
     {/snippet}
   </CollectionHeader>
   <div class="pb-10">

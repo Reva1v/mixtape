@@ -18,7 +18,7 @@
 <button
   type="button"
   aria-label={label}
-  title={label}
+  data-tip={label}
   class="inline-grid shrink-0 place-items-center rounded-full transition-[background-color,color]
     hover:bg-fill-2 disabled:pointer-events-none disabled:opacity-35
     {active ? 'text-ink' : 'text-ink-2 hover:text-ink'} {sizes[size]} {cls}"

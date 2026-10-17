@@ -5,6 +5,7 @@
   import { Fixed } from "$lib/stores/paged.svelte";
   import { player } from "$lib/stores/player.svelte";
   import { router } from "$lib/stores/router.svelte";
+  import { tracks } from "$lib/i18n/ru";
   import CollectionHeader from "$lib/ui/CollectionHeader.svelte";
   import TrackList from "$lib/ui/TrackList.svelte";
   import Card from "$lib/ui/Card.svelte";
@@ -57,11 +58,12 @@
     coverKey={page.artist.imageKey}
     round
     onplay={page.tracks.length ? () => play(0) : undefined}
+    current={page.tracks.some((x) => x.id === player.currentId)}
     onshuffle={page.tracks.length ? () => play(0, true) : undefined}
     onmix={page.tracks[0] ? () => player.mix(page!.tracks[0].id) : undefined}
   >
     {#snippet meta()}
-      <span>{page!.tracks.length} треков в библиотеке</span>
+      <span>{tracks(page!.tracks.length)} в библиотеке</span>
     {/snippet}
   </CollectionHeader>
 
@@ -88,6 +90,7 @@
               subtitle={[a.year, { album: "Альбом", ep: "EP", single: "Сингл" }[a.albumType]].filter(Boolean).join(" • ")}
               onopen={() => router.go({ name: "album", id: a.id })}
               onplay={() => player.play({ kind: "album", id: a.id })}
+                current={!!a && player.track?.album?.id === a.id}
             />
           {/each}
         </div>

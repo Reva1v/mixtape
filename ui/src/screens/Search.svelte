@@ -9,7 +9,7 @@
   import Card from "$lib/ui/Card.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import { layout } from "$lib/stores/layout.svelte";
-  import { t } from "$lib/i18n/ru";
+  import { t, tracks as tracksLabel } from "$lib/i18n/ru";
   import IconSearch from "~icons/solar/magnifier-linear";
   import IconNothing from "~icons/solar/magnifier-bug-linear";
 
@@ -108,6 +108,7 @@
                 subtitle={a.artists.map((x) => x.name).join(", ")}
                 onopen={() => router.go({ name: "album", id: a.id })}
                 onplay={() => player.play({ kind: "album", id: a.id })}
+                current={!!a && player.track?.album?.id === a.id}
               />
             {/each}
           </div>
@@ -121,7 +122,7 @@
               <Card
                 coverKey={p.coverKey}
                 title={p.title}
-                subtitle={`${p.trackCount} треков`}
+                subtitle={tracksLabel(p.trackCount)}
                 onopen={() => router.go({ name: "playlist", id: p.id })}
                 onplay={() => player.play({ kind: "playlist", id: p.id })}
               />

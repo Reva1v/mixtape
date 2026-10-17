@@ -14,6 +14,7 @@
   import ContextMenu from "$lib/ui/ContextMenu.svelte";
   import Toaster from "$lib/ui/Toaster.svelte";
   import Dialogs from "$lib/ui/Dialogs.svelte";
+  import Tooltip from "$lib/ui/Tooltip.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Home from "./screens/Home.svelte";
   import Library from "./screens/Library.svelte";
@@ -134,3 +135,4 @@
 <ContextMenu />
 <Dialogs />
 <Toaster />
+<Tooltip />

@@ -13,7 +13,7 @@
   import { router, type LibraryTab } from "$lib/stores/router.svelte";
   import { player } from "$lib/stores/player.svelte";
   import { prompt, toasts } from "$lib/stores/overlay.svelte";
-  import { t } from "$lib/i18n/ru";
+  import { t, tracks } from "$lib/i18n/ru";
   import TrackList from "$lib/ui/TrackList.svelte";
   import CardGrid from "$lib/ui/CardGrid.svelte";
   import Card from "$lib/ui/Card.svelte";
@@ -177,6 +177,7 @@
                 subtitle={a ? [a.artists.map((x) => x.name).join(", "), a.year].filter(Boolean).join(" • ") : undefined}
                 onopen={() => a && router.go({ name: "album", id: a.id })}
                 onplay={() => a && player.play({ kind: "album", id: a.id })}
+                current={!!a && player.track?.album?.id === a.id}
               />
             {/snippet}
           </CardGrid>
@@ -197,7 +198,7 @@
               <Card
                 coverKey={p?.coverKey}
                 title={p?.title}
-                subtitle={p ? `${p.trackCount} треков` : undefined}
+                subtitle={p ? tracks(p.trackCount) : undefined}
                 onopen={() => p && router.go({ name: "playlist", id: p.id })}
                 onplay={() => p && player.play({ kind: "playlist", id: p.id })}
               />

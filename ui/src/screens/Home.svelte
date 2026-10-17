@@ -8,7 +8,7 @@
   import { player } from "$lib/stores/player.svelte";
   import { router } from "$lib/stores/router.svelte";
   import { prompt, toasts } from "$lib/stores/overlay.svelte";
-  import { t } from "$lib/i18n/ru";
+  import { t, tracks } from "$lib/i18n/ru";
   import Card from "$lib/ui/Card.svelte";
   import Cover from "$lib/ui/Cover.svelte";
   import TrackList from "$lib/ui/TrackList.svelte";
@@ -83,6 +83,7 @@
           subtitle={albumSub(a)}
           onopen={() => router.go({ name: "album", id: a.id })}
           onplay={() => player.play({ kind: "album", id: a.id })}
+                current={!!a && player.track?.album?.id === a.id}
         />
       </div>
     {/each}
@@ -111,7 +112,7 @@
         <div class="grid size-14 shrink-0 place-items-center bg-white/[0.06]"><IconHeart class="size-6" /></div>
         <div class="min-w-0">
           <div class="truncate text-[14px] font-medium">{t.library.liked}</div>
-          <div class="text-[12.5px] text-ink-3">{page.likedCount} треков</div>
+          <div class="text-[12.5px] text-ink-3">{tracks(page.likedCount)}</div>
         </div>
       </button>
       {#each tiles as a (a.id)}

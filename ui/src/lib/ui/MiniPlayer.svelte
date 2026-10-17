@@ -55,7 +55,7 @@
   <button
     type="button"
     aria-label={label}
-    title={label}
+    data-tip={label}
     {disabled}
     {@attach pressable(0.86)}
     class="grid size-8 place-items-center rounded-md transition-colors disabled:opacity-30
@@ -77,7 +77,6 @@
       aria-valuemin={0}
       aria-valuemax={player.state.durationMs}
       aria-valuenow={player.state.positionMs}
-      title="{formatTime((pct / 100) * player.state.durationMs)} / {formatTime(player.state.durationMs)}"
       class="relative flex h-full max-w-[34%] min-w-[260px] items-center gap-3.5 pr-4 pl-4"
       onpointerdown={(e) => {
         if ((e.target as HTMLElement).closest("button")) return;

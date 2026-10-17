@@ -25,7 +25,7 @@
   <button
     type="button"
     aria-label={t.player.mute}
-    title={t.player.volume}
+    data-tip={t.player.volume}
     class="grid size-8 shrink-0 place-items-center rounded-lg text-ink-2 transition-colors hover:text-ink"
     onclick={toggleMute}
   >

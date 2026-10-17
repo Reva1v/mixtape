@@ -5,6 +5,7 @@
   import { Fixed } from "$lib/stores/paged.svelte";
   import { formatTime, player } from "$lib/stores/player.svelte";
   import { router } from "$lib/stores/router.svelte";
+  import { tracks } from "$lib/i18n/ru";
   import { menu, prompt, toasts } from "$lib/stores/overlay.svelte";
   import CollectionHeader from "$lib/ui/CollectionHeader.svelte";
   import TrackList from "$lib/ui/TrackList.svelte";
@@ -72,10 +73,11 @@
     title={page.playlist.title}
     coverKey={page.playlist.coverKey}
     onplay={page.tracks.length ? () => play(0) : undefined}
+    current={page.tracks.some((x) => x.id === player.currentId)}
     onshuffle={page.tracks.length ? () => play(0, true) : undefined}
   >
     {#snippet meta()}
-      <span>{page!.tracks.length} треков{total ? `, ${formatTime(total)}` : ""}</span>
+      <span>{tracks(page!.tracks.length)}{total ? `, ${formatTime(total)}` : ""}</span>
     {/snippet}
     {#snippet actions()}
       <IconButton

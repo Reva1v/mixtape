@@ -3,6 +3,8 @@
   import type { Snippet } from "svelte";
   import Cover from "./Cover.svelte";
   import IconPlay from "~icons/solar/play-bold";
+  import IconPause from "~icons/solar/pause-bold";
+  import { player } from "$lib/stores/player.svelte";
   import IconShuffle from "~icons/solar/shuffle-linear";
   import IconMix from "~icons/solar/radio-minimalistic-linear";
   import { t } from "$lib/i18n/ru";
@@ -16,12 +18,15 @@
     round?: boolean;
     meta?: Snippet;
     onplay?: () => void;
+    /** The collection is what is playing now: the button pauses and resumes. */
+    current?: boolean;
     onshuffle?: () => void;
     onmix?: () => void;
     actions?: Snippet;
   }
 
-  let { kind, title, coverKey, palette = [], round = false, meta, onplay, onshuffle, onmix, actions }: Props = $props();
+  let { kind, title, coverKey, palette = [], round = false, meta, onplay, onshuffle, onmix, actions, current = false }: Props = $props();
+  const showPause = $derived(current && player.playing);
   const wash = $derived(palette[0] ?? "#2a2a35");
 </script>
 
@@ -44,13 +49,13 @@
         {#if onplay}
           <button
             type="button"
-            aria-label={t.player.play}
+            aria-label={showPause ? t.player.pause : t.player.play}
             class="grid size-12 place-items-center rounded-full bg-ink text-black
               transition-[background-color] hover:bg-[#dcdcdc]"
             {@attach pressable(0.9)}
-            onclick={onplay}
+            onclick={() => (current ? player.toggle() : onplay?.())}
           >
-            <IconPlay class="size-5" />
+            {#if showPause}<IconPause class="size-5" />{:else}<IconPlay class="size-5" />{/if}
           </button>
         {/if}
         {#if onshuffle}

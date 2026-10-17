@@ -30,7 +30,8 @@
   {@const active = item.match.includes(router.current.name)}
   <button
     type="button"
-    title={item.label}
+    data-tip={item.label}
+    data-tip-pos="right"
     aria-label={item.label}
     aria-current={active ? "page" : undefined}
     class="grid size-10 place-items-center transition-colors

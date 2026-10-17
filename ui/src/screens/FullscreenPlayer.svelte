@@ -68,7 +68,8 @@
   <button
     type="button"
     aria-label="Свернуть"
-    title="Свернуть (Esc)"
+    data-tip="Свернуть (Esc)"
+    data-tip-pos="right"
     class="absolute top-4 left-4 z-10 grid size-9 place-items-center rounded-full bg-white/8 text-ink-2 backdrop-blur
       transition-colors hover:bg-white/14 hover:text-ink"
     onclick={close}
@@ -113,7 +114,7 @@
           <button
             type="button"
             aria-label={t.player.lyrics}
-            title={t.player.lyrics}
+            data-tip={t.player.lyrics}
             class="grid size-7 place-items-center rounded-full transition-colors {lyrics ? 'bg-white/14 text-ink' : 'text-ink-3 hover:text-ink'}"
             onclick={() => layout.toggleDrawer("lyrics")}
           >
