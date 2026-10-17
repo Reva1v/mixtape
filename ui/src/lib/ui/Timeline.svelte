@@ -32,6 +32,7 @@
     label={t.player.fullscreen}
     value={pos}
     max={duration || 1}
+    wheelStep={5000}
     oninput={(v) => (scrub = v)}
     onchange={(v) => {
       scrub = null;

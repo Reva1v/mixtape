@@ -144,3 +144,11 @@ export function sheet(_node: Element, _opts?: unknown, ctx?: { direction: "in" |
   const { duration, easing } = out ? { duration: 220, easing: (t: number) => t * t } : curve(springs.smooth);
   return { duration, easing, css: (t, u) => `transform:translateY(${u * 100}%)` };
 }
+
+/** Non-passive wheel listener, so the handler can stop the page from scrolling. */
+export function onWheel(handler: (e: WheelEvent) => void): Attachment<HTMLElement> {
+  return (el) => {
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  };
+}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onWheel } from "$lib/motion";
   // Horizontal slider for seeking and volume. While dragging it shows the local value
   // and reports it through `oninput`; `onchange` fires once on release.
   interface Props {
@@ -7,10 +8,12 @@
     label: string;
     oninput?: (v: number) => void;
     onchange?: (v: number) => void;
+    /** Mouse wheel step; defaults to 5 % of `max`. */
+    wheelStep?: number;
     class?: string;
   }
 
-  let { value, max = 1, label, oninput, onchange, class: cls = "" }: Props = $props();
+  let { value, max = 1, label, oninput, onchange, wheelStep, class: cls = "" }: Props = $props();
 
   let track: HTMLDivElement;
   let dragging = $state(false);
@@ -40,6 +43,17 @@
     dragging = false;
     onchange?.(valueAt(e.clientX));
   }
+  // Wheel up raises, wheel down lowers; the page under the slider does not scroll.
+  function wheel(e: WheelEvent) {
+    if (!onchange || e.deltaY === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const step = wheelStep ?? max / 20;
+    const next = Math.min(max, Math.max(0, value + (e.deltaY < 0 ? step : -step)));
+    oninput?.(next);
+    onchange(next);
+  }
+
   function key(e: KeyboardEvent) {
     const step = max / 20;
     if (e.key === "ArrowRight" || e.key === "ArrowUp") onchange?.(Math.min(max, value + step));
@@ -64,6 +78,7 @@
   onpointerup={up}
   onpointercancel={up}
   onkeydown={key}
+  {@attach onWheel(wheel)}
 >
   <div class="relative h-1 w-full overflow-hidden rounded-full bg-fill-3 transition-[height] duration-150 group-hover:h-1.5">
     <div

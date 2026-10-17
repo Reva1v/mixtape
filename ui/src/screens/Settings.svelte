@@ -50,6 +50,7 @@
               label="Длительность перехода"
               value={fadePreview ?? p.crossfadeSec}
               max={12}
+              wheelStep={1}
               oninput={(v) => (fadePreview = Math.max(1, Math.round(v)))}
               onchange={(v) => {
                 fadePreview = null;

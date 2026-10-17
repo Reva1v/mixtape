@@ -3,6 +3,7 @@
   import { player } from "$lib/stores/player.svelte";
   import { t } from "$lib/i18n/ru";
   import Slider from "./Slider.svelte";
+  import { onWheel } from "$lib/motion";
   import IconVolume from "~icons/solar/volume-loud-linear";
   import IconVolumeLow from "~icons/solar/volume-small-linear";
   import IconMute from "~icons/solar/volume-cross-linear";
@@ -10,6 +11,15 @@
   let { class: cls = "w-36", compact = false }: { class?: string; compact?: boolean } = $props();
 
   let restore = 0.8;
+
+  // The wheel works over the icon too, not only over the slider.
+  function wheel(e: WheelEvent) {
+    if (e.deltaY === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const v = Math.min(1, Math.max(0, player.state.volume + (e.deltaY < 0 ? 0.05 : -0.05)));
+    void player.setVolume(Math.round(v * 100) / 100);
+  }
 
   function toggleMute() {
     if (player.state.volume > 0) {
@@ -21,7 +31,7 @@
   }
 </script>
 
-<div class="group/vol flex items-center {compact ? '' : `gap-2 ${cls}`}">
+<div class="group/vol flex items-center {compact ? '' : `gap-2 ${cls}`}" {@attach onWheel(wheel)} role="group" aria-label={t.player.volume}>
   <button
     type="button"
     aria-label={t.player.mute}
