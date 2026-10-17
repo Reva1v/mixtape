@@ -83,20 +83,54 @@ pub fn source_synced(conn: &Connection, kind: &str, error: Option<&str>) -> Resu
 }
 
 /// Gives artist credits that came without an id (local imports, unlinked names) the id
-/// of a known artist with exactly that name, so their names link to the artist page and
-/// their tracks show up there. Returns the number of credits linked.
+/// of a known artist with exactly that name, or of a new local artist (`localart…`), so
+/// every name links to an artist page. Returns the number of credits linked.
 pub fn link_artists_by_name(conn: &Connection) -> Result<usize> {
+    let tables = ["track_artists", "album_artists"];
+    for table in tables {
+        let names: Vec<String> = conn
+            .prepare(&format!(
+                "SELECT DISTINCT x.name FROM {table} x
+                 WHERE x.artist_id IS NULL AND x.name <> ''
+                   AND NOT EXISTS (SELECT 1 FROM artists a WHERE a.name = x.name)"
+            ))?
+            .query_map([], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        for name in names {
+            conn.execute(
+                "INSERT OR IGNORE INTO artists(id, name, search_text) VALUES ('localart' || lower(hex(?1)), ?1, ?2)",
+                params![name, normalize(&name)],
+            )?;
+        }
+    }
     let mut n = 0;
-    for table in ["track_artists", "album_artists"] {
+    for table in tables {
         n += conn.execute(
             &format!(
-                "UPDATE {table} SET artist_id = (SELECT a.id FROM artists a WHERE a.name = {table}.name LIMIT 1)
-                 WHERE artist_id IS NULL AND EXISTS (SELECT 1 FROM artists a WHERE a.name = {table}.name)"
+                "UPDATE {table} SET artist_id = (SELECT a.id FROM artists a WHERE a.name = {table}.name
+                    ORDER BY a.id LIKE 'localart%', a.id LIMIT 1)
+                 WHERE artist_id IS NULL AND name <> ''"
             ),
             [],
         )?;
     }
     Ok(n)
+}
+
+/// Artists credited on any track or album that have no picture yet.
+pub fn artists_without_image(conn: &Connection) -> Result<Vec<mixtape_core::ArtistId>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT id FROM artists WHERE image_key IS NULL AND id LIKE 'UC%'
+           AND (EXISTS (SELECT 1 FROM track_artists WHERE artist_id = artists.id)
+             OR EXISTS (SELECT 1 FROM album_artists WHERE artist_id = artists.id))",
+    )?;
+    let ids = stmt.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(ids.into_iter().map(mixtape_core::ArtistId).collect())
+}
+
+pub fn set_artist_image(conn: &Connection, id: &mixtape_core::ArtistId, key: &str) -> Result<()> {
+    conn.execute("UPDATE artists SET image_key = ?2 WHERE id = ?1", params![id.as_str(), key])?;
+    Ok(())
 }
 
 pub fn last_synced_at(conn: &Connection) -> Result<Option<i64>> {

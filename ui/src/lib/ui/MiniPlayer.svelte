@@ -11,6 +11,7 @@
   import { pressable } from "$lib/motion";
   import { setLiked, trackMenu } from "./trackMenu";
   import Cover from "./Cover.svelte";
+  import ArtistLinks from "./ArtistLinks.svelte";
   import Transport from "./Transport.svelte";
   import Volume from "./Volume.svelte";
   import IconHeart from "~icons/solar/heart-bold";
@@ -151,12 +152,7 @@
           {track.title}
         </button>
         <div class="mt-0.5 truncate text-[13px] text-ink-3">
-          {#each track.artists as a, i (i)}
-            {#if i > 0},&nbsp;{/if}
-            {#if a.id}
-              <button type="button" class="hover:text-ink hover:underline" onclick={() => router.go({ name: "artist", id: a.id! })}>{a.name}</button>
-            {:else}{a.name}{/if}
-          {/each}
+          <ArtistLinks artists={track.artists} />
         </div>
       </div>
       <button

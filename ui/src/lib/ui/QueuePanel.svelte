@@ -1,5 +1,6 @@
 <script lang="ts">
   import { dragScroll } from "$lib/motion";
+  import ArtistLinks from "./ArtistLinks.svelte";
   import { invoke } from "$lib/ipc";
   import type { QueueView } from "$lib/ipc/bindings/QueueView";
   import type { QueueEntry } from "$lib/ipc/bindings/QueueEntry";
@@ -229,7 +230,7 @@
         {#if isCurrent}<Equalizer playing={player.playing} />{/if}
         <span class="truncate text-[13.5px] {isCurrent ? 'font-semibold text-ink' : 'text-ink'}">{e.track.title}</span>
       </div>
-      <div class="truncate text-[12px] text-ink-3">{e.track.artists.map((a) => a.name).join(", ")}</div>
+      <div class="truncate text-[12px] text-ink-3"><ArtistLinks artists={e.track.artists} /></div>
     </div>
     {#if isCurrent}
       <span class="text-[12px] text-ink-3 tnum">{formatTime(e.track.durationMs)}</span>

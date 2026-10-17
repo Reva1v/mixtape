@@ -8,10 +8,11 @@
   import { player } from "$lib/stores/player.svelte";
   import { router } from "$lib/stores/router.svelte";
   import { openAlbum } from "$lib/stores/actions";
-  import { prompt, toasts } from "$lib/stores/overlay.svelte";
+  import { menu, prompt, toasts } from "$lib/stores/overlay.svelte";
   import { t, tracks } from "$lib/i18n/ru";
   import { dragScroll } from "$lib/motion";
   import Card from "$lib/ui/Card.svelte";
+  import ArtistLinks from "$lib/ui/ArtistLinks.svelte";
   import { albumMenu } from "$lib/ui/collectionMenu";
   import Cover from "$lib/ui/Cover.svelte";
   import TrackList from "$lib/ui/TrackList.svelte";
@@ -57,10 +58,6 @@
 
   const tiles = $derived(page ? (page.recent.length ? page.recent : page.added).slice(0, 5) : []);
   const empty = $derived(!!page && !page.recent.length && !page.added.length && !page.likedCount);
-
-  function albumSub(a: Album) {
-    return a.artists.map((x) => x.name).join(", ");
-  }
 
   async function importFolder() {
     const path = await prompt.ask("Путь к папке с .webm / .m4a / .opus");
@@ -120,17 +117,21 @@
         </div>
       </button>
       {#each tiles as a (a.id)}
-        <button
-          type="button"
-          class="flex h-14 min-w-0 items-center gap-3.5 overflow-hidden rounded-[5px] bg-white/[0.055] pr-3 text-left transition-colors hover:bg-white/[0.09]"
+        <!-- A div, not a button: the artist names inside are buttons of their own. -->
+        <div
+          role="button"
+          tabindex="0"
+          class="flex h-14 min-w-0 cursor-pointer items-center gap-3.5 overflow-hidden rounded-[5px] bg-white/[0.055] pr-3 text-left transition-colors hover:bg-white/[0.09]"
           onclick={() => openAlbum(a)}
+          onkeydown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), openAlbum(a))}
+          oncontextmenu={(e) => (e.preventDefault(), menu.show(albumMenu(a), e.clientX, e.clientY))}
         >
           <Cover coverKey={a.coverKey} size={56} rounded="sm" class="rounded-none" />
           <div class="min-w-0">
             <div class="truncate text-[14px] font-medium">{a.title}</div>
-            <div class="truncate text-[12.5px] text-ink-3">{albumSub(a)}</div>
+            <div class="truncate text-[12.5px] text-ink-3"><ArtistLinks artists={a.artists} /></div>
           </div>
-        </button>
+        </div>
       {/each}
     </div>
 

@@ -6,7 +6,7 @@
   import { prefs } from "$lib/stores/prefs.svelte";
   import { downloads } from "$lib/stores/downloads.svelte";
   import { handleHotkey } from "$lib/stores/hotkeys";
-  import { enter, springWidth } from "$lib/motion";
+  import { enter, fadeSpring, pressable, springWidth } from "$lib/motion";
   import { toasts } from "$lib/stores/overlay.svelte";
   import { on } from "$lib/ipc";
   import { t } from "$lib/i18n/ru";
@@ -31,6 +31,8 @@
   import Downloads from "./screens/Downloads.svelte";
   import FullscreenPlayer from "./screens/FullscreenPlayer.svelte";
   import IconSoon from "~icons/solar/widget-bold";
+  import IconBack from "~icons/solar/alt-arrow-left-linear";
+  import IconForward from "~icons/solar/alt-arrow-right-linear";
   import IconLyrics from "~icons/solar/microphone-2-linear";
 
   onMount(() => {
@@ -41,11 +43,18 @@
     return () => void un.then((f) => f());
   });
 
-  // Scroll to top on navigation, but keep the search screen's scroll while typing.
+  // New pages open at the top; back/forward return to where the page was scrolled.
+  // The search screen keeps its scroll while typing.
+  router.scrollSource = () => layout.scrollEl?.scrollTop ?? 0;
   let lastRoute = "";
   $effect(() => {
     const key = JSON.stringify(router.current.name === "search" ? { name: "search" } : router.current);
-    if (key !== lastRoute) layout.scrollEl?.scrollTo({ top: 0 });
+    if (key !== lastRoute) {
+      const top = router.restoreScroll ?? 0;
+      layout.scrollEl?.scrollTo({ top });
+      // Lists fill in after the screen mounts; try again once they have height.
+      if (top > 0) setTimeout(() => layout.scrollEl?.scrollTo({ top }), 120);
+    }
     lastRoute = key;
   });
 
@@ -93,6 +102,24 @@
         ></div>
         <!-- Drag strip along the top edge, clear of the caption buttons. -->
         <div class="absolute top-0 right-[150px] left-0 z-10 h-7" data-tauri-drag-region></div>
+        {#if router.canBack || router.canForward}
+          <div class="absolute top-2 left-3 z-20 flex gap-1" transition:fadeSpring>
+            {#each [{ label: "Назад", tip: "Назад · Alt + ←", ok: router.canBack, go: () => router.back(), Icon: IconBack }, { label: "Вперёд", tip: "Вперёд · Alt + →", ok: router.canForward, go: () => router.forward(), Icon: IconForward }] as b (b.label)}
+              <button
+                type="button"
+                aria-label={b.label}
+                data-tip={b.tip}
+                data-tip-pos="bottom"
+                disabled={!b.ok}
+                class="grid size-7 place-items-center rounded-full bg-black/35 text-ink transition-[background-color,opacity] hover:bg-black/60 disabled:opacity-30 disabled:hover:bg-black/35"
+                {@attach pressable(0.88)}
+                onclick={b.go}
+              >
+                <b.Icon class="size-4" />
+              </button>
+            {/each}
+          </div>
+        {/if}
 
         <main bind:this={layout.scrollEl} class="relative h-full overflow-y-auto">
           {#key screenKey}

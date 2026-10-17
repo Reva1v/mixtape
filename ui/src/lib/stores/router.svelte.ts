@@ -12,10 +12,16 @@ export type Route =
   | { name: "downloads" }
   | { name: "settings" };
 
+type Entry = { route: Route; scroll: number };
+
 class Router {
-  #back = $state<Route[]>([]);
-  #forward = $state<Route[]>([]);
+  #back = $state<Entry[]>([]);
+  #forward = $state<Entry[]>([]);
   current = $state<Route>({ name: "home" });
+  /** Scroll offset to restore after `back`/`forward`; `null` for a new page (top). */
+  restoreScroll: number | null = null;
+  /** Reads the main scroll offset; set by the app shell. */
+  scrollSource: () => number = () => 0;
 
   get canBack() {
     return this.#back.length > 0;
@@ -24,11 +30,16 @@ class Router {
     return this.#forward.length > 0;
   }
 
+  #here(): Entry {
+    return { route: this.current, scroll: this.scrollSource() };
+  }
+
   go(route: Route) {
     if (JSON.stringify(route) === JSON.stringify(this.current)) return;
-    this.#back.push(this.current);
+    this.#back.push(this.#here());
     if (this.#back.length > 50) this.#back.shift();
     this.#forward = [];
+    this.restoreScroll = null;
     this.current = route;
   }
 
@@ -40,15 +51,17 @@ class Router {
   back() {
     const prev = this.#back.pop();
     if (!prev) return;
-    this.#forward.push(this.current);
-    this.current = prev;
+    this.#forward.push(this.#here());
+    this.restoreScroll = prev.scroll;
+    this.current = prev.route;
   }
 
   forward() {
     const next = this.#forward.pop();
     if (!next) return;
-    this.#back.push(this.current);
-    this.current = next;
+    this.#back.push(this.#here());
+    this.restoreScroll = next.scroll;
+    this.current = next.route;
   }
 }
 

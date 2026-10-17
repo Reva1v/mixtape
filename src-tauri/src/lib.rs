@@ -35,6 +35,16 @@ pub fn run() {
             app.manage(state.clone());
             tracing::debug!("setup: state managed");
             account::restore(&state);
+            // Pictures for artists synced before they were fetched, or that failed last time.
+            if state.yt.is_authenticated() {
+                let st = state.clone();
+                tauri::async_runtime::spawn(async move {
+                    let n = mixtape_sync::artists::fetch_missing(st.yt.clone(), st.yt.http().clone(), st.db.clone(), st.covers.clone()).await;
+                    if n > 0 {
+                        commands::library::emit_changed(&st.app, &[mixtape_library::views::ViewKind::Artists]);
+                    }
+                });
+            }
             state.player.set_crossfade(commands::settings::Prefs::load(&state).crossfade_ms());
             tracing::debug!("setup: crossfade applied");
             // `setup` runs on the main (UI) thread, which the thumbnail toolbar needs.

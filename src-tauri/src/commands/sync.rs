@@ -145,6 +145,16 @@ pub async fn sync_start(
                 }
                 emit_changed(&st.app, &[ViewKind::Tracks, ViewKind::Albums, ViewKind::Artists, ViewKind::Playlists]);
                 st.downloads.wake();
+                let n = mixtape_sync::artists::fetch_missing(
+                    st.yt.clone(),
+                    st.yt.http().clone(),
+                    st.db.clone(),
+                    st.covers.clone(),
+                )
+                .await;
+                if n > 0 {
+                    emit_changed(&st.app, &[ViewKind::Artists]);
+                }
             }
             Err(e) => {
                 let e = yt_error(&st, e);

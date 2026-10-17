@@ -159,6 +159,19 @@ pub async fn album_get(state: State<'_, Arc<AppState>>, id: AlbumId) -> CmdResul
 #[tauri::command]
 pub async fn artist_get(state: State<'_, Arc<AppState>>, id: ArtistId) -> CmdResult<ArtistPage> {
     let st = state.inner().clone();
+    let page = artist_page(st.clone(), id.clone()).await?;
+    // No picture yet: fetch it in the background; the page reloads on `library:changed`.
+    if page.artist.image_key.is_none() && id.as_str().starts_with("UC") && st.yt.is_authenticated() {
+        tauri::async_runtime::spawn(async move {
+            if mixtape_sync::artists::fetch_image(&*st.yt, st.yt.http(), &st.db, &st.covers, &id).await {
+                emit_changed(&st.app, &[ViewKind::Artists]);
+            }
+        });
+    }
+    Ok(page)
+}
+
+async fn artist_page(st: Arc<AppState>, id: ArtistId) -> CmdResult<ArtistPage> {
     blocking(move || {
         let page = st.db.read(|c| {
             let Some(artist) = repo::artist(c, &id)? else { return Ok(None) };
