@@ -3,17 +3,20 @@
   // WebView2). The chosen option has a check mark.
   import { menu } from "$lib/stores/overlay.svelte";
   import IconDown from "~icons/solar/alt-arrow-down-linear";
+  import type { Component } from "svelte";
 
   interface Props {
     value: T;
-    options: { id: T; label: string }[];
+    /** `icon` is shown next to the label, in the list and on the button. */
+    options: { id: T; label: string; icon?: Component }[];
     label: string;
     onchange?: (value: T) => void;
     class?: string;
   }
   let { value = $bindable(), options, label, onchange, class: cls = "" }: Props = $props();
   let open = $state(false);
-  const current = $derived(options.find((o) => o.id === value)?.label ?? "");
+  const chosen = $derived(options.find((o) => o.id === value));
+  const current = $derived(chosen?.label ?? "");
 
   function show(e: MouseEvent) {
     const el = e.currentTarget as HTMLElement;
@@ -21,6 +24,7 @@
     menu.showUnder(
       options.map((o) => ({
         label: o.label,
+        icon: o.icon,
         checked: o.id === value,
         action: () => {
           value = o.id;
@@ -45,6 +49,7 @@
     {open ? 'bg-fill-2 text-ink' : ''} {cls}"
   onclick={show}
 >
+  {#if chosen?.icon}<chosen.icon class="size-4 shrink-0" />{/if}
   {current}
   <IconDown class="size-3.5 transition-transform duration-200 {open ? 'rotate-180' : ''}" />
 </button>

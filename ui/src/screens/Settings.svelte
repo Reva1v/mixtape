@@ -3,6 +3,7 @@
   import { prefs } from "$lib/stores/prefs.svelte";
   import { LANGS, locale, t } from "$lib/i18n";
   import Select from "$lib/ui/Select.svelte";
+  import { navIcons } from "$lib/ui/navIcons";
   import { updates } from "$lib/stores/updates.svelte";
   import Switch from "$lib/ui/Switch.svelte";
   import Slider from "$lib/ui/Slider.svelte";
@@ -263,7 +264,7 @@
       {#snippet iconSelect()}
         <Select
           value={p.iconStyle}
-          options={(["outline", "solid", "duotone", "rounded"] as const).map((id) => ({ id, label: t.iconStyle[id] }))}
+          options={(["outline", "solid", "duotone", "rounded"] as const).map((id) => ({ id, label: t.iconStyle[id], icon: navIcons[id].home }))}
           label={t.iconStyle.title}
           onchange={(iconStyle) => prefs.update({ iconStyle })}
         />
