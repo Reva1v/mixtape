@@ -12,8 +12,6 @@
   import { router } from "$lib/stores/router.svelte";
   import { downloads } from "$lib/stores/downloads.svelte";
   import { net } from "$lib/stores/net.svelte";
-  import { prefs } from "$lib/stores/prefs.svelte";
-  import { layout } from "$lib/stores/layout.svelte";
   import { openAlbum } from "$lib/stores/actions";
   import { menu, prompt, toasts, type MenuItem } from "$lib/stores/overlay.svelte";
   import { t, tracks } from "$lib/i18n/ru";
@@ -129,14 +127,8 @@
     void player.play({ kind: "tracks", trackIds: ids }, Math.max(0, ids.indexOf(track.id)));
   }
 
-  async function startMix(playlistId: string) {
-    toasts.push("Собираю микс…");
-    try {
-      await invoke("mix_start_playlist", { playlistId });
-      if (prefs.value.mixFullscreen) layout.fullscreen = true;
-    } catch (e) {
-      toasts.push(e instanceof Error && e.message ? e.message : "Не удалось включить микс", "error");
-    }
+  function startMix(playlistId: string) {
+    return player.startMix(() => invoke("mix_start_playlist", { playlistId }));
   }
 
   function openPlaylist(id: string) {

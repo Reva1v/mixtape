@@ -103,12 +103,21 @@ class Player {
     return invoke("queue_add", { trackIds, position });
   }
   /** Replaces the queue with a mix built from this track (US3). */
-  async mix(trackId: string) {
+  mix(trackId: string) {
+    return this.startMix(() => invoke("mix_start", { trackId }));
+  }
+
+  /** Every way of starting a mix goes through here. With «Включать полноэкранный режим»
+   * on, the full-screen player opens at once, not after the mix is fetched; if the mix
+   * fails, it closes again (only if it was opened here). */
+  async startMix(start: () => Promise<unknown>) {
     toasts.push("Собираю микс…");
+    const opened = prefs.value.mixFullscreen && !layout.fullscreen;
+    if (opened) layout.fullscreen = true;
     try {
-      await invoke("mix_start", { trackId });
-      if (prefs.value.mixFullscreen) layout.fullscreen = true;
+      await start();
     } catch (e) {
+      if (opened) layout.fullscreen = false;
       toasts.push(e instanceof Error && e.message ? e.message : "Не удалось включить микс", "error");
     }
   }
