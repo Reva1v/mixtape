@@ -142,8 +142,8 @@
   {/if}
 
   <!-- Exactly centred on the bar. -->
-  <div class="absolute left-1/2 -translate-x-1/2">
-    <Transport />
+  <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
+    <div class="pointer-events-auto"><Transport /></div>
   </div>
 
   <div class="ml-auto flex h-10 items-center gap-1 rounded-[10px] bg-fill-1 px-1.5 ring-1 ring-line">

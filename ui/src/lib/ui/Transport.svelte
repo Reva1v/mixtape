@@ -68,7 +68,7 @@
       {@attach pressable()}
       type="button"
       aria-label={player.playing ? t.player.pause : t.player.play}
-      class="grid size-10 place-items-center rounded-full bg-ink text-black transition-[background-color] hover:bg-[#dcdcdc]"
+      class="grid size-10 place-items-center rounded-full bg-ink text-black transition-[background-color] will-change-transform hover:bg-[#dcdcdc]"
       onclick={() => player.toggle()}
     >
       {#if busy}<IconLoader class="size-5 animate-spin" />{:else if player.playing}<IconPause class="size-5" />{:else}<IconPlay class="size-5" />{/if}
