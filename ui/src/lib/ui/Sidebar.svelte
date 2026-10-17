@@ -72,7 +72,7 @@
   <button
     type="button"
     aria-label={t.nav.home}
-    class="mb-5 size-11 rounded-[10px] shadow-[0_0_14px_1px_rgb(90_10_32/0.22)] [&>svg]:pointer-events-none [&>svg]:size-full"
+    class="mb-5 size-11 rounded-[10px] shadow-[6px_6px_14px_-3px_rgb(120_16_44/0.45)] [&>svg]:pointer-events-none [&>svg]:size-full"
     onclick={() =>
       router.current.name === "home"
         ? layout.scrollEl?.scrollTo({ top: 0, behavior: "smooth" })
