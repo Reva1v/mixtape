@@ -279,7 +279,7 @@ const homeShelves: HomeShelf[] = [
 
 const state: PlaybackState = {
   trackId: NOW.id,
-  status: "playing",
+  status: params.has("paused") ? "paused" : "playing",
   positionMs: 74_000,
   durationMs: NOW.durationMs,
   volume: 0.8,
