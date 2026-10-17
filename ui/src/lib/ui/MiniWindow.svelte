@@ -9,8 +9,8 @@
   import { pressable } from "$lib/motion";
   import { setLiked } from "./trackMenu";
   import Cover from "./Cover.svelte";
-  import IconPlay from "~icons/solar/play-bold";
-  import IconPause from "~icons/solar/pause-bold";
+  import PauseGlyph from "./PauseGlyph.svelte";
+  import PlayGlyph from "./PlayGlyph.svelte";
   import IconPrev from "~icons/solar/skip-previous-bold";
   import IconNext from "~icons/solar/skip-next-bold";
   import IconHeart from "~icons/solar/heart-bold";
@@ -66,11 +66,11 @@
       <button
         type="button"
         aria-label={player.playing ? t.player.pause : t.player.play}
-        class="{glyph} size-9 rounded-full bg-ink text-black hover:bg-[#dcdcdc]"
+        class="{glyph} relative size-9 shrink-0 rounded-full bg-ink text-black hover:bg-[#dcdcdc]"
         {@attach pressable()}
         onclick={() => player.toggle()}
       >
-        {#if player.playing}<IconPause class="size-[18px]" />{:else}<IconPlay class="size-[18px]" />{/if}
+        {#if player.playing}<PauseGlyph size={18} box={36} />{:else}<PlayGlyph size={18} box={36} />{/if}
       </button>
       <button
         type="button"

@@ -6,6 +6,8 @@
   import { pressable } from "$lib/motion";
   import IconPlay from "~icons/solar/play-bold";
   import IconPause from "~icons/solar/pause-bold";
+  import PauseGlyph from "./PauseGlyph.svelte";
+  import PlayGlyph from "./PlayGlyph.svelte";
   import IconPrev from "~icons/solar/skip-previous-bold";
   import IconNext from "~icons/solar/skip-next-bold";
   import IconShuffle from "~icons/solar/shuffle-linear";
@@ -68,10 +70,10 @@
       {@attach pressable()}
       type="button"
       aria-label={player.playing ? t.player.pause : t.player.play}
-      class="grid size-10 place-items-center rounded-full bg-ink text-black transition-[background-color] hover:bg-[#dcdcdc]"
+      class="relative grid size-10 place-items-center rounded-full bg-ink text-black transition-[background-color] hover:bg-[#dcdcdc]"
       onclick={() => player.toggle()}
     >
-      {#if busy}<IconLoader class="size-5 animate-spin" />{:else if player.playing}<IconPause class="size-5" />{:else}<IconPlay class="size-5" />{/if}
+      {#if busy}<IconLoader class="size-5 animate-spin" />{:else if player.playing}<PauseGlyph size={20} box={40} />{:else}<PlayGlyph size={20} box={40} />{/if}
     </button>
     <button {@attach pressable()}
     type="button" aria-label={t.player.next} class="text-ink-2 transition-colors hover:text-ink" onclick={() => player.next()}>

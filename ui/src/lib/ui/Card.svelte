@@ -1,8 +1,8 @@
 <script lang="ts">
   // Album / artist / playlist card: square cover, title, subtitle, hover play button.
   import { coverUrl } from "$lib/ipc";
-  import IconPlay from "~icons/solar/play-bold";
-  import IconPause from "~icons/solar/pause-bold";
+  import PauseGlyph from "./PauseGlyph.svelte";
+  import PlayGlyph from "./PlayGlyph.svelte";
   import { player } from "$lib/stores/player.svelte";
   import { t } from "$lib/i18n";
   import { liftable, pressable } from "$lib/motion";
@@ -83,7 +83,7 @@
           {@attach pressable(0.9)}
           onclick={() => (current ? player.toggle() : onplay?.())}
         >
-          {#if showPause}<IconPause class="size-5" />{:else}<IconPlay class="size-5" />{/if}
+          {#if showPause}<PauseGlyph size={20} box={44} />{:else}<PlayGlyph size={20} box={44} />{/if}
         </button>
       {/if}
     </div>
