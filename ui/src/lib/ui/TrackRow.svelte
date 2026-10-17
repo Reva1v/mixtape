@@ -38,10 +38,11 @@
   <div
     role="row"
     tabindex="-1"
-    class="group grid h-[52px] grid-cols-[36px_minmax(0,1.6fr)_minmax(0,1fr)_32px_56px_32px] items-center gap-3 rounded-md px-3
+    class="group grid h-[52px] cursor-pointer grid-cols-[36px_minmax(0,1.6fr)_minmax(0,1fr)_32px_56px_32px] items-center gap-3 rounded-md px-3
       transition-colors duration-100 hover:bg-fill-2 {current ? 'bg-fill-1' : ''}"
     class:no-album={!showAlbum}
-    ondblclick={() => (current ? player.toggle() : onplay())}
+    onclick={(e) => !(e.target as HTMLElement).closest("button, a") && (current ? player.toggle() : onplay())}
+    onkeydown={(e) => e.key === "Enter" && (current ? player.toggle() : onplay())}
     oncontextmenu={openMenu}
   >
     <div class="grid place-items-center text-[13px] text-ink-3 tnum">

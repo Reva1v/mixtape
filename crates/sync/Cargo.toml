@@ -13,6 +13,8 @@ mixtape-artwork.workspace = true
 mixtape-yt.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+rusqlite.workspace = true
+ts-rs.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util"] }
 tracing.workspace = true

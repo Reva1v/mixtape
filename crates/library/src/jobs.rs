@@ -232,6 +232,11 @@ pub fn mark_failed(conn: &Connection, id: i64, error: &str) -> Result<bool> {
     Ok(n > 0)
 }
 
+/// `running → queued` for one job: YouTube throttled us, try again after the backoff.
+pub fn requeue(conn: &Connection, id: i64) -> Result<bool> {
+    transition(conn, id, "'running'", "status = 'queued'")
+}
+
 /// `running/queued → paused`. The worker must stop the running downloads itself
 /// (their `.part` files are kept). Returns the number of paused jobs.
 pub fn pause_all(conn: &Connection) -> Result<usize> {

@@ -128,7 +128,11 @@
         d.settling = true;
         d.dy = 0;
         setTimeout(() => (drag = null), 220);
-      } else drag = null;
+      } else {
+        // A press without movement is a click: play that track.
+        drag = null;
+        invoke("queue_jump", { uid: d.uid });
+      }
       return;
     }
     // Glide into the target slot, then commit without animating the reflow.
@@ -213,7 +217,6 @@
       {!isCurrent ? (drag?.active && drag.from === i ? 'cursor-grabbing bg-[#1a1a1c]/90 shadow-[0_16px_40px_-10px_rgb(0_0_0/0.8)]' : 'cursor-grab') : ''}"
     style={rowStyle(i)}
     onpointerdown={(ev) => !isCurrent && down(ev, i, e.uid)}
-    ondblclick={() => !isCurrent && invoke("queue_jump", { uid: e.uid })}
     oncontextmenu={(ev) => {
       ev.preventDefault();
       menu.show(trackMenu(e.track), ev.clientX, ev.clientY);

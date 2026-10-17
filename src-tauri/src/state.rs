@@ -5,6 +5,11 @@ use mixtape_artwork::CoverStore;
 use mixtape_library::views::ViewCache;
 use mixtape_library::{DataPaths, Db};
 use mixtape_player::{PlaybackState, Player};
+use mixtape_sync::downloader::{Downloader, DownloadsProgress};
+use mixtape_yt::innertube::InnerTube;
+use mixtape_yt::resolver::StreamResolver;
+use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tauri::AppHandle;
@@ -12,7 +17,6 @@ use tauri::ipc::Channel;
 
 pub struct AppState {
     pub app: AppHandle,
-    #[allow(dead_code)] // used by downloads (US2)
     pub paths: DataPaths,
     pub db: Db,
     pub covers: CoverStore,
@@ -22,6 +26,24 @@ pub struct AppState {
     pub player_channel: Mutex<Option<Channel<PlaybackState>>>,
     pub media: Media,
     pub started: Instant,
+    pub yt: Arc<InnerTube>,
+    pub resolver: Arc<StreamResolver>,
+    pub downloads: Downloader,
+    /// Where `DownloadsProgress` updates go; set by `downloads_subscribe`.
+    pub downloads_channel: Mutex<Option<Channel<DownloadsProgress>>>,
+    /// A source sync is running (only one at a time).
+    pub syncing: AtomicBool,
+}
+
+/// yt-dlp and deno sit next to the executable (Tauri `externalBin`); in a debug build
+/// they may still be only in `src-tauri/binaries`.
+fn sidecar(name: &str) -> PathBuf {
+    let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(PathBuf::from)).unwrap_or_default();
+    let beside = exe_dir.join(format!("{name}.exe"));
+    if beside.exists() || !cfg!(debug_assertions) {
+        return beside;
+    }
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries").join(format!("{name}-x86_64-pc-windows-msvc.exe"))
 }
 
 impl AppState {
@@ -40,6 +62,18 @@ impl AppState {
             Arc::new(move |ev| crate::events::on_player_event(&handle, ev)),
         )?;
         tracing::debug!("player started");
+        let yt = Arc::new(InnerTube::new("ru", "RU")?);
+        let tmp = paths.root.join("tmp");
+        std::fs::create_dir_all(&tmp)?;
+        let resolver = Arc::new(StreamResolver::new(sidecar("yt-dlp"), sidecar("deno"), tmp));
+        let downloads = Downloader::start(
+            tauri::async_runtime::handle().inner(),
+            db.clone(),
+            resolver.clone(),
+            yt.http().clone(),
+            paths.root.clone(),
+            crate::downloads::AppHooks::new(app),
+        );
         Ok(Self {
             app: app.clone(),
             paths,
@@ -50,6 +84,11 @@ impl AppState {
             player_channel: Mutex::new(None),
             media: Media::default(),
             started,
+            yt,
+            resolver,
+            downloads,
+            downloads_channel: Mutex::new(None),
+            syncing: AtomicBool::new(false),
         })
     }
 }

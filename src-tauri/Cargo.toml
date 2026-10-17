@@ -20,6 +20,8 @@ mixtape-artwork.workspace = true
 mixtape-player.workspace = true
 mixtape-audio.workspace = true
 mixtape-win.workspace = true
+mixtape-yt.workspace = true
+mixtape-sync.workspace = true
 tauri = { version = "2.12", features = [] }
 tauri-plugin-window-state = "2.5"
 tauri-plugin-single-instance = "2.5"

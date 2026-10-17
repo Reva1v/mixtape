@@ -1,6 +1,9 @@
+mod account;
 mod commands;
 mod cover_protocol;
+mod downloads;
 mod events;
+mod login_window;
 mod media;
 mod state;
 mod window;
@@ -31,6 +34,7 @@ pub fn run() {
             let state = Arc::new(state::AppState::init(app.handle())?);
             app.manage(state.clone());
             tracing::debug!("setup: state managed");
+            account::restore(&state);
             state.player.set_crossfade(commands::settings::Prefs::load(&state).crossfade_ms());
             tracing::debug!("setup: crossfade applied");
             // `setup` runs on the main (UI) thread, which the thumbnail toolbar needs.
@@ -85,6 +89,18 @@ pub fn run() {
             commands::dev::dev_import_folder,
             commands::settings::prefs_get,
             commands::settings::prefs_set,
+            commands::sync::account_status,
+            commands::sync::account_connect_cookies,
+            commands::sync::account_connect_webview,
+            commands::sync::account_disconnect,
+            commands::sync::sync_preview,
+            commands::sync::sync_start,
+            commands::sync::import_url,
+            commands::sync::downloads_pause,
+            commands::sync::downloads_resume,
+            commands::sync::download_retry,
+            commands::sync::downloads_failed,
+            commands::sync::downloads_subscribe,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Mixtape");

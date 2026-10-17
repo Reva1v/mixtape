@@ -38,6 +38,8 @@ export type FailedJob = { id: number; trackId: TrackId; title: string; artists: 
 export const accountStatus = () => invoke<AccountStatus>("account_status");
 /** Accepts Netscape cookies.txt text or an EditThisCookie JSON export. */
 export const accountConnectCookies = (cookiesTxt: string) => invoke<AccountStatus>("account_connect_cookies", { cookiesTxt });
+/** Opens Google sign-in in a Mixtape window; resolves once the account is connected. */
+export const accountConnectWebview = () => invoke<AccountStatus>("account_connect_webview");
 export const accountDisconnect = () => invoke<void>("account_disconnect");
 
 export const syncPreview = () => invoke<SyncPreview>("sync_preview");

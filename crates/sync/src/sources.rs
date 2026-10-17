@@ -45,6 +45,7 @@ pub enum SyncStage {
 const COVER_PARALLEL: usize = 6;
 
 /// One source's tracks, tagged for `download_jobs.source`.
+#[derive(Default)]
 struct Collected {
     tracks: Vec<YtTrack>,
     albums: Vec<YtAlbum>,
@@ -88,15 +89,7 @@ pub async fn run<Y: YtMusic>(
 }
 
 async fn collect<Y: YtMusic>(yt: &Y, plan: &SyncPlan, stage: &impl Fn(SyncStage)) -> Result<Collected, YtError> {
-    let mut c = Collected {
-        tracks: Vec::new(),
-        albums: Vec::new(),
-        liked: None,
-        playlists: Vec::new(),
-        sources: HashMap::new(),
-        saved_albums: HashSet::new(),
-        errors: Vec::new(),
-    };
+    let mut c = Collected::default();
     // Auth failures abort the whole sync; anything else only skips that source.
     fn soft<T>(r: Result<T, YtError>, what: &str, errors: &mut Vec<(String, String)>) -> Result<Option<T>, YtError> {
         match r {
@@ -328,4 +321,73 @@ pub async fn preview<Y: YtMusic>(yt: &Y) -> Result<SyncPreview, YtError> {
     let albums = yt.library_albums().await?.len();
     let artists = yt.library_artists().await?.len();
     Ok(SyncPreview { liked, playlists, albums, artists })
+}
+
+/// What a pasted link added, for the toast.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ImportResult {
+    /// `track`, `album` or `playlist`.
+    pub kind: String,
+    pub title: String,
+    pub track_count: u32,
+}
+
+/// Imports what a music.youtube.com / youtube.com link points at and queues its tracks.
+pub async fn import_link<Y: YtMusic>(
+    yt: &Y,
+    http: &reqwest::Client,
+    db: &Db,
+    covers: &CoverStore,
+    link: crate::url_import::Link,
+) -> Result<ImportResult, YtError> {
+    use crate::url_import::Link;
+    let mut c = Collected::default();
+    let result = match link {
+        Link::Track(id) => {
+            let t = yt.track(&id).await?;
+            let title = t.title.clone();
+            c.sources.insert(t.id.clone(), "url".into());
+            c.tracks.push(t);
+            ImportResult { kind: "track".into(), title, track_count: 1 }
+        }
+        Link::Album(id) => {
+            let a = yt.album(&id).await?;
+            for t in &a.tracks {
+                c.sources.insert(t.id.clone(), "url".into());
+            }
+            c.tracks.extend(a.tracks.iter().cloned());
+            let r = ImportResult { kind: "album".into(), title: a.card.title.clone(), track_count: a.tracks.len() as u32 };
+            c.albums.push(a);
+            r
+        }
+        Link::Playlist(id) => {
+            let album_list = id.as_str().starts_with("OLAK");
+            let p = yt.playlist(&id).await?;
+            for t in &p.tracks {
+                c.sources.insert(t.id.clone(), "url".into());
+            }
+            let ids = p.tracks.iter().map(|t| t.id.clone()).collect();
+            // An `OLAK5uy_…` list is an album's audio playlist, not something to mirror.
+            if !album_list {
+                c.playlists.push((p.card.id.clone(), p.card.title.clone(), p.card.thumbnail.clone(), ids));
+            }
+            let r = ImportResult {
+                kind: if album_list { "album" } else { "playlist" }.into(),
+                title: p.card.title.clone(),
+                track_count: p.tracks.len() as u32,
+            };
+            c.tracks.extend(p.tracks);
+            r
+        }
+        Link::Artist(_) => {
+            return Err(YtError::Unavailable(
+                "ссылки на исполнителей пока не поддерживаются — добавьте альбом или плейлист".into(),
+            ));
+        }
+    };
+    let covers = fetch_covers(http, covers, &c, &|_| {}).await;
+    save(db, c, covers).map_err(|e| YtError::Parse(format!("библиотека: {e}")))?;
+    Ok(result)
 }

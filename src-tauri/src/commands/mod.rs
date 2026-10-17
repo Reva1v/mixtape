@@ -2,6 +2,7 @@ pub mod library;
 pub mod dev;
 pub mod player;
 pub mod settings;
+pub mod sync;
 
 use mixtape_core::{AppError, ErrorKind};
 

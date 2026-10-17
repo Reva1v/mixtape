@@ -113,7 +113,7 @@
   </label>
 {/snippet}
 
-<div class="max-w-[860px] px-8 pt-10 pb-12">
+<div class="mx-auto flex min-h-full w-full max-w-[924px] flex-col px-8 pt-10 pb-12">
   <div class="mb-8 flex items-end justify-between gap-4">
     <h1 class="text-[28px] font-bold tracking-tight">{t.nav.downloads}</h1>
     <button
@@ -127,6 +127,8 @@
   </div>
 
   {#if empty}
+    <!-- Centred in the panel; the negative margin offsets the header for optical balance. -->
+    <div class="-mt-16 grid flex-1 place-items-center">
     <EmptyState
       icon={IconDownload}
       title="YouTube Music не подключён"
@@ -141,6 +143,7 @@
         Подключить
       </button>
     </EmptyState>
+    </div>
   {:else}
     {#if showProgress}
       <section class="mb-8 rounded-lg bg-white/[0.04] px-5 py-4">

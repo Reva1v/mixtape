@@ -52,6 +52,8 @@ mockIPC(
         return null;
       case "account_status":
         return account;
+      case "account_connect_webview":
+        return new Promise((r) => setTimeout(() => r((account = named())), 1200));
       case "account_connect_cookies":
         if (!String(a.cookiesTxt).includes("youtube")) throw { kind: "auth", message: "В тексте нет cookies для youtube.com" };
         return (account = named());

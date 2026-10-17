@@ -5,6 +5,7 @@
 import { Channel, on } from "$lib/ipc";
 import {
   accountConnectCookies,
+  accountConnectWebview,
   accountDisconnect,
   accountStatus,
   downloadRetry,
@@ -81,6 +82,12 @@ class Downloads {
   /** Throws `IpcError` with a readable message when the cookies are rejected. */
   async connect(cookiesTxt: string) {
     this.account = await accountConnectCookies(cookiesTxt);
+    this.ready = true;
+  }
+
+  /** Sign-in window; throws `IpcError` when the window is closed or YouTube says no. */
+  async signIn() {
+    this.account = await accountConnectWebview();
     this.ready = true;
   }
 

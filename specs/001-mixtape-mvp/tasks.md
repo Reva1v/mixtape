@@ -98,23 +98,23 @@
 **Goal**: подключить аккаунт и один раз скачать лайки, плейлисты, альбомы, артистов; ссылки вручную.
 **Independent Test**: сценарии Q1–Q3.
 
-- [ ] T052 [US2] Трейт `YtMusic` и доменные типы ответов (research R1) в `crates/yt/src/api.rs`
-- [ ] T053 [US2] Cookie-хранилище: импорт `cookies.txt` и JSON (формат EditThisCookie), шифрование DPAPI, `CacheStorage` для RustyPipe, временная копия файла для yt-dlp в `crates/yt/src/auth.rs` + тест разбора обоих форматов
-- [ ] T054 [US2] Форк RustyPipe (фикс #87) как git-зависимость на rev; клиент с нашим storage; маппинг `music_liked_tracks`, `music_saved_playlists/albums/artists`, `music_album`, `music_artist(id,true)`, `music_playlist` в `crates/yt/src/rustypipe_impl.rs`
-- [ ] T055 [US2] Обложки YouTube: перевод URL в `=w1200-h1200-l90-rj` и скачивание в artwork в `crates/yt/src/thumbs.rs`
-- [ ] T056 [US2] `StreamResolver` через sidecar yt-dlp (`--cookies <копия> --js-runtimes deno:<path> -f 251/140 -J`, пакетное разрешение до 5 ID, кэш URL до `expires_at`, таймаут 30 с, разбор ошибок в человекочитаемые причины) в `crates/yt/src/resolver.rs` + тест разбора JSON-фикстуры
-- [ ] T057 [US2] Rate limiter: ≤ 2 загрузки параллельно, пауза 1–3 с между задачами, backoff при 429 / «not a bot» в `crates/yt/src/limits.rs`
-- [ ] T058 [US2] Загрузчик файла: чанки `&range=` ~10 МБ, запись в `.part`, докачка по уже записанным байтам, переименование в `library/` + `media_files` в `crates/sync/src/fetch.rs`
-- [ ] T059 [US2] `download_jobs`: очередь, статусы `queued/running/paused/done/failed`, «одна активная задача на track_id», `running → queued` после перезапуска, пауза/продолжение, повтор неудавшихся в `crates/sync/src/jobs.rs` + тесты переходов
-- [ ] T060 [US2] Синхронизация источников (`sync_sources`): лайки, выбранные плейлисты (перезапись состава `ytm`-плейлистов), альбомы, артисты (дискография) — только новые треки в загрузку, предпочтение аудио-версии перед клипом в `crates/sync/src/sources.rs` + тест на фикстурах
-- [ ] T061 [US2] Импорт по ссылке (трек / альбом / плейлист music.youtube.com и youtube.com) в `crates/sync/src/url_import.rs` + тест разбора URL
-- [ ] T062 [US2] Проверка места на диске (пауза при < 2 ГБ + предупреждение) в `crates/sync/src/disk.rs`
-- [ ] T063 [US2] Команды `account_*`, `sync_preview`, `sync_start`, `import_url`, `downloads_*`, канал `downloads_subscribe`, событие `account:expired` в `src-tauri/src/commands/sync.rs`
-- [ ] T064 [US2] Вход через окно WebView2 на music.youtube.com с чтением cookies (spike: если Google блокирует — скрыть кнопку, оставить импорт файла) в `src-tauri/src/login_window.rs`
-- [ ] T065 [US2] Онбординг/подключение аккаунта (вход в окне или вставка cookies, инструкция) в `ui/src/screens/Onboarding.svelte`
-- [ ] T066 [US2] Экран «Синхронизация»: превью с количествами, выбор источников, общий прогресс, текущий трек, скорость, пауза, список неудавшихся с причиной и «Повторить» в `ui/src/screens/Downloads.svelte`
-- [ ] T067 [P] [US2] Модалка «Добавить по ссылке» (Ctrl+V в любом месте с распознанной ссылкой — предложение скачать) в `ui/src/lib/ui/ImportUrlModal.svelte`
-- [ ] T068 [P] [US2] Индикатор загрузок в сайдбаре в `ui/src/lib/ui/Sidebar.svelte`
+- [x] T052 [US2] Трейт `YtMusic` и доменные типы ответов (research R1) в `crates/yt/src/api.rs`
+- [x] T053 [US2] Cookie-хранилище: импорт `cookies.txt` и JSON (формат EditThisCookie), шифрование DPAPI, `CacheStorage` для RustyPipe, временная копия файла для yt-dlp в `crates/yt/src/auth.rs` + тест разбора обоих форматов
+- [x] T054 [US2] ~~Форк RustyPipe~~ → свой InnerTube-клиент (`innertube.rs`, `parse.rs`, `api.rs`), см. research R1 «Пересмотр». Было: Форк RustyPipe (фикс #87) как git-зависимость на rev; клиент с нашим storage; маппинг `music_liked_tracks`, `music_saved_playlists/albums/artists`, `music_album`, `music_artist(id,true)`, `music_playlist` в `crates/yt/src/rustypipe_impl.rs`
+- [x] T055 [US2] Обложки YouTube: перевод URL в `=w1200-h1200-l90-rj` и скачивание в artwork в `crates/yt/src/thumbs.rs`
+- [x] T056 [US2] `StreamResolver` через sidecar yt-dlp (`--cookies <копия> --js-runtimes deno:<path> -f 251/140 -J`, пакетное разрешение до 5 ID, кэш URL до `expires_at`, таймаут 30 с, разбор ошибок в человекочитаемые причины) в `crates/yt/src/resolver.rs` + тест разбора JSON-фикстуры
+- [x] T057 [US2] Rate limiter: ≤ 2 загрузки параллельно, пауза 1–3 с между задачами, backoff при 429 / «not a bot» в `crates/yt/src/limits.rs`
+- [x] T058 [US2] Загрузчик файла: чанки `&range=` ~10 МБ, запись в `.part`, докачка по уже записанным байтам, переименование в `library/` + `media_files` в `crates/sync/src/fetch.rs`
+- [x] T059 [US2] `download_jobs`: очередь, статусы `queued/running/paused/done/failed`, «одна активная задача на track_id», `running → queued` после перезапуска, пауза/продолжение, повтор неудавшихся в `crates/sync/src/jobs.rs` + тесты переходов
+- [x] T060 [US2] Синхронизация источников (`sync_sources`): лайки, выбранные плейлисты (перезапись состава `ytm`-плейлистов), альбомы, артисты (дискография) — только новые треки в загрузку, предпочтение аудио-версии перед клипом в `crates/sync/src/sources.rs` + тест на фикстурах
+- [x] T061 [US2] Импорт по ссылке (трек / альбом / плейлист music.youtube.com и youtube.com) в `crates/sync/src/url_import.rs` + тест разбора URL
+- [x] T062 [US2] Проверка места на диске (пауза при < 2 ГБ + предупреждение) в `crates/sync/src/disk.rs`
+- [x] T063 [US2] Команды `account_*`, `sync_preview`, `sync_start`, `import_url`, `downloads_*`, канал `downloads_subscribe`, событие `account:expired` в `src-tauri/src/commands/sync.rs`
+- [x] T064 [US2] Вход через окно WebView2 на music.youtube.com с чтением cookies (spike: если Google блокирует — скрыть кнопку, оставить импорт файла) в `src-tauri/src/login_window.rs`
+- [x] T065 [US2] Онбординг/подключение аккаунта (вход в окне или вставка cookies, инструкция) в `ui/src/screens/Onboarding.svelte`
+- [x] T066 [US2] Экран «Синхронизация»: превью с количествами, выбор источников, общий прогресс, текущий трек, скорость, пауза, список неудавшихся с причиной и «Повторить» в `ui/src/screens/Downloads.svelte`
+- [x] T067 [P] [US2] Модалка «Добавить по ссылке» (Ctrl+V в любом месте с распознанной ссылкой — предложение скачать) в `ui/src/lib/ui/ImportUrlModal.svelte`
+- [x] T068 [P] [US2] Индикатор загрузок в сайдбаре в `ui/src/lib/ui/Sidebar.svelte`
 
 **Checkpoint**: Q1–Q3 проходят; скачанное сразу доступно в US1.
 
