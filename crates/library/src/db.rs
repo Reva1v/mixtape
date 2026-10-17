@@ -10,7 +10,7 @@ const MIGRATIONS_SLICE: &[M<'static>] = &[
     M::up(include_str!("../migrations/001_init.sql")),
     M::up(include_str!("../migrations/002_artist_palette.sql")),
     M::up(include_str!("../migrations/003_artist_image_checked.sql")),
-    M::up(include_str!("../migrations/005_play_events.sql")),
+    M::up(include_str!("../migrations/004_play_events.sql")),
 ];
 
 fn migrations() -> Migrations<'static> {
