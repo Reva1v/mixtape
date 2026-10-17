@@ -95,7 +95,6 @@ pub async fn prefs_set(state: State<'_, Arc<AppState>>, prefs: Prefs) -> CmdResu
         crate::discord::set_enabled(&st, prefs.discord_presence);
         st.player.set_normalization(prefs.normalize_volume);
         Prefs::load(&st).apply_language(&st);
-        crate::tray::refresh(&st.app);
         Ok(())
     })
     .await

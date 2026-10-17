@@ -102,6 +102,20 @@ pub fn open_url(url: &str) -> bool {
     false
 }
 
+/// Posts `WM_CLOSE` to a top-level window, so whatever subclasses it (tauri-plugin-frame's
+/// snap overlay) tears itself down before the window goes.
+pub fn post_close(hwnd: isize) {
+    #[cfg(windows)]
+    // SAFETY: a plain Win32 call; a stale handle only makes it fail.
+    unsafe {
+        use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+        use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
+        let _ = PostMessageW(Some(HWND(hwnd as *mut _)), WM_CLOSE, WPARAM(0), LPARAM(0));
+    }
+    #[cfg(not(windows))]
+    let _ = hwnd;
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[cfg(windows)]

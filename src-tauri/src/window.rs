@@ -87,14 +87,20 @@ pub fn hide_main(app: &AppHandle) {
     let _ = w.hide();
 }
 
+/// The window is on the screen: not in the tray and not minimized (it may be behind
+/// other windows).
+pub fn on_screen(app: &AppHandle) -> bool {
+    app.get_webview_window(MAIN).is_some_and(|w| {
+        !IN_TRAY.load(Ordering::SeqCst) && w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false)
+    })
+}
+
 /// Tray icon click: hides the window if it is the one in front, shows it otherwise.
 pub fn toggle_main(app: &AppHandle) {
     let Some(w) = app.get_webview_window(MAIN) else { return };
-    let on_screen =
-        !IN_TRAY.load(Ordering::SeqCst) && w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false);
     let blurred_just_now =
         BLURRED_AT.lock().expect("blur time poisoned").is_some_and(|t| t.elapsed() < BLUR_GRACE);
-    if on_screen && (w.is_focused().unwrap_or(false) || blurred_just_now) {
+    if on_screen(app) && (w.is_focused().unwrap_or(false) || blurred_just_now) {
         hide_main(app);
     } else {
         show_main(app);
@@ -110,6 +116,11 @@ pub fn close_to_tray(app: &AppHandle) -> bool {
     }
     hide_main(app);
     true
+}
+
+/// Tray menu: hides the window when it is on the screen, shows it otherwise.
+pub fn show_or_hide_main(app: &AppHandle) {
+    if on_screen(app) { hide_main(app) } else { show_main(app) }
 }
 
 /// Quits the app (tray menu): saves the queue position, then exits.

@@ -1,0 +1,26 @@
+/* Design tokens, shared by the app (app.css) and the tray menu (tray-menu.css).
+   Monochrome design: near-black surfaces, white as the only accent. Colour comes from
+   artwork alone, as a soft glow (--glow) behind headers and the full-screen player. */
+@theme {
+  --font-sans: "Inter Variable", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+
+  --color-base: #000000;
+  --color-panel: #0a0a0a;
+  --color-raised: #161617;
+  --color-ink: #ffffff;
+  --color-ink-2: rgb(255 255 255 / 0.62);
+  --color-ink-3: rgb(255 255 255 / 0.4);
+  --color-line: rgb(255 255 255 / 0.07);
+  --color-fill-1: rgb(255 255 255 / 0.04);
+  --color-fill-2: rgb(255 255 255 / 0.07);
+  --color-fill-3: rgb(255 255 255 / 0.12);
+  --color-danger: #ff5c5c;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 10px;
+
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --shadow-pop: 0 16px 48px -12px rgb(0 0 0 / 0.75), 0 0 0 1px rgb(255 255 255 / 0.07);
+}

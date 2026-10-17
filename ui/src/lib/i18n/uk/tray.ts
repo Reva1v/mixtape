@@ -15,5 +15,9 @@ export const tray: typeof en = {
     autostartFailed: "Не вдалося змінити автозапуск",
     miniPlayer: "Мініплеєр",
     fullWindow: "Повне вікно",
+    menu: "Меню Mixtape",
+    show: "Показати Mixtape",
+    hide: "Сховати Mixtape",
+    quit: "Вийти",
   },
 };

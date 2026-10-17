@@ -14,6 +14,7 @@ mod net;
 mod state;
 mod streaming;
 mod tray;
+mod tray_menu;
 mod updates;
 mod window;
 
@@ -52,6 +53,8 @@ pub fn run() {
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(StateFlags::all() - StateFlags::VISIBLE)
+                // Placed at the cursor on every open.
+                .with_denylist(&[tray_menu::LABEL])
                 .build(),
         )
         .plugin(window::frame_plugin())
@@ -99,7 +102,9 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == window::MAIN && window::close_to_tray(window.app_handle()) {
                     api.prevent_close();
-                } else if let Some(st) = window.app_handle().try_state::<Arc<state::AppState>>() {
+                } else if window.label() != tray_menu::LABEL
+                    && let Some(st) = window.app_handle().try_state::<Arc<state::AppState>>()
+                {
                     st.player.save_snapshot(true);
                     st.player.finish_listens();
                 }
@@ -109,6 +114,10 @@ pub fn run() {
             window::app_ready,
             mini::window_set_mini,
             mini::window_is_mini,
+            tray_menu::tray_menu_snapshot,
+            tray_menu::tray_menu_reveal,
+            tray_menu::tray_menu_hide,
+            tray_menu::tray_menu_action,
             autostart::autostart_get,
             autostart::autostart_set,
             commands::library::library_view,

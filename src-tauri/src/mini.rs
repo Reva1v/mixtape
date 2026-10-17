@@ -248,7 +248,6 @@ fn enter(app: &AppHandle) {
     let _ = w.set_size(LogicalSize::new(width, HEIGHT));
     let _ = w.set_position(PhysicalPosition::new(x, y));
     overlay(&w, false);
-    crate::tray::set_mini(app, true);
 }
 
 /// Main thread only, like [`enter`].
@@ -277,7 +276,6 @@ fn leave(app: &AppHandle) {
     }
     let _ = app.emit("window:mini", false);
     crate::window::show_main(app);
-    crate::tray::set_mini(app, false);
 }
 
 /// The app is exiting (after the window-state plugin saved its file): in mini mode,

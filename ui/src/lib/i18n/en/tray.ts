@@ -13,5 +13,10 @@ export const tray = {
     autostartFailed: "Couldn't change start with Windows",
     miniPlayer: "Mini player",
     fullWindow: "Full window",
+    // The tray icon's menu.
+    menu: "Mixtape menu",
+    show: "Show Mixtape",
+    hide: "Hide Mixtape",
+    quit: "Quit",
   },
 };

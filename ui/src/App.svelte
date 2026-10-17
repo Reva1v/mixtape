@@ -45,7 +45,12 @@
     void updates.init();
     void mini.init();
     const un = on<{ level: "info" | "error"; text: string }>("toast", (e) => toasts.push(e.text, e.level));
-    return () => void un.then((f) => f());
+    // The tray menu's «Settings».
+    const unSettings = on("app:open-settings", () => router.go({ name: "settings" }));
+    return () => {
+      void un.then((f) => f());
+      void unSettings.then((f) => f());
+    };
   });
 
   // New pages open at the top; back/forward return to where the page was scrolled.

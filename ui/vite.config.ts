@@ -9,5 +9,16 @@ export default defineConfig({
   resolve: { alias: { $lib: fileURLToPath(new URL("./src/lib", import.meta.url)) } },
   clearScreen: false,
   server: { port: 5173, strictPort: true },
-  build: { target: "es2023", outDir: "dist", emptyOutDir: true },
+  build: {
+    target: "es2023",
+    outDir: "dist",
+    emptyOutDir: true,
+    // The tray icon's menu is a page of its own, so its window loads only what it uses.
+    rolldownOptions: {
+      input: {
+        main: fileURLToPath(new URL("./index.html", import.meta.url)),
+        "tray-menu": fileURLToPath(new URL("./tray-menu.html", import.meta.url)),
+      },
+    },
+  },
 });
