@@ -165,7 +165,20 @@
           </div>
         </div>
 
-        <Timeline class="mt-6" style="width: {coverSize + 80}px" />
+        <!-- The queue button hangs off the timeline's right end, so the timeline stays centred. -->
+        <div class="relative mt-6">
+          <Timeline style="width: {coverSize + 80}px" />
+          <button
+            type="button"
+            aria-label={t.player.queue}
+            data-tip={t.player.queue}
+            class="absolute top-1/2 left-full ml-3 grid size-7 -translate-y-1/2 place-items-center rounded-full transition-colors
+              {queueOpen ? 'bg-white/14 text-ink' : 'text-ink-3 hover:text-ink'}"
+            onclick={() => (queueOpen = !queueOpen)}
+          >
+            <IconQueue class="size-4" />
+          </button>
+        </div>
 
         <div class="mt-5"><Transport variant="full" /></div>
 
@@ -179,15 +192,6 @@
             onclick={() => layout.toggleDrawer("lyrics")}
           >
             <IconLyrics class="size-4" />
-          </button>
-          <button
-            type="button"
-            aria-label={t.player.queue}
-            data-tip={t.player.queue}
-            class="grid size-7 place-items-center rounded-full transition-colors {queueOpen ? 'bg-white/14 text-ink' : 'text-ink-3 hover:text-ink'}"
-            onclick={() => (queueOpen = !queueOpen)}
-          >
-            <IconQueue class="size-4" />
           </button>
         </div>
       </section>
