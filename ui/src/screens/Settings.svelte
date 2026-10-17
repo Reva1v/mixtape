@@ -4,8 +4,10 @@
   import { t } from "$lib/i18n/ru";
   import Switch from "$lib/ui/Switch.svelte";
   import Slider from "$lib/ui/Slider.svelte";
-  import { invoke } from "$lib/ipc";
+  import { coverUrl, invoke } from "$lib/ipc";
   import { prompt, toasts } from "$lib/stores/overlay.svelte";
+  import { downloads } from "$lib/stores/downloads.svelte";
+  import { router } from "$lib/stores/router.svelte";
 
   async function importFolder() {
     const path = await prompt.ask("Путь к папке с .webm / .m4a / .opus");
@@ -14,6 +16,20 @@
     toasts.push(`Импортировано треков: ${n}`);
   }
 
+  async function disconnect() {
+    try {
+      await downloads.disconnect();
+      toasts.push("Аккаунт отключён. Скачанная музыка остаётся в библиотеке");
+    } catch (e) {
+      toasts.push(e instanceof Error ? e.message : "Не удалось отключить аккаунт", "error");
+    }
+  }
+
+  const syncedAt = (ms: number) =>
+    new Date(ms).toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+
+  const account = $derived(downloads.account);
+  let avatarFailed = $state(false);
   const p = $derived(prefs.value);
   let fadePreview = $state<number | null>(null);
 </script>
@@ -30,6 +46,56 @@
 
 <div class="max-w-[760px] px-8 pt-10 pb-12">
   <h1 class="mb-8 text-[26px] font-bold tracking-tight">{t.nav.settings}</h1>
+
+  <section class="mb-8">
+    <h2 class="mb-3 text-[13px] font-semibold tracking-wide text-ink-3 uppercase">Аккаунт YouTube Music</h2>
+    <div class="flex items-center gap-4 rounded-lg bg-white/[0.04] px-5 py-4">
+      {#if account.connected}
+        {@const avatar = coverUrl(account.avatar, 64)}
+        <div class="grid size-[40px] shrink-0 place-items-center overflow-hidden rounded-full bg-fill-3 text-[15px] font-semibold">
+          {#if avatar && !avatarFailed}
+            <img src={avatar} alt="" class="size-full object-cover" draggable="false" onerror={() => (avatarFailed = true)} />
+          {:else}
+            {(account.name ?? "?").slice(0, 1).toUpperCase()}
+          {/if}
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="truncate text-[14.5px] font-medium">{account.name ?? "Аккаунт подключён"}</div>
+          <div class="mt-0.5 text-[13px] leading-snug text-ink-3">
+            {account.lastSyncAt ? `Последняя синхронизация ${syncedAt(account.lastSyncAt)}` : "Ещё не синхронизировался"}
+          </div>
+        </div>
+        <button
+          type="button"
+          class="h-9 shrink-0 rounded-full px-4 text-[13px] font-medium text-ink-2 transition-colors hover:bg-fill-2 hover:text-ink"
+          onclick={disconnect}
+        >
+          Отключить
+        </button>
+        <button
+          type="button"
+          class="h-9 shrink-0 rounded-full bg-fill-2 px-4 text-[13px] font-medium text-ink transition-colors hover:bg-fill-3"
+          onclick={() => router.go({ name: "downloads" })}
+        >
+          Синхронизация
+        </button>
+      {:else}
+        <div class="min-w-0 flex-1">
+          <div class="text-[14.5px] font-medium">Не подключён</div>
+          <div class="mt-0.5 text-[13px] leading-snug text-ink-3">
+            Нужен, чтобы выкачать лайки, плейлисты, альбомы и исполнителей. Данные входа хранятся только на этом компьютере.
+          </div>
+        </div>
+        <button
+          type="button"
+          class="h-9 shrink-0 rounded-full bg-ink px-4 text-[13px] font-semibold text-black transition-[background-color] hover:bg-[#dcdcdc]"
+          onclick={() => (downloads.connectOpen = true)}
+        >
+          Подключить
+        </button>
+      {/if}
+    </div>
+  </section>
 
   <section class="mb-8">
     <h2 class="mb-3 text-[13px] font-semibold tracking-wide text-ink-3 uppercase">Воспроизведение</h2>

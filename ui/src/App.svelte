@@ -4,6 +4,7 @@
   import { layout } from "$lib/stores/layout.svelte";
   import { player } from "$lib/stores/player.svelte";
   import { prefs } from "$lib/stores/prefs.svelte";
+  import { downloads } from "$lib/stores/downloads.svelte";
   import { handleHotkey } from "$lib/stores/hotkeys";
   import { enter, springWidth } from "$lib/motion";
   import { toasts } from "$lib/stores/overlay.svelte";
@@ -17,6 +18,8 @@
   import Dialogs from "$lib/ui/Dialogs.svelte";
   import Tooltip from "$lib/ui/Tooltip.svelte";
   import Shortcuts from "$lib/ui/Shortcuts.svelte";
+  import ConnectAccount from "$lib/ui/ConnectAccount.svelte";
+  import ImportUrlModal from "$lib/ui/ImportUrlModal.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Home from "./screens/Home.svelte";
   import Library from "./screens/Library.svelte";
@@ -25,6 +28,7 @@
   import Playlist from "./screens/Playlist.svelte";
   import Search from "./screens/Search.svelte";
   import Settings from "./screens/Settings.svelte";
+  import Downloads from "./screens/Downloads.svelte";
   import FullscreenPlayer from "./screens/FullscreenPlayer.svelte";
   import IconSoon from "~icons/solar/widget-bold";
   import IconLyrics from "~icons/solar/microphone-2-linear";
@@ -32,6 +36,7 @@
   onMount(() => {
     player.init().catch((e) => console.error("player init failed", e));
     prefs.init().catch((e) => console.error("prefs init failed", e));
+    void downloads.init();
     const un = on<{ level: "info" | "error"; text: string }>("toast", (e) => toasts.push(e.text, e.level));
     return () => void un.then((f) => f());
   });
@@ -104,6 +109,8 @@
             {#key route.id}<Playlist id={route.id} />{/key}
           {:else if route.name === "search"}
             <Search query={route.query} />
+          {:else if route.name === "downloads"}
+            <Downloads />
           {:else if route.name === "settings"}
             <Settings />
           {:else}
@@ -140,6 +147,8 @@
 
 <ContextMenu />
 <Dialogs />
+<ConnectAccount />
+<ImportUrlModal />
 <Toaster />
 <Tooltip />
 <Shortcuts />

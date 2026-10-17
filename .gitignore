@@ -6,3 +6,6 @@ src-tauri/gen/
 .env
 .secrets/
 src-tauri/binaries/*.exe
+
+# Agent worktrees
+.claude/worktrees/

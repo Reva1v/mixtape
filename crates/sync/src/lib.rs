@@ -1,5 +1,5 @@
-//! Downloads into the library: the persistent job queue, the chunked file fetcher,
-//! source synchronisation, link import and the free-space guard.
+//! Downloads into the library: chunked file fetching, source synchronisation, link
+//! parsing and the free-space guard. The job queue itself lives in `mixtape_library::jobs`.
 
 pub mod disk;
 pub mod fetch;

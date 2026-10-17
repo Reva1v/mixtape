@@ -3,6 +3,7 @@
 pub mod conn;
 pub mod db;
 pub mod integrity;
+pub mod jobs;
 pub mod normalize;
 pub mod paths;
 pub mod playlists;
@@ -10,6 +11,7 @@ pub mod repo;
 pub mod search;
 pub mod settings;
 pub mod views;
+pub mod ytm;
 
 pub use conn::Db;
 pub use paths::DataPaths;

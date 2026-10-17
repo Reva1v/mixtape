@@ -2562,8 +2562,10 @@ dependencies = [
 name = "mixtape-sync"
 version = "0.1.0"
 dependencies = [
+ "mixtape-artwork",
  "mixtape-core",
  "mixtape-library",
+ "mixtape-yt",
  "reqwest",
  "serde",
  "serde_json",
@@ -2571,6 +2573,8 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "url",
+ "windows",
 ]
 
 [[package]]

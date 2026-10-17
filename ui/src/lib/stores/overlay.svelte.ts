@@ -38,15 +38,17 @@ class MenuState {
 
 export const menu = new MenuState();
 
-export type Toast = { id: number; text: string; level: "info" | "error" };
+export type ToastAction = { label: string; run: () => void };
+export type Toast = { id: number; text: string; level: "info" | "error"; action?: ToastAction };
 
 class Toasts {
   list = $state<Toast[]>([]);
   #next = 1;
 
-  push(text: string, level: Toast["level"] = "info", ms = 3500) {
+  /** `action` adds a button to the toast (e.g. «Подключить»); clicking it dismisses the toast. */
+  push(text: string, level: Toast["level"] = "info", ms = 3500, action?: ToastAction) {
     const id = this.#next++;
-    this.list.push({ id, text, level });
+    this.list.push({ id, text, level, action });
     setTimeout(() => this.dismiss(id), ms);
   }
 

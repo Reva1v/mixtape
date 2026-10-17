@@ -9,15 +9,23 @@ publish.workspace = true
 [dependencies]
 mixtape-core.workspace = true
 mixtape-library.workspace = true
+mixtape-artwork.workspace = true
+mixtape-yt.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["io-util"] }
 tracing.workspace = true
 reqwest = { version = "0.13", default-features = false, features = ["native-tls", "http2", "stream"] }
+url = "2.5"
+
+# Same major as Tauri 2 so only one copy of `windows` is compiled.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
 
 [dev-dependencies]
 tempfile = "3"
+tokio = { workspace = true, features = ["net", "io-util"] }
 
 [lints]
 workspace = true

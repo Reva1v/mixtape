@@ -1,6 +1,8 @@
 //! Windows shell integration: media overlay / media keys (SMTC) and the taskbar
-//! thumbnail toolbar. On other targets everything compiles to no-ops.
+//! thumbnail toolbar, and DPAPI for stored secrets. On other targets everything compiles to no-ops.
 
+#[cfg(windows)]
+pub mod dpapi;
 mod glyph;
 #[cfg(windows)]
 mod smtc;

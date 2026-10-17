@@ -1,10 +1,13 @@
 import { mount } from "svelte";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import "./app.css";
 import App from "./App.svelte";
 import { installSpringCss } from "$lib/motion";
 
 installSpringCss();
+
+// Dev only: `?mock` fakes the sync/downloads commands in a plain browser (lib/ipc/mock.ts).
+if (import.meta.env.DEV && !isTauri() && new URLSearchParams(location.search).has("mock")) await import("$lib/ipc/mock");
 
 // Double-click maximizes only along the top edge, like a native title bar. Elsewhere
 // drag regions only move the window: stop Tauri's handler for the second click there.

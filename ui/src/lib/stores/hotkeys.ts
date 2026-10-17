@@ -4,6 +4,7 @@
 import { player } from "./player.svelte";
 import { layout } from "./layout.svelte";
 import { router } from "./router.svelte";
+import { downloads } from "./downloads.svelte";
 import { setLiked } from "$lib/ui/trackMenu";
 
 let muteRestore = 0.8;
@@ -62,6 +63,8 @@ export const shortcuts: { group: string; items: [keys: string, action: string][]
       ["Ctrl + K  ·  /", "Поиск"],
       ["Ctrl + 1 … 4", "Главная, поиск, библиотека, загрузки"],
       ["Ctrl + ,", "Настройки"],
+      ["Ctrl + L", "Добавить по ссылке"],
+      ["Ctrl + V", "Вставить ссылку YouTube — предложит скачать"],
       ["Alt + ←  /  Alt + →", "Назад / вперёд"],
       ["Esc", "Закрыть панель или полноэкранный режим"],
       ["?", "Эта подсказка"],
@@ -75,6 +78,7 @@ export function handleHotkey(e: KeyboardEvent): boolean {
   // Work even while typing.
   if (ctrl && e.code === "KeyK") return (focusSearch(), true);
   if (ctrl && e.code === "Comma") return (router.go({ name: "settings" }), true);
+  if (ctrl && e.code === "KeyL") return ((downloads.importUrl ??= ""), true);
   if (ctrl && !e.shiftKey && !e.altKey) {
     const tabs = { Digit1: "home", Digit2: "search", Digit3: "library", Digit4: "downloads" } as const;
     const tab = tabs[e.code as keyof typeof tabs];

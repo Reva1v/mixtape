@@ -492,6 +492,56 @@ pub fn ensure_found<T>(v: Option<T>, what: &str) -> Result<T> {
     v.ok_or_else(|| Error::Other(format!("{what} не найден")))
 }
 
+// ---------- home ----------
+
+fn ids_query<T>(conn: &Connection, sql: &str, limit: usize, wrap: impl Fn(String) -> T) -> Result<Vec<T>> {
+    let mut stmt = conn.prepare_cached(sql)?;
+    let rows = stmt.query_map([limit as i64], |r| r.get::<_, String>(0))?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(wrap(r?));
+    }
+    Ok(out)
+}
+
+/// Albums with the most recently played tracks first.
+pub fn recently_played_album_ids(conn: &Connection, limit: usize) -> Result<Vec<AlbumId>> {
+    ids_query(
+        conn,
+        "SELECT t.album_id FROM play_stats p JOIN tracks t ON t.id = p.track_id
+         WHERE t.album_id IS NOT NULL GROUP BY t.album_id ORDER BY MAX(p.last_played_at) DESC LIMIT ?1",
+        limit,
+        AlbumId,
+    )
+}
+
+/// Albums whose tracks were added to the library most recently.
+pub fn recently_added_album_ids(conn: &Connection, limit: usize) -> Result<Vec<AlbumId>> {
+    ids_query(
+        conn,
+        "SELECT album_id FROM tracks WHERE album_id IS NOT NULL AND state IN ('downloaded', 'broken')
+         GROUP BY album_id ORDER BY MAX(added_at) DESC LIMIT ?1",
+        limit,
+        AlbumId,
+    )
+}
+
+/// Library tracks played most often.
+pub fn most_played_track_ids(conn: &Connection, limit: usize) -> Result<Vec<TrackId>> {
+    ids_query(
+        conn,
+        "SELECT p.track_id FROM play_stats p JOIN tracks t ON t.id = p.track_id
+         WHERE t.state IN ('downloaded', 'broken') AND p.play_count > 0
+         ORDER BY p.play_count DESC, p.last_played_at DESC LIMIT ?1",
+        limit,
+        TrackId,
+    )
+}
+
+pub fn liked_count(conn: &Connection) -> Result<u32> {
+    Ok(conn.query_row("SELECT count(*) FROM tracks WHERE liked = 1", [], |r| r.get(0))?)
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -569,54 +619,4 @@ pub(crate) mod tests {
         let m = db.read(|c| media_file(c, &id)).unwrap().unwrap();
         assert_eq!(m.location, FileLocation::Library);
     }
-}
-
-// ---------- home ----------
-
-fn ids_query<T>(conn: &Connection, sql: &str, limit: usize, wrap: impl Fn(String) -> T) -> Result<Vec<T>> {
-    let mut stmt = conn.prepare_cached(sql)?;
-    let rows = stmt.query_map([limit as i64], |r| r.get::<_, String>(0))?;
-    let mut out = Vec::new();
-    for r in rows {
-        out.push(wrap(r?));
-    }
-    Ok(out)
-}
-
-/// Albums with the most recently played tracks first.
-pub fn recently_played_album_ids(conn: &Connection, limit: usize) -> Result<Vec<AlbumId>> {
-    ids_query(
-        conn,
-        "SELECT t.album_id FROM play_stats p JOIN tracks t ON t.id = p.track_id
-         WHERE t.album_id IS NOT NULL GROUP BY t.album_id ORDER BY MAX(p.last_played_at) DESC LIMIT ?1",
-        limit,
-        AlbumId,
-    )
-}
-
-/// Albums whose tracks were added to the library most recently.
-pub fn recently_added_album_ids(conn: &Connection, limit: usize) -> Result<Vec<AlbumId>> {
-    ids_query(
-        conn,
-        "SELECT album_id FROM tracks WHERE album_id IS NOT NULL AND state IN ('downloaded', 'broken')
-         GROUP BY album_id ORDER BY MAX(added_at) DESC LIMIT ?1",
-        limit,
-        AlbumId,
-    )
-}
-
-/// Library tracks played most often.
-pub fn most_played_track_ids(conn: &Connection, limit: usize) -> Result<Vec<TrackId>> {
-    ids_query(
-        conn,
-        "SELECT p.track_id FROM play_stats p JOIN tracks t ON t.id = p.track_id
-         WHERE t.state IN ('downloaded', 'broken') AND p.play_count > 0
-         ORDER BY p.play_count DESC, p.last_played_at DESC LIMIT ?1",
-        limit,
-        TrackId,
-    )
-}
-
-pub fn liked_count(conn: &Connection) -> Result<u32> {
-    Ok(conn.query_row("SELECT count(*) FROM tracks WHERE liked = 1", [], |r| r.get(0))?)
 }
