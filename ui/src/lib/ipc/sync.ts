@@ -19,7 +19,7 @@ export type SyncPreview = { liked: number; playlists: Playlist[]; albums: number
 
 export type SyncSelection = { liked: boolean; playlistIds: string[]; albums: boolean; artists: boolean };
 
-export type ImportKind = "track" | "album" | "playlist";
+export type ImportKind = "track" | "album" | "playlist" | "artist";
 export type ImportResult = { kind: ImportKind; title: string; trackCount: number };
 
 export type DownloadsProgress = {
@@ -55,7 +55,7 @@ export const downloadsFailed = () => invoke<FailedJob[]>("downloads_failed");
 /** Progress summary at ≤4 Hz. */
 export const downloadsSubscribe = (channel: Channel<DownloadsProgress>) => invoke<void>("downloads_subscribe", { channel });
 
-/** Recognises a YouTube / YouTube Music link to a track, album or playlist. */
+/** Recognises a YouTube / YouTube Music link to a track, album, playlist or artist. */
 export function parseMusicUrl(text: string): { url: string; kind: ImportKind } | null {
   let u: URL;
   try {
@@ -73,5 +73,6 @@ export function parseMusicUrl(text: string): { url: string; kind: ImportKind } |
   if (u.pathname === "/watch" && u.searchParams.get("v")) return { url: u.href, kind: "track" };
   if (/^\/shorts\/[\w-]{11}$/.test(u.pathname)) return { url: u.href, kind: "track" };
   if (u.pathname === "/playlist" && list) return { url: u.href, kind: list.startsWith("OLAK5uy_") ? "album" : "playlist" };
+  if (/^\/(channel|browse)\/UC[\w-]{22}$/.test(u.pathname)) return { url: u.href, kind: "artist" };
   return null;
 }

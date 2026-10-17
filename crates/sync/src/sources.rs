@@ -409,10 +409,11 @@ pub async fn import_link<Y: YtMusic>(
             c.tracks.extend(p.tracks);
             r
         }
-        Link::Artist(_) => {
-            return Err(YtError::Unavailable(
-                "ссылки на исполнителей пока не поддерживаются — добавьте альбом или плейлист".into(),
-            ));
+        Link::Artist(id) => {
+            // The whole discography, album by album (each one is stored and queued).
+            let name = yt.artist(&id).await?.card.name;
+            let n = crate::catalog::download_artist(yt, http, db, covers, &id).await?;
+            return Ok(ImportResult { kind: "artist".into(), title: name, track_count: n as u32 });
         }
     };
     let covers = fetch_covers(http, covers, &c, &|_| {}).await;

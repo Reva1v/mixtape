@@ -8,7 +8,7 @@
   import { t, tracks } from "$lib/i18n/ru";
   import Modal from "./Modal.svelte";
 
-  const kinds: Record<ImportKind, string> = { track: "Трек", album: "Альбом", playlist: "Плейлист" };
+  const kinds: Record<ImportKind, string> = { track: "Трек", album: "Альбом", playlist: "Плейлист", artist: "Дискография" };
 
   let value = $state("");
   let error = $state("");
@@ -63,7 +63,7 @@
 
 <Modal {open} title="Добавить по ссылке" onclose={close} width={480}>
   <p class="mb-3 text-[13px] leading-snug text-ink-3">
-    Трек, альбом или плейлист с YouTube Music или YouTube — он скачается в библиотеку.
+    Трек, альбом, плейлист или исполнитель с YouTube Music или YouTube — всё скачается в библиотеку.
   </p>
   <form onsubmit={submit}>
     <input

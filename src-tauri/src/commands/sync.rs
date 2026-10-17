@@ -170,7 +170,7 @@ pub async fn import_url(state: State<'_, Arc<AppState>>, url: String) -> CmdResu
     let st = state.inner().clone();
     need_account(&st)?;
     let link = url_import::parse_link(&url)
-        .ok_or_else(|| AppError::new(ErrorKind::Invalid, "Это не ссылка на трек, альбом или плейлист YouTube Music"))?;
+        .ok_or_else(|| AppError::new(ErrorKind::Invalid, "Это не ссылка на трек, альбом, плейлист или исполнителя YouTube Music"))?;
     let result = sources::import_link(&*st.yt, st.yt.http(), &st.db, &st.covers, link)
         .await
         .map_err(|e| yt_error(&st, e))?;
