@@ -25,6 +25,7 @@
   import IconQueue from "~icons/solar/playlist-minimalistic-linear";
   import QueuePanel from "$lib/ui/QueuePanel.svelte";
   import LyricsPanel from "$lib/ui/LyricsPanel.svelte";
+  import Spectrum from "$lib/ui/Spectrum.svelte";
 
   const track = $derived(player.track);
   const bg = $derived(coverUrl(track?.coverKey, 64));
@@ -98,6 +99,8 @@
   {/key}
   <!-- Darken heavily and keep only a soft glow behind the content. -->
   <div class="pointer-events-none absolute inset-0 bg-black/70"></div>
+  <!-- Spectrum (T093) under the vignette, so the edges stay dark. -->
+  <Spectrum />
   <div
     class="vignette pointer-events-none absolute inset-0"
     style:--vx={lyrics ? "30%" : "50%"}

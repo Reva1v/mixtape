@@ -10,7 +10,7 @@ use mixtape_sync::lyrics::Lrclib;
 use mixtape_yt::innertube::InnerTube;
 use mixtape_yt::resolver::StreamResolver;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tauri::AppHandle;
@@ -25,6 +25,9 @@ pub struct AppState {
     pub player: Arc<Player>,
     /// Where `PlaybackState` updates go; set by `player_subscribe`.
     pub player_channel: Mutex<Option<Channel<PlaybackState>>>,
+    /// Bumped by `spectrum_subscribe`/`spectrum_unsubscribe`; a spectrum loop runs while it
+    /// still holds the value it started with.
+    pub spectrum_generation: AtomicU64,
     pub media: Media,
     pub started: Instant,
     pub yt: Arc<InnerTube>,
@@ -105,6 +108,7 @@ impl AppState {
             views: ViewCache::default(),
             player,
             player_channel: Mutex::new(None),
+            spectrum_generation: AtomicU64::new(0),
             media: Media::default(),
             started,
             yt,

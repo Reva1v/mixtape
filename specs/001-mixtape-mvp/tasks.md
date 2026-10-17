@@ -166,7 +166,7 @@
 
 - [x] T091 [P] Настройки: лимит кэша, N автосохранения (вкл/выкл), каталог данных, аккаунт, очистка кэша в `ui/src/screens/Settings.svelte` + команды в `src-tauri/src/commands/settings.rs`
 - [x] T092 [P] Тосты и обработка ошибок сети/YouTube (локальное воспроизведение никогда не падает), событие `net:status` в `src-tauri/src/net.rs`, `ui/src/lib/ui/Toast.svelte`
-- [ ] T093 [P] Канал спектра (16 полос, ≤ 30 Гц, только при открытом полноэкранном плеере) и его визуализация в фоне в `crates/audio/src/spectrum.rs`, `ui/src/screens/FullscreenPlayer.svelte`
+- [x] T093 [P] Канал спектра (16 полос, ≤ 30 Гц, только при открытом полноэкранном плеере) и его визуализация в фоне в `crates/audio/src/spectrum.rs`, `ui/src/screens/FullscreenPlayer.svelte`
 - [x] T094 Микро-анимации и переходы экранов (только transform/opacity), проверка 60 fps в `ui/src/app.css` и экранах
 - [x] T095 Замер всех бюджетов по quickstart.md на релизной сборке с синтетической библиотекой 20k треков; результаты в `specs/001-mixtape-mvp/quickstart.md`
 - [x] T096 Сборка NSIS-инсталлятора с sidecar'ами, иконка приложения в `src-tauri/icons/`

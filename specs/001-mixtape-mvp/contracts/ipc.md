@@ -55,7 +55,8 @@ interface PlaylistCard { id: PlaylistId; title: string; origin: "ytm"|"local"; t
 | `queue_add` | `{ trackIds, position: "next"\|"end" }` |
 | `queue_remove` / `queue_move` / `queue_clear` | `{ uid }` / `{ uid, toIndex }` / — |
 | `player_subscribe` | `{ channel: Channel<PlaybackState> }` — позиция/статус 10 Гц и на изменениях |
-| `spectrum_subscribe` | `{ channel: Channel<ArrayBuffer> }` — 16 полос u8, ≤30 Гц, только когда открыт полноэкранный плеер |
+| `spectrum_subscribe` | `{ channel: Channel<number[]> }` — 16 полос 0..1 (40 Гц–16 кГц, лог-шкала, не зависят от громкости), ~30 Гц, пока что-то играет, затем один кадр нулей; подписывается только открытый полноэкранный плеер |
+| `spectrum_unsubscribe` | — останавливает поток спектра |
 
 ## Синхронизация и загрузки
 

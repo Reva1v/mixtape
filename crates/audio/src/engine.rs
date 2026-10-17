@@ -15,6 +15,7 @@
 //! and the ring is nearly empty, Buffering(true) is reported.
 
 use std::collections::VecDeque;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -25,6 +26,7 @@ use crate::crossfade::Mixer;
 use crate::gain::volume_curve;
 use crate::output::{Output, RING_MS};
 use crate::pipeline::Pipeline;
+use crate::spectrum::{SpectrumReader, Tap};
 use crate::timeline::{Handover, Timeline, Transition};
 use crate::{Error, Result, Source};
 
@@ -104,6 +106,7 @@ enum Command {
 pub struct Engine {
     tx: Option<Sender<Command>>,
     thread: Option<JoinHandle<()>>,
+    tap: Arc<Tap>,
 }
 
 impl Engine {
@@ -112,13 +115,18 @@ impl Engine {
     pub fn start() -> Result<(Engine, Receiver<EngineEvent>)> {
         let (tx, rx) = crossbeam_channel::unbounded();
         let (events, events_rx) = crossbeam_channel::unbounded();
+        let tap = Tap::new();
         let thread = std::thread::Builder::new()
             .name("mixtape-audio".into())
-            .spawn(move || State::new(events).run(rx))?;
+            .spawn({
+                let tap = tap.clone();
+                move || State::new(events, tap).run(rx)
+            })?;
         Ok((
             Engine {
                 tx: Some(tx),
                 thread: Some(thread),
+                tap,
             },
             events_rx,
         ))
@@ -180,6 +188,12 @@ impl Engine {
         self.send(Command::Stop);
     }
 
+    /// A reader of the spectrum of what the device plays (see [`SpectrumReader::read`]). It
+    /// survives device changes; any number may exist.
+    pub fn spectrum(&self) -> SpectrumReader {
+        SpectrumReader::new(self.tap.clone())
+    }
+
     fn send(&self, cmd: Command) {
         if let Some(tx) = &self.tx {
             let _ = tx.send(cmd);
@@ -206,6 +220,8 @@ struct Fade {
 
 struct State {
     events: Sender<EngineEvent>,
+    /// Handed to every output stream the engine opens.
+    tap: Arc<Tap>,
     out: Option<Output>,
     reopen_at: Instant,
     timeline: Timeline,
@@ -239,10 +255,11 @@ struct State {
 }
 
 impl State {
-    fn new(events: Sender<EngineEvent>) -> Self {
+    fn new(events: Sender<EngineEvent>, tap: Arc<Tap>) -> Self {
         let now = Instant::now();
         Self {
             events,
+            tap,
             out: None,
             reopen_at: now,
             timeline: Timeline::new(FALLBACK_RATE),
@@ -668,7 +685,7 @@ impl State {
         if cfg!(test) || self.out.is_some() || Instant::now() < self.reopen_at {
             return;
         }
-        match Output::open(self.volume, !self.playing) {
+        match Output::open(self.volume, !self.playing, self.tap.clone()) {
             Ok(out) => {
                 self.out = Some(out);
                 self.written = 0;
@@ -987,7 +1004,6 @@ mod tests {
     use super::*;
     use crate::SparseCacheFile;
     use crate::decoder::tests::fixture;
-    use std::sync::Arc;
 
     const RATE: u64 = FALLBACK_RATE as u64;
     /// One Opus frame (20 ms) at the output rate: the granularity of a decode step.
@@ -1058,7 +1074,7 @@ mod tests {
     /// device `consumed` follows `written`: everything decoded counts as played at once.
     fn start(crossfade_ms: u32, a: &str, b: Option<Source>) -> (State, Receiver<EngineEvent>) {
         let (tx, rx) = crossbeam_channel::unbounded();
-        let mut st = State::new(tx);
+        let mut st = State::new(tx, Tap::new());
         st.crossfade_ms = crossfade_ms;
         let p = Pipeline::open(src(a, true), st.rate()).unwrap();
         st.start_head(p, 0, false);
@@ -1285,7 +1301,7 @@ mod tests {
 
             let (_dir, file, data) = sparse(name);
             let (tx, rx) = crossbeam_channel::unbounded();
-            let mut st = State::new(tx);
+            let mut st = State::new(tx, Tap::new());
             st.load(Source::stream(name, file.clone(), ext, 0.0), 0, true);
             assert!(
                 st.waiting.is_some() && st.playing,
@@ -1335,7 +1351,7 @@ mod tests {
         let tail = data.len() - 100;
         file.write_at(tail as u64, &data[tail..]).unwrap();
         let (tx, rx) = crossbeam_channel::unbounded();
-        let mut st = State::new(tx);
+        let mut st = State::new(tx, Tap::new());
         st.load(Source::stream(A, file.clone(), "webm", 0.0), 0, true);
         assert!(st.waiting.is_none(), "opens at once");
         let mut out = Played::default();

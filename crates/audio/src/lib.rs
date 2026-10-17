@@ -13,6 +13,7 @@ mod output;
 mod pipeline;
 mod resample;
 mod sparse;
+mod spectrum;
 mod timeline;
 
 use std::fmt;
@@ -24,6 +25,7 @@ pub use engine::{Engine, EngineEvent};
 pub use gain::gain_for;
 pub use loudness::{Loudness, measure_loudness};
 pub use sparse::{READ_TIMEOUT, SparseCacheFile, SparseReader};
+pub use spectrum::{BANDS as SPECTRUM_BANDS, SpectrumReader};
 pub use symphonia::core::io::MediaSource;
 
 #[derive(Debug, thiserror::Error)]

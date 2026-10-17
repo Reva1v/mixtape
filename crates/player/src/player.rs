@@ -493,6 +493,11 @@ impl Player {
         self.save_snapshot(false);
     }
 
+    /// Band levels of what is playing, for the full-screen visualiser.
+    pub fn spectrum(&self) -> mixtape_audio::SpectrumReader {
+        self.engine.spectrum()
+    }
+
     /// Crossfade length for automatic transitions; 0 keeps playback gapless.
     pub fn set_crossfade(&self, ms: u32) {
         self.lock().crossfade_ms = ms;

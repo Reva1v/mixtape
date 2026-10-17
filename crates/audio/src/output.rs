@@ -1,8 +1,9 @@
 //! Device output: a cpal stream (default WASAPI shared device, its default config, f32) fed from
 //! an SPSC ring of interleaved stereo frames.
 //!
-//! The callback never allocates, locks or logs: it pops frames, ramps pause/volume, maps stereo
-//! to the device layout and bumps an atomic counter of consumed frames.
+//! The callback never allocates, locks or logs: it pops frames, copies them (pre-volume, mono)
+//! into the spectrum tap, ramps pause/volume, maps stereo to the device layout and bumps an
+//! atomic counter of consumed frames.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -11,6 +12,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::pipeline::FADE_MS;
+use crate::spectrum::Tap;
 use crate::{Error, Result};
 
 /// Ring length: enough to ride out scheduling hiccups, short enough for snappy seeks.
@@ -45,6 +47,8 @@ impl Shared {
 pub(crate) struct Renderer {
     ring: Consumer<f32>,
     shared: Arc<Shared>,
+    tap: Arc<Tap>,
+    tap_pos: u64,
     channels: usize,
     /// Per-frame step of the pause/flush ramp.
     step: f32,
@@ -58,14 +62,24 @@ pub(crate) struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(ring: Consumer<f32>, shared: Arc<Shared>, channels: usize, rate: u32) -> Self {
+    pub fn new(
+        ring: Consumer<f32>,
+        shared: Arc<Shared>,
+        tap: Arc<Tap>,
+        channels: usize,
+        rate: u32,
+    ) -> Self {
         let fade_frames = (rate * FADE_MS / 1000).max(1);
         let paused = shared.paused.load(Ordering::Relaxed);
         let volume = f32::from_bits(shared.volume.load(Ordering::Relaxed));
         let flush_seen = shared.flush.load(Ordering::Relaxed);
+        tap.set_rate(rate);
+        let tap_pos = tap.position();
         Self {
             ring,
             shared,
+            tap,
+            tap_pos,
             channels: channels.max(1),
             step: 1.0 / fade_frames as f32,
             level: if paused { 0.0 } else { 1.0 },
@@ -116,6 +130,9 @@ impl Renderer {
                 }
             };
             consumed += 1;
+            // Before volume and ramps: the spectrum must not follow the volume knob.
+            self.tap.store(self.tap_pos, 0.5 * (l + r));
+            self.tap_pos += 1;
             let ramp = if self.flush_left > 0 {
                 self.flush_left as f32 / self.fade_frames as f32
             } else {
@@ -135,6 +152,7 @@ impl Renderer {
         self.volume = target_volume;
         if consumed > 0 {
             self.shared.consumed.fetch_add(consumed, Ordering::Release);
+            self.tap.publish(self.tap_pos);
         }
         if starved && !paused {
             self.shared.underruns.fetch_add(1, Ordering::Relaxed);
@@ -174,7 +192,7 @@ pub(crate) struct Output {
 impl Output {
     /// Opens the default output device. `shared` carries pause/volume across rebuilds; its
     /// counters are reset because the ring is new.
-    pub fn open(volume: f32, paused: bool) -> Result<Self> {
+    pub fn open(volume: f32, paused: bool, tap: Arc<Tap>) -> Result<Self> {
         let err = |e: &dyn std::fmt::Display| Error::Output(e.to_string());
         let host = cpal::default_host();
         let device = host
@@ -190,7 +208,7 @@ impl Output {
         shared.paused.store(paused, Ordering::Relaxed);
 
         let (ring, consumer) = RingBuffer::new((rate * RING_MS / 1000) as usize * 2);
-        let mut renderer = Renderer::new(consumer, shared.clone(), channels, rate);
+        let mut renderer = Renderer::new(consumer, shared.clone(), tap, channels, rate);
         let on_error = {
             let shared = shared.clone();
             move |e: cpal::Error| {
@@ -229,13 +247,17 @@ mod tests {
     use super::*;
 
     fn setup(frames: usize) -> (Producer<f32>, Renderer, Arc<Shared>) {
+        setup_with(frames, Tap::new())
+    }
+
+    fn setup_with(frames: usize, tap: Arc<Tap>) -> (Producer<f32>, Renderer, Arc<Shared>) {
         let (mut tx, rx) = RingBuffer::new(4096);
         for i in 0..frames {
             tx.push(i as f32).unwrap();
             tx.push(-(i as f32)).unwrap();
         }
         let shared = Shared::new(1.0);
-        let r = Renderer::new(rx, shared.clone(), 2, 1000);
+        let r = Renderer::new(rx, shared.clone(), tap, 2, 1000);
         (tx, r, shared)
     }
 
@@ -293,5 +315,36 @@ mod tests {
         assert_eq!(shared.flushed.load(Ordering::Acquire), 1);
         assert_eq!(shared.consumed.load(Ordering::Relaxed), 100);
         assert_eq!(out[20..], [0.0; 20]);
+    }
+
+    #[test]
+    fn spectrum_tap_ignores_volume_and_pause_ramp() {
+        let tap_of = |volume: f32| {
+            let (mut tx, rx) = RingBuffer::new(4096);
+            for i in 0..100 {
+                tx.push(i as f32).unwrap();
+                tx.push(i as f32 + 0.5).unwrap();
+            }
+            let shared = Shared::new(volume);
+            let tap = Tap::new();
+            let mut r = Renderer::new(rx, shared.clone(), tap.clone(), 2, 1000);
+            let mut out = [9.0f32; 40];
+            r.render(&mut out);
+            shared.paused.store(true, Ordering::Relaxed);
+            r.render(&mut out);
+            r.render(&mut out);
+            (
+                tap.position(),
+                (0..30).map(|i| tap.sample(i)).collect::<Vec<_>>(),
+            )
+        };
+        let (n_loud, loud) = tap_of(1.0);
+        let (n_quiet, quiet) = tap_of(0.1);
+        // 20 frames played, 10 more while the pause ramp fades out, then nothing.
+        assert_eq!(n_loud, 30);
+        assert_eq!((n_loud, &loud), (n_quiet, &quiet));
+        // Mono mix of the raw frames, untouched by the ramp.
+        assert_eq!(loud[3], 3.25);
+        assert_eq!(loud[29], 29.25);
     }
 }

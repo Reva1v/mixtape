@@ -104,6 +104,8 @@ pub fn run() {
             commands::mix::mix_continue_local,
             commands::library::home_get,
             commands::player::player_subscribe,
+            commands::player::spectrum_subscribe,
+            commands::player::spectrum_unsubscribe,
             commands::player::play,
             commands::player::player_toggle,
             commands::player::player_next,

@@ -6,8 +6,12 @@ use mixtape_core::{AppError, ErrorKind, TrackId};
 use mixtape_library::repo;
 use mixtape_player::{PlaySource, PlaybackState, QueueContext, QueueView, Repeat};
 use serde::Deserialize;
+use mixtape_audio::SPECTRUM_BANDS;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
 use tauri::State;
+use tokio::time::MissedTickBehavior;
 use tauri::ipc::Channel;
 use ts_rs::TS;
 
@@ -26,6 +30,39 @@ pub async fn player_subscribe(state: St<'_>, channel: Channel<PlaybackState>) ->
         Ok(())
     })
     .await
+}
+
+/// Streams the 16 band levels (0…1, low to high) at ~30 Hz while something plays, then one
+/// frame of zeros once it stops; the full-screen player subscribes while it is open. A new
+/// subscription replaces the previous one.
+#[tauri::command]
+pub fn spectrum_subscribe(state: St<'_>, channel: Channel<[f32; SPECTRUM_BANDS]>) {
+    let generation = state.spectrum_generation.fetch_add(1, Ordering::AcqRel) + 1;
+    let st = state.inner().clone();
+    let mut reader = st.player.spectrum();
+    tauri::async_runtime::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_millis(33));
+        tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        let mut bands = [0.0; SPECTRUM_BANDS];
+        // Starts with a frame of zeros so the UI never keeps bars from a previous session.
+        let mut shown = true;
+        loop {
+            tick.tick().await;
+            if st.spectrum_generation.load(Ordering::Acquire) != generation {
+                break;
+            }
+            let active = reader.read(&mut bands);
+            if (active || shown) && channel.send(bands).is_err() {
+                break;
+            }
+            shown = active;
+        }
+    });
+}
+
+#[tauri::command]
+pub fn spectrum_unsubscribe(state: St<'_>) {
+    state.spectrum_generation.fetch_add(1, Ordering::AcqRel);
 }
 
 #[tauri::command]
