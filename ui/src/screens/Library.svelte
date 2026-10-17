@@ -18,6 +18,7 @@
   import TrackList from "$lib/ui/TrackList.svelte";
   import CardGrid from "$lib/ui/CardGrid.svelte";
   import Card from "$lib/ui/Card.svelte";
+  import { albumMenu, artistMenu, playlistMenu } from "$lib/ui/collectionMenu";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import IconLibrary from "~icons/solar/music-library-2-bold";
   import IconPlay from "~icons/solar/play-bold";
@@ -177,6 +178,7 @@
                 title={a?.title}
                 artists={a?.artists}
                 meta={a?.year}
+                menu={a && (() => albumMenu(a))}
                 onopen={() => a && openAlbum(a)}
                 onplay={() => a && player.play({ kind: "album", id: a.id })}
                 current={!!a && player.track?.album?.id === a.id}
@@ -191,6 +193,7 @@
                 coverKey={a?.imageKey}
                 title={a?.name}
                 onopen={() => a && router.go({ name: "artist", id: a.id })}
+                menu={a && (() => artistMenu(a))}
               />
             {/snippet}
           </CardGrid>
@@ -202,6 +205,7 @@
                 title={p?.title}
                 subtitle={p ? tracks(p.trackCount) : undefined}
                 onopen={() => p && router.go({ name: "playlist", id: p.id })}
+                menu={p && (() => playlistMenu(p))}
                 onplay={() => p && player.play({ kind: "playlist", id: p.id })}
               />
             {/snippet}

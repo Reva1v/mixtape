@@ -12,6 +12,7 @@
   import { t, tracks } from "$lib/i18n/ru";
   import { dragScroll } from "$lib/motion";
   import Card from "$lib/ui/Card.svelte";
+  import { albumMenu } from "$lib/ui/collectionMenu";
   import Cover from "$lib/ui/Cover.svelte";
   import TrackList from "$lib/ui/TrackList.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
@@ -85,6 +86,7 @@
           artists={a.artists}
           onopen={() => openAlbum(a)}
           onplay={() => player.play({ kind: "album", id: a.id })}
+          menu={() => albumMenu(a)}
                 current={!!a && player.track?.album?.id === a.id}
         />
       </div>

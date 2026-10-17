@@ -82,6 +82,23 @@ pub fn source_synced(conn: &Connection, kind: &str, error: Option<&str>) -> Resu
     Ok(())
 }
 
+/// Gives artist credits that came without an id (local imports, unlinked names) the id
+/// of a known artist with exactly that name, so their names link to the artist page and
+/// their tracks show up there. Returns the number of credits linked.
+pub fn link_artists_by_name(conn: &Connection) -> Result<usize> {
+    let mut n = 0;
+    for table in ["track_artists", "album_artists"] {
+        n += conn.execute(
+            &format!(
+                "UPDATE {table} SET artist_id = (SELECT a.id FROM artists a WHERE a.name = {table}.name LIMIT 1)
+                 WHERE artist_id IS NULL AND EXISTS (SELECT 1 FROM artists a WHERE a.name = {table}.name)"
+            ),
+            [],
+        )?;
+    }
+    Ok(n)
+}
+
 pub fn last_synced_at(conn: &Connection) -> Result<Option<i64>> {
     Ok(conn.query_row("SELECT MAX(last_synced_at) FROM sync_sources", [], |r| r.get(0))?)
 }
@@ -90,6 +107,24 @@ pub fn last_synced_at(conn: &Connection) -> Result<Option<i64>> {
 mod tests {
     use super::*;
     use crate::repo::{self, tests as test_util};
+
+    #[test]
+    fn unlinked_credits_get_known_ids() {
+        let (_dir, db) = test_util::db();
+        db.write(|t| {
+            repo::upsert_track(t, &test_util::meta("aaaaaaaaaaa", "A", ("UCx", "X"), None))?;
+            let mut local = test_util::meta("bbbbbbbbbbb", "B", ("UCx", "X"), None);
+            local.artists[0].id = None;
+            repo::upsert_track(t, &local)?;
+            assert_eq!(link_artists_by_name(t)?, 1);
+            Ok(())
+        })
+        .unwrap();
+        let linked: i64 = db
+            .read(|c| Ok(c.query_row("SELECT count(*) FROM track_artists WHERE artist_id = 'UCx'", [], |r| r.get(0))?))
+            .unwrap();
+        assert_eq!(linked, 2);
+    }
 
     #[test]
     fn mirror_and_likes() {

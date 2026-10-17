@@ -8,6 +8,7 @@
   import IconMusic from "~icons/solar/music-note-2-linear";
   import ArtistLinks from "./ArtistLinks.svelte";
   import type { ArtistRef } from "$lib/ipc/bindings/ArtistRef";
+  import { menu as contextMenu, type MenuItem } from "$lib/stores/overlay.svelte";
 
   interface Props {
     coverKey?: string | null;
@@ -23,9 +24,11 @@
     /** This card is what is playing: the button pauses and resumes, and stays visible. */
     current?: boolean;
     oncontextmenu?: (e: MouseEvent) => void;
+    /** Right-click menu items, built when the menu opens. */
+    menu?: () => MenuItem[];
   }
 
-  let { coverKey, title, subtitle, artists, meta, round = false, onopen, onplay, oncontextmenu, current = false }: Props = $props();
+  let { coverKey, title, subtitle, artists, meta, round = false, onopen, onplay, oncontextmenu, menu, current = false }: Props = $props();
   const showPause = $derived(current && player.playing);
   let failed = $state(false);
   const shape = $derived(round ? "rounded-full" : "rounded-md");
@@ -37,7 +40,17 @@
     <div class="mt-3 h-3 w-2/3 animate-pulse rounded bg-fill-2"></div>
   </div>
 {:else}
-  <div class="group min-w-0" role="group" {oncontextmenu}>
+  <div
+    class="group min-w-0"
+    role="group"
+    oncontextmenu={(e) => {
+      oncontextmenu?.(e);
+      if (menu && !e.defaultPrevented) {
+        e.preventDefault();
+        contextMenu.show(menu(), e.clientX, e.clientY);
+      }
+    }}
+  >
     <div class="relative" {@attach liftable()}>
       <button
         type="button"

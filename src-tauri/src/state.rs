@@ -53,6 +53,7 @@ impl AppState {
         let db = Db::open(&paths.db)?;
         let covers = CoverStore::new(&paths.covers);
         let report = mixtape_library::integrity::check(&db, &paths.root)?;
+        db.write(|t| mixtape_library::ytm::link_artists_by_name(t))?;
         tracing::info!(root = %paths.root.display(), ?report, "data directory ready");
         let handle = app.clone();
         tracing::debug!("starting player");

@@ -29,3 +29,14 @@ const app = mount(App, { target: document.getElementById("app")! });
 requestAnimationFrame(() => requestAnimationFrame(() => void invoke("app_ready")));
 
 export default app;
+
+// The webview's own context menu (save image, inspect…) is not part of the app. Custom
+// menus call preventDefault themselves; everything else is blocked here, except in text
+// fields, where cut/copy/paste is useful. Shift+right-click keeps it in dev builds.
+window.addEventListener("contextmenu", (e) => {
+  if (e.defaultPrevented) return;
+  if (import.meta.env.DEV && e.shiftKey) return;
+  const el = e.target as HTMLElement | null;
+  if (el?.closest("input, textarea, [contenteditable=true]")) return;
+  e.preventDefault();
+});

@@ -8,6 +8,7 @@
   import { openAlbum } from "$lib/stores/actions";
   import TrackList from "$lib/ui/TrackList.svelte";
   import Card from "$lib/ui/Card.svelte";
+  import { albumMenu, artistMenu, playlistMenu } from "$lib/ui/collectionMenu";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import { layout } from "$lib/stores/layout.svelte";
   import { t, tracks as tracksLabel } from "$lib/i18n/ru";
@@ -93,7 +94,7 @@
           <h2 class="pb-4 text-[20px] font-bold">Исполнители</h2>
           <div class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-5">
             {#each result.artists.slice(0, 12) as a (a.id)}
-              <Card round coverKey={a.imageKey} title={a.name} onopen={() => router.go({ name: "artist", id: a.id })} />
+              <Card round coverKey={a.imageKey} title={a.name} onopen={() => router.go({ name: "artist", id: a.id })} menu={() => artistMenu(a)} />
             {/each}
           </div>
         </section>
@@ -109,6 +110,7 @@
                 artists={a.artists}
                 onopen={() => openAlbum(a)}
                 onplay={() => player.play({ kind: "album", id: a.id })}
+                menu={() => albumMenu(a)}
                 current={!!a && player.track?.album?.id === a.id}
               />
             {/each}
@@ -126,6 +128,7 @@
                 subtitle={tracksLabel(p.trackCount)}
                 onopen={() => router.go({ name: "playlist", id: p.id })}
                 onplay={() => player.play({ kind: "playlist", id: p.id })}
+                menu={() => playlistMenu(p)}
               />
             {/each}
           </div>

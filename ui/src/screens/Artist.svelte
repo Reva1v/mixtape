@@ -10,6 +10,7 @@
   import CollectionHeader from "$lib/ui/CollectionHeader.svelte";
   import TrackList from "$lib/ui/TrackList.svelte";
   import Card from "$lib/ui/Card.svelte";
+  import { albumMenu } from "$lib/ui/collectionMenu";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import IconAlert from "~icons/solar/danger-circle-linear";
@@ -91,6 +92,7 @@
               subtitle={[a.year, { album: "Альбом", ep: "EP", single: "Сингл" }[a.albumType]].filter(Boolean).join(" • ")}
               onopen={() => openAlbum(a)}
               onplay={() => player.play({ kind: "album", id: a.id })}
+              menu={() => albumMenu(a)}
                 current={!!a && player.track?.album?.id === a.id}
             />
           {/each}

@@ -290,6 +290,7 @@ fn save(db: &Db, c: Collected, covers: Covers) -> mixtape_library::Result<SyncRe
         for (what, err) in &c.errors {
             ytm::source_synced(t, what, Some(err))?;
         }
+        ytm::link_artists_by_name(t)?;
         Ok(queued)
     })?;
     report.queued = queued;
