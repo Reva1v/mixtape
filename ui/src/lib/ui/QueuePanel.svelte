@@ -10,7 +10,6 @@
   import Equalizer from "./Equalizer.svelte";
   import IconButton from "./IconButton.svelte";
   import IconX from "~icons/solar/close-circle-linear";
-  import IconGrip from "~icons/lucide/grip-vertical";
   import IconRadio from "~icons/solar/radio-minimalistic-linear";
 
   /** `cards`: every row is its own translucent card (full-screen player). */
@@ -25,10 +24,11 @@
     void invoke<QueueView>("queue_get").then((v) => (view = v));
   });
 
-  const current = $derived(view && view.current != null ? view.items[view.current] : null);
-  const upcoming = $derived(view && view.current != null ? view.items.slice(view.current + 1) : (view?.items ?? []));
+  const items = $derived(view?.items ?? []);
+  const currentIndex = $derived(view?.current ?? -1);
+  const hasUpcoming = $derived(items.length > currentIndex + 1);
 
-  // Drag to reorder upcoming items: the grabbed row follows the pointer, the others
+  // Drag to reorder queue items: the grabbed row follows the pointer, the others
   // slide aside, and on release it settles into its slot before the move is sent.
   type Drag = {
     uid: number;
@@ -77,7 +77,7 @@
   function update() {
     if (!drag || !listEl) return;
     drag.dy = drag.y - drag.startY + (listEl.scrollTop - drag.startScroll);
-    drag.to = Math.max(0, Math.min(upcoming.length - 1, drag.from + Math.round(drag.dy / drag.step)));
+    drag.to = Math.max(0, Math.min(items.length - 1, drag.from + Math.round(drag.dy / drag.step)));
   }
 
   function move(ev: PointerEvent) {
@@ -127,14 +127,16 @@
     d.dy = (d.to - d.from) * d.step;
     setTimeout(() => {
       if (!view) return;
-      const base = (view.current ?? -1) + 1;
-      const items = [...view.items];
-      const [moved] = items.splice(base + d.from, 1);
-      items.splice(base + d.to, 0, moved);
+      const next = [...view.items];
+      const [moved] = next.splice(d.from, 1);
+      next.splice(d.to, 0, moved);
+      // Keep the highlight on the playing track while the core catches up.
+      const playingUid = view.current != null ? view.items[view.current].uid : null;
+      const current = playingUid == null ? view.current : next.findIndex((x) => x.uid === playingUid);
       instant = true;
-      view = { ...view, items };
+      view = { ...view, items: next, current };
       drag = null;
-      void invoke("queue_move", { uid: d.uid, toIndex: base + d.to });
+      void invoke("queue_move", { uid: d.uid, toIndex: d.to });
       requestAnimationFrame(() => requestAnimationFrame(() => (instant = false)));
     }, 220);
   }
@@ -150,6 +152,14 @@
     return `transform: translateY(${shift}px);`;
   }
 
+  // Bring the playing track into view when the queue opens.
+  let scrolledOnce = false;
+  $effect(() => {
+    if (scrolledOnce || !view || !upEl) return;
+    scrolledOnce = true;
+    queueMicrotask(() => upEl?.querySelector("[data-current]")?.scrollIntoView({ block: "center" }));
+  });
+
   function selectChip(id: string) {
     void invoke("mix_select_chip", { chipId: id });
   }
@@ -158,12 +168,14 @@
 {#snippet row(e: QueueEntry, i: number, isCurrent: boolean)}
   <div
     role="listitem"
-    data-row={isCurrent ? undefined : ""}
+    data-row=""
+    data-current={isCurrent ? "" : undefined}
     class="group flex h-14 items-center gap-3 rounded-md px-2 hover:bg-fill-2
       {instant ? '' : 'transition-[background-color,transform,box-shadow] duration-200 ease-out-soft'}
       {cards ? 'mb-2 h-16 rounded-xl bg-[#0c0c0d]/65 px-3 ring-1 ring-white/[0.06] backdrop-blur-xl hover:bg-[#161618]/75' : ''}
+      {isCurrent ? (cards ? 'bg-white/[0.13]! ring-white/[0.14]!' : 'bg-fill-2') : ''}
       {!isCurrent ? (drag?.active && drag.from === i ? 'cursor-grabbing bg-[#1a1a1c]/90 shadow-[0_16px_40px_-10px_rgb(0_0_0/0.8)]' : 'cursor-grab') : ''}"
-    style={isCurrent ? undefined : rowStyle(i)}
+    style={rowStyle(i)}
     onpointerdown={(ev) => !isCurrent && down(ev, i, e.uid)}
     ondblclick={() => !isCurrent && invoke("queue_jump", { uid: e.uid })}
     oncontextmenu={(ev) => {
@@ -171,14 +183,11 @@
       menu.show(trackMenu(e.track), ev.clientX, ev.clientY);
     }}
   >
-    {#if !isCurrent}
-      <IconGrip class="size-4 shrink-0 cursor-grab text-ink-3 opacity-0 group-hover:opacity-100" />
-    {/if}
     <Cover coverKey={e.track.coverKey} size={40} rounded="sm" />
     <div class="min-w-0 flex-1">
       <div class="flex items-center gap-2">
         {#if isCurrent}<Equalizer playing={player.playing} />{/if}
-        <span class="truncate text-[13.5px] {isCurrent ? 'text-ink' : 'text-ink'}">{e.track.title}</span>
+        <span class="truncate text-[13.5px] {isCurrent ? 'font-semibold text-ink' : 'text-ink'}">{e.track.title}</span>
       </div>
       <div class="truncate text-[12px] text-ink-3">{e.track.artists.map((a) => a.name).join(", ")}</div>
     </div>
@@ -196,7 +205,7 @@
 <div class="flex h-full flex-col">
   <div class="flex h-14 shrink-0 items-center justify-between px-5">
     <h2 class="text-[16px] font-semibold">{t.queue.title}</h2>
-    {#if upcoming.length}
+    {#if hasUpcoming}
       <button type="button" class="text-[12.5px] text-ink-3 hover:text-ink" onclick={() => invoke("queue_clear")}>{t.queue.clear}</button>
     {/if}
   </div>
@@ -218,21 +227,14 @@
   {/if}
 
   <div bind:this={listEl} class="min-h-0 flex-1 overflow-y-auto px-3 pb-4 {drag?.active ? 'select-none' : ''}" role="list">
-    {#if !view || view.items.length === 0}
+    {#if !view || items.length === 0}
       <p class="px-2 pt-6 text-center text-[13px] text-ink-3">{t.queue.empty}</p>
     {:else}
-      {#if current}
-        <div class="px-2 pt-1 pb-2 text-[12px] font-semibold tracking-wide text-ink-3 uppercase">{t.queue.nowPlaying}</div>
-        {@render row(current, -1, true)}
-      {/if}
-      {#if upcoming.length}
-        <div class="px-2 pt-5 pb-2 text-[12px] font-semibold tracking-wide text-ink-3 uppercase">{t.queue.upNext}</div>
-        <div bind:this={upEl}>
-          {#each upcoming as e, i (e.uid)}
-            {@render row(e, i, false)}
-          {/each}
-        </div>
-      {/if}
+      <div bind:this={upEl}>
+        {#each items as e, i (e.uid)}
+          {@render row(e, i, i === currentIndex)}
+        {/each}
+      </div>
     {/if}
   </div>
 </div>
