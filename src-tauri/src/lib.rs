@@ -89,6 +89,7 @@ pub fn run() {
             commands::library::library_view,
             commands::library::library_rows,
             commands::library::library_search,
+            commands::library::track_get,
             commands::library::album_get,
             commands::library::artist_get,
             commands::library::playlist_get,

@@ -142,6 +142,14 @@ pub async fn library_search(
     .await
 }
 
+/// One track as the library has it now (the player refreshes its copy after likes and
+/// downloads).
+#[tauri::command]
+pub async fn track_get(state: State<'_, Arc<AppState>>, id: TrackId) -> CmdResult<Option<Track>> {
+    let st = state.inner().clone();
+    blocking(move || Ok(st.db.read(|c| repo::track(c, &id))?)).await
+}
+
 #[tauri::command]
 pub async fn album_get(state: State<'_, Arc<AppState>>, id: AlbumId) -> CmdResult<AlbumPage> {
     let st = state.inner().clone();

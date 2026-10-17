@@ -46,6 +46,9 @@ class Player {
       applyAccent(e.palette);
     });
     await on("queue:changed", () => this.queueVersion++);
+    // A like, a finished download or «Скачать» changes the playing track's row: refresh
+    // the copy the players and menus show (the palette stays).
+    await on("library:changed", () => void this.refreshTrack());
     // The mix ran out and YouTube Music is out of reach.
     await on("mix:offline", () =>
       toasts.push("Нет связи с YouTube Music — микс не продолжается", "error", 12000, {
@@ -102,6 +105,13 @@ class Player {
   queueAdd(trackIds: string[], position: "next" | "end") {
     return invoke("queue_add", { trackIds, position });
   }
+  async refreshTrack() {
+    const id = this.track?.id;
+    if (!id) return;
+    const fresh = await invoke<Track | null>("track_get", { id }).catch(() => null);
+    if (fresh && this.track?.id === id) this.track = fresh;
+  }
+
   /** Replaces the queue with a mix built from this track (US3). */
   mix(trackId: string) {
     return this.startMix(() => invoke("mix_start", { trackId }));

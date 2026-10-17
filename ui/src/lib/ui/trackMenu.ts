@@ -18,13 +18,31 @@ import IconArtist from "~icons/solar/microphone-3-linear";
 import IconDownload from "~icons/solar/download-minimalistic-linear";
 import IconTrash from "~icons/solar/trash-bin-minimalistic-linear";
 
-export function setLiked(track: Track, liked: boolean) {
-  return invoke("track_set_liked", { id: track.id, liked });
+export function setLiked(track: Track, liked: boolean, announce = false) {
+  return invoke("track_set_liked", { id: track.id, liked }).then(
+    () => announce && toasts.push(liked ? "Добавлено в понравившиеся" : "Убрано из понравившихся"),
+    (e) => toasts.push(e instanceof Error ? e.message : "Не удалось изменить лайк", "error"),
+  );
+}
+
+/** Tracks sent to downloads in this session, until their file is in the library. */
+const downloading = new Set<string>();
+
+function download(track: Track) {
+  downloading.add(track.id);
+  void invoke("track_download", { id: track.id }).then(
+    () => toasts.push("Скачивается — появится в библиотеке, когда загрузится"),
+    (e) => {
+      downloading.delete(track.id);
+      toasts.push(e instanceof Error ? e.message : "Не удалось скачать", "error");
+    },
+  );
 }
 
 export function trackMenu(track: Track, extra: MenuItem[] = []): MenuItem[] {
   const artist = track.artists.find((a) => a.id);
   const owned = track.state === "downloaded" || track.state === "broken";
+  if (owned) downloading.delete(track.id);
   return [
     { label: t.track.mix, icon: IconMix, action: () => void player.mix(track.id) },
     "separator",
@@ -40,8 +58,8 @@ export function trackMenu(track: Track, extra: MenuItem[] = []): MenuItem[] {
     },
     { label: t.track.addToPlaylist, icon: IconPlaylist, action: () => playlistPicker.open([track.id]) },
     track.liked
-      ? { label: t.track.unlike, icon: IconHeartOff, action: () => void setLiked(track, false) }
-      : { label: t.track.like, icon: IconHeart, action: () => void setLiked(track, true) },
+      ? { label: t.track.unlike, icon: IconHeartOff, action: () => void setLiked(track, false, true) }
+      : { label: t.track.like, icon: IconHeart, action: () => void setLiked(track, true, true) },
     "separator",
     {
       label: t.track.openAlbum,
@@ -59,10 +77,8 @@ export function trackMenu(track: Track, extra: MenuItem[] = []): MenuItem[] {
     "separator",
     owned
       ? { label: t.track.remove, icon: IconTrash, danger: true, disabled: true, action: () => {} }
-      : {
-          label: t.track.download,
-          icon: IconDownload,
-          action: () => void invoke("track_download", { id: track.id }).then(() => toasts.push("Добавлено в загрузки")),
-        },
+      : downloading.has(track.id)
+        ? { label: "Скачивается…", icon: IconDownload, disabled: true, action: () => {} }
+        : { label: t.track.download, icon: IconDownload, action: () => download(track) },
   ];
 }
