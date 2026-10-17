@@ -80,7 +80,7 @@
   onkeydown={key}
   {@attach onWheel(wheel)}
 >
-  <div class="relative h-1 w-full overflow-hidden rounded-full bg-fill-3 transition-[height] duration-150 group-hover:h-1.5">
+  <div class="relative h-1.5 w-full scale-y-[0.667] overflow-hidden rounded-full bg-fill-3 transition-transform duration-150 group-hover:scale-y-100">
     <div
       class="absolute inset-y-0 left-0 rounded-full bg-ink"
       style:width="{pct}%"

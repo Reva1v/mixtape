@@ -143,7 +143,7 @@
         <div class="mt-0.5 text-[13px] text-ink-3">Читаю YouTube Music — загрузка начнётся сразу после этого</div>
         <div class="mt-3 h-[3px] overflow-hidden rounded-full bg-fill-2" role="progressbar" aria-label="Синхронизация">
           {#if sync.total > 0}
-            <div class="h-full rounded-full bg-ink transition-[width] duration-(--spring-smooth-ms)" style:width="{syncPercent}%"></div>
+            <div class="h-full origin-left rounded-full bg-ink transition-transform duration-(--spring-smooth-ms)" style:transform="scaleX({syncPercent / 100})"></div>
           {:else}
             <div class="indeterminate h-full w-1/3 rounded-full bg-ink"></div>
           {/if}
@@ -180,8 +180,8 @@
         </div>
         <div class="mt-3 h-[3px] overflow-hidden rounded-full bg-fill-2" role="progressbar" aria-valuenow={Math.round(percent)} aria-valuemin={0} aria-valuemax={100}>
           <div
-            class="h-full rounded-full transition-[width,background-color] duration-(--spring-smooth-ms) {progress.paused ? 'bg-ink-3' : 'bg-ink'}"
-            style:width="{percent}%"
+            class="h-full origin-left rounded-full transition-[transform,background-color] duration-(--spring-smooth-ms) {progress.paused ? 'bg-ink-3' : 'bg-ink'}"
+            style:transform="scaleX({percent / 100})"
           ></div>
         </div>
       </section>
