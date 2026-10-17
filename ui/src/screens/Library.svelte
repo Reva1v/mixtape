@@ -17,9 +17,9 @@
   import CardGrid from "$lib/ui/CardGrid.svelte";
   import Card from "$lib/ui/Card.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
-  import IconLibrary from "~icons/lucide/library-big";
-  import IconPlay from "~icons/ph/play-fill";
-  import IconShuffle from "~icons/lucide/shuffle";
+  import IconLibrary from "~icons/solar/music-library-2-bold";
+  import IconPlay from "~icons/solar/play-bold";
+  import IconShuffle from "~icons/solar/shuffle-linear";
 
   let { tab }: { tab: LibraryTab } = $props();
 
@@ -98,14 +98,14 @@
 </script>
 
 <div class="pb-10">
-  <div class="sticky top-0 z-10 bg-[#121218]/85 px-7 pt-6 pb-3 backdrop-blur-xl">
+  <div class="sticky top-0 z-10 bg-panel/70 px-8 pt-10 pb-3 backdrop-blur-xl">
     <div class="flex items-end justify-between gap-4">
       <h1 class="text-[28px] font-bold tracking-tight">{t.nav.library}</h1>
       {#if rows && rows.count > 0 && (kind === "tracks" || kind === "liked")}
         <div class="flex items-center gap-2">
           <button
             type="button"
-            class="flex h-9 items-center gap-2 rounded-full bg-(--accent) px-4 text-[13px] font-semibold text-white transition-transform hover:scale-[1.03] active:scale-95"
+            class="flex h-9 items-center gap-2 rounded-full bg-ink px-4 text-[13px] font-semibold text-black transition-transform hover:scale-[1.03] active:scale-95"
             onclick={() => playAll(0, false)}
           >
             <IconPlay class="size-4" />{t.player.play}
@@ -143,7 +143,7 @@
             class="h-8 cursor-pointer rounded-md bg-fill-1 px-2 text-[12.5px] text-ink-2 outline-none ring-1 ring-line hover:bg-fill-2"
           >
             {#each sorts[kind] as s (s.id)}
-              <option value={s.id} class="bg-[#1b1b22]">{s.label}</option>
+              <option value={s.id} class="bg-raised">{s.label}</option>
             {/each}
           </select>
         {/if}

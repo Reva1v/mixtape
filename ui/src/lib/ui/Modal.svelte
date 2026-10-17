@@ -33,7 +33,7 @@
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      class="max-h-[85vh] overflow-auto rounded-xl bg-[#18181f] p-6 shadow-pop"
+      class="max-h-[85vh] overflow-auto rounded-xl bg-raised p-6 shadow-pop"
       style:width="{width}px"
       transition:scale={{ start: 0.96, duration: 180 }}
     >

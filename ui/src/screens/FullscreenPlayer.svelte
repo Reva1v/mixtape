@@ -17,9 +17,9 @@
   import Transport from "$lib/ui/Transport.svelte";
   import Timeline from "$lib/ui/Timeline.svelte";
   import Volume from "$lib/ui/Volume.svelte";
-  import IconCollapse from "~icons/lucide/chevron-down";
+  import IconCollapse from "~icons/solar/alt-arrow-down-linear";
   import IconPlus from "~icons/lucide/plus";
-  import IconLyrics from "~icons/lucide/mic-vocal";
+  import IconLyrics from "~icons/solar/microphone-2-linear";
 
   const track = $derived(player.track);
   const bg = $derived(coverUrl(track?.coverKey, 64));
@@ -106,7 +106,7 @@
 
         <Timeline class="mt-6" style="width: {coverSize + 80}px" />
 
-        <div class="mt-5"><Transport minimal /></div>
+        <div class="mt-5"><Transport variant="full" /></div>
 
         <div class="mt-6 flex items-center gap-3">
           <Volume class="w-40" />

@@ -11,7 +11,12 @@ function typing(e: KeyboardEvent) {
   return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
 }
 
-export function handleHotkey(e: KeyboardEvent, focusSearch: () => void): boolean {
+function focusSearch() {
+  if (router.current.name !== "search") router.go({ name: "search" });
+  layout.searchFocus++;
+}
+
+export function handleHotkey(e: KeyboardEvent): boolean {
   if ((e.ctrlKey && e.code === "KeyK") || (e.key === "/" && !typing(e))) {
     focusSearch();
     return true;

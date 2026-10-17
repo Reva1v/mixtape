@@ -9,9 +9,9 @@
   import Cover from "./Cover.svelte";
   import Equalizer from "./Equalizer.svelte";
   import IconButton from "./IconButton.svelte";
-  import IconX from "~icons/lucide/x";
+  import IconX from "~icons/solar/close-circle-linear";
   import IconGrip from "~icons/lucide/grip-vertical";
-  import IconRadio from "~icons/lucide/radio";
+  import IconRadio from "~icons/solar/radio-minimalistic-linear";
 
   let view = $state.raw<QueueView | null>(null);
 
@@ -45,7 +45,7 @@
   <div
     role="listitem"
     class="group flex h-14 items-center gap-3 rounded-md px-2 transition-colors hover:bg-fill-2
-      {overIndex === i && !isCurrent ? 'shadow-[inset_0_2px_0_var(--accent)]' : ''}"
+      {overIndex === i && !isCurrent ? 'shadow-[inset_0_2px_0_white]' : ''}"
     draggable={!isCurrent}
     ondragstart={() => (dragUid = e.uid)}
     ondragover={(ev) => {
@@ -68,7 +68,7 @@
     <div class="min-w-0 flex-1">
       <div class="flex items-center gap-2">
         {#if isCurrent}<Equalizer playing={player.playing} />{/if}
-        <span class="truncate text-[13.5px] {isCurrent ? 'text-(--accent)' : 'text-ink'}">{e.track.title}</span>
+        <span class="truncate text-[13.5px] {isCurrent ? 'text-ink' : 'text-ink'}">{e.track.title}</span>
       </div>
       <div class="truncate text-[12px] text-ink-3">{e.track.artists.map((a) => a.name).join(", ")}</div>
     </div>

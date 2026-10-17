@@ -51,6 +51,7 @@ pub fn run() {
             commands::library::playlist_get,
             commands::library::playlist_edit,
             commands::library::track_set_liked,
+            commands::library::home_get,
             commands::player::player_subscribe,
             commands::player::play,
             commands::player::player_toggle,

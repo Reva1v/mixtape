@@ -2,9 +2,9 @@
   // Header of album / playlist / artist pages: big cover over a wash of its colours.
   import type { Snippet } from "svelte";
   import Cover from "./Cover.svelte";
-  import IconPlay from "~icons/ph/play-fill";
-  import IconShuffle from "~icons/lucide/shuffle";
-  import IconMix from "~icons/lucide/radio";
+  import IconPlay from "~icons/solar/play-bold";
+  import IconShuffle from "~icons/solar/shuffle-linear";
+  import IconMix from "~icons/solar/radio-minimalistic-linear";
   import { t } from "$lib/i18n/ru";
 
   interface Props {
@@ -29,7 +29,7 @@
     class="pointer-events-none absolute inset-0 opacity-60"
     style:background="radial-gradient(120% 140% at 0% 0%, {wash} 0%, transparent 60%)"
   ></div>
-  <div class="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-b from-transparent to-[#121218]/60"></div>
+  <div class="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-b from-transparent to-panel"></div>
 
   <div class="relative flex items-end gap-7">
     <Cover {coverKey} size={208} rounded={round ? "full" : "lg"} class="shadow-[0_24px_60px_-20px_rgb(0_0_0/0.8)]" />
@@ -44,7 +44,7 @@
           <button
             type="button"
             aria-label={t.player.play}
-            class="grid size-12 place-items-center rounded-full bg-(--accent) text-white shadow-[0_8px_24px_-6px_var(--accent)]
+            class="grid size-12 place-items-center rounded-full bg-ink text-black
               transition-transform hover:scale-105 active:scale-95"
             onclick={onplay}
           >

@@ -1,8 +1,8 @@
 <script lang="ts">
   // Album / artist / playlist card: square cover, title, subtitle, hover play button.
   import { coverUrl } from "$lib/ipc";
-  import IconPlay from "~icons/ph/play-fill";
-  import IconMusic from "~icons/lucide/music";
+  import IconPlay from "~icons/solar/play-bold";
+  import IconMusic from "~icons/solar/music-note-2-linear";
 
   interface Props {
     coverKey?: string | null;
@@ -50,7 +50,7 @@
         <button
           type="button"
           aria-label="Играть"
-          class="absolute right-2.5 bottom-2.5 grid size-11 translate-y-1.5 place-items-center rounded-full bg-(--accent) text-white
+          class="absolute right-2.5 bottom-2.5 grid size-11 translate-y-1.5 place-items-center rounded-full bg-ink text-black
             opacity-0 shadow-[0_6px_20px_-4px_rgb(0_0_0/0.7)] transition-all duration-200 ease-out-soft
             group-hover:translate-y-0 group-hover:opacity-100 hover:scale-105 active:scale-95"
           onclick={onplay}

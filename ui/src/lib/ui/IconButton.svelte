@@ -20,7 +20,7 @@
   title={label}
   class="inline-grid shrink-0 place-items-center rounded-full transition-[background-color,color,transform] duration-150 ease-out-soft
     hover:bg-fill-2 active:scale-95 disabled:pointer-events-none disabled:opacity-35
-    {active ? 'text-(--accent)' : 'text-ink-2 hover:text-ink'} {sizes[size]} {cls}"
+    {active ? 'text-ink' : 'text-ink-2 hover:text-ink'} {sizes[size]} {cls}"
   {...rest}
 >
   {@render children()}

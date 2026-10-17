@@ -10,7 +10,7 @@
   import Card from "$lib/ui/Card.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
-  import IconAlert from "~icons/lucide/circle-alert";
+  import IconAlert from "~icons/solar/danger-circle-linear";
 
   let { id }: { id: string } = $props();
 

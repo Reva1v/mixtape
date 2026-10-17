@@ -6,11 +6,11 @@
   import { trackMenu, setLiked } from "./trackMenu";
   import Cover from "./Cover.svelte";
   import Equalizer from "./Equalizer.svelte";
-  import IconPlay from "~icons/ph/play-fill";
-  import IconHeart from "~icons/ph/heart-fill";
-  import IconMore from "~icons/lucide/ellipsis";
-  import IconCloud from "~icons/lucide/cloud";
-  import IconAlert from "~icons/lucide/triangle-alert";
+  import IconPlay from "~icons/solar/play-bold";
+  import IconHeart from "~icons/solar/heart-bold";
+  import IconMore from "~icons/solar/menu-dots-bold";
+  import IconCloud from "~icons/solar/cloud-linear";
+  import IconAlert from "~icons/solar/danger-triangle-linear";
 
   interface Props {
     track: Track | undefined;
@@ -60,7 +60,7 @@
       {/if}
       <div class="min-w-0">
         <div class="flex items-center gap-1.5">
-          <span class="truncate text-[14px] {current ? 'text-(--accent)' : 'text-ink'}">{track.title}</span>
+          <span class="truncate text-[14px] {current ? 'text-ink' : 'text-ink'}">{track.title}</span>
           {#if track.state === "remote" || track.state === "cached"}
             <IconCloud class="size-3.5 shrink-0 text-ink-3" />
           {:else if track.state === "broken"}
@@ -89,7 +89,7 @@
     <button
       type="button"
       aria-label={track.liked ? "Убрать из понравившихся" : "Нравится"}
-      class="grid place-items-center transition-opacity {track.liked ? 'text-(--accent)' : 'text-ink-3 opacity-0 group-hover:opacity-100 hover:text-ink'}"
+      class="grid place-items-center transition-opacity {track.liked ? 'text-ink' : 'text-ink-3 opacity-0 group-hover:opacity-100 hover:text-ink'}"
       onclick={() => setLiked(track!, !track!.liked)}
     >
       <IconHeart class="size-4" />

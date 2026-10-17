@@ -3,7 +3,7 @@
   let { playing }: { playing: boolean } = $props();
 </script>
 
-<span class="inline-flex h-3.5 items-end gap-[2px] text-(--accent)" aria-hidden="true">
+<span class="inline-flex h-3.5 items-end gap-[2px] text-ink" aria-hidden="true">
   {#each [0, 1, 2] as i (i)}
     <span
       class="bar w-[3px] rounded-full bg-current"

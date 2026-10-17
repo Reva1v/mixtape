@@ -9,8 +9,6 @@ import type { PlaybackState } from "$lib/ipc/bindings/PlaybackState";
 import type { TrackChanged } from "$lib/ipc/bindings/TrackChanged";
 import type { PlaySource } from "$lib/ipc/bindings/PlaySource";
 
-const DEFAULT_ACCENT = ["#ff4d8d", "#7b5cff"];
-
 class Player {
   state = $state<PlaybackState>({
     status: "idle",
@@ -99,27 +97,28 @@ class Player {
   }
 }
 
+/** Sets `--glow`, the artwork tint behind headers and the full-screen player. */
 function applyAccent(palette: string[]) {
-  const [a, b] = palette.length >= 2 ? pickAccents(palette) : DEFAULT_ACCENT;
-  const root = document.documentElement.style;
-  root.setProperty("--accent", a);
-  root.setProperty("--accent-2", b);
+  document.documentElement.style.setProperty("--glow", glowOf(palette));
 }
 
-/** Prefers the most saturated, not-too-dark colours of the cover for the accent. */
-function pickAccents(palette: string[]): [string, string] {
-  const scored = palette
-    .map((hex) => {
-      const n = parseInt(hex.slice(1), 16);
-      const r = (n >> 16) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
-      const max = Math.max(r, g, b), min = Math.min(r, g, b);
-      const l = (max + min) / 2;
-      const s = max === min ? 0 : (max - min) / (1 - Math.abs(2 * l - 1));
-      return { hex, score: s * (l > 0.25 && l < 0.85 ? 1 : 0.3) };
-    })
-    .sort((x, y) => y.score - x.score);
-  if (scored[0].score < 0.15) return [DEFAULT_ACCENT[0], DEFAULT_ACCENT[1]];
-  return [scored[0].hex, scored[1]?.hex ?? scored[0].hex];
+/** Picks the most saturated cover colour and darkens it into a background tint. */
+export function glowOf(palette: string[]): string {
+  let best = { hex: "", score: -1 };
+  for (const hex of palette) {
+    const n = parseInt(hex.slice(1), 16);
+    const r = (n >> 16) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    const s = max === min ? 0 : (max - min) / (1 - Math.abs(2 * l - 1));
+    const score = s * (l > 0.12 && l < 0.9 ? 1 : 0.2);
+    if (score > best.score) best = { hex, score };
+  }
+  if (!best.hex || best.score < 0.12) return "#2a2a2e";
+  const n = parseInt(best.hex.slice(1), 16);
+  const k = 0.45;
+  const c = (v: number) => Math.round(v * k).toString(16).padStart(2, "0");
+  return `#${c(n >> 16)}${c((n >> 8) & 255)}${c(n & 255)}`;
 }
 
 export const player = new Player();

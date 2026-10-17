@@ -11,7 +11,7 @@
       animate:flip={{ duration: 200 }}
       transition:fly={{ y: 12, duration: 200 }}
       class="pointer-events-auto rounded-full px-4 py-2 text-[13px] shadow-pop backdrop-blur-xl
-        {toast.level === 'error' ? 'bg-danger/90 text-white' : 'bg-[#23232c]/95 text-ink'}"
+        {toast.level === 'error' ? 'bg-danger/90 text-white' : 'bg-raised/95 text-ink'}"
       onclick={() => toasts.dismiss(toast.id)}
     >
       {toast.text}

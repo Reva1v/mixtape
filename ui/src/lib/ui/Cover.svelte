@@ -1,6 +1,6 @@
 <script lang="ts">
   import { coverUrl } from "$lib/ipc";
-  import IconMusic from "~icons/lucide/music";
+  import IconMusic from "~icons/solar/music-note-2-linear";
 
   interface Props {
     coverKey?: string | null;

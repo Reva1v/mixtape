@@ -67,7 +67,7 @@
 >
   <div class="relative h-1 w-full overflow-hidden rounded-full bg-fill-3 transition-[height] duration-150 group-hover:h-1.5">
     <div
-      class="absolute inset-y-0 left-0 rounded-full {dragging ? 'bg-(--accent)' : 'bg-ink group-hover:bg-(--accent)'}"
+      class="absolute inset-y-0 left-0 rounded-full bg-ink"
       style:width="{pct}%"
     ></div>
   </div>

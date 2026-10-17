@@ -8,7 +8,6 @@
   import { toasts } from "$lib/stores/overlay.svelte";
   import { on } from "$lib/ipc";
   import { t } from "$lib/i18n/ru";
-  import TitleBar from "$lib/ui/TitleBar.svelte";
   import Sidebar from "$lib/ui/Sidebar.svelte";
   import MiniPlayer from "$lib/ui/MiniPlayer.svelte";
   import QueuePanel from "$lib/ui/QueuePanel.svelte";
@@ -16,16 +15,15 @@
   import Toaster from "$lib/ui/Toaster.svelte";
   import Dialogs from "$lib/ui/Dialogs.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
+  import Home from "./screens/Home.svelte";
   import Library from "./screens/Library.svelte";
   import Album from "./screens/Album.svelte";
   import Artist from "./screens/Artist.svelte";
   import Playlist from "./screens/Playlist.svelte";
   import Search from "./screens/Search.svelte";
   import FullscreenPlayer from "./screens/FullscreenPlayer.svelte";
-  import IconSoon from "~icons/lucide/hammer";
-  import IconLyrics from "~icons/lucide/mic-vocal";
-
-  let titleBar: TitleBar;
+  import IconSoon from "~icons/solar/widget-bold";
+  import IconLyrics from "~icons/solar/microphone-2-linear";
 
   onMount(() => {
     player.init().catch((e) => console.error("player init failed", e));
@@ -42,7 +40,7 @@
   });
 
   function onKey(e: KeyboardEvent) {
-    if (handleHotkey(e, () => titleBar.focusSearch())) e.preventDefault();
+    if (handleHotkey(e)) e.preventDefault();
   }
 
   const route = $derived(router.current);
@@ -53,45 +51,49 @@
   onmouseup={(e) => (e.button === 3 ? router.back() : e.button === 4 && router.forward())}
 />
 
-<div class="relative flex h-screen flex-col">
-  <Sidebar />
-  <TitleBar bind:this={titleBar} />
+<div class="flex h-screen flex-col" data-tauri-drag-region>
+  <div class="flex min-h-0 flex-1" data-tauri-drag-region>
+    <Sidebar />
 
-  <div class="flex min-h-0 flex-1 pl-(--sidebar-w)">
-    <main
-      bind:this={layout.scrollEl}
-      class="min-w-0 flex-1 overflow-y-auto rounded-tl-xl bg-[#121218]/70 ring-1 ring-line"
-      style:scrollbar-gutter="stable"
-    >
-      {#if route.name === "library"}
-        <Library tab={route.tab} />
-      {:else if route.name === "album"}
-        {#key route.id}<Album id={route.id} />{/key}
-      {:else if route.name === "artist"}
-        {#key route.id}<Artist id={route.id} />{/key}
-      {:else if route.name === "playlist"}
-        {#key route.id}<Playlist id={route.id} />{/key}
-      {:else if route.name === "search"}
-        <Search query={route.query} />
-      {:else if route.name === "home"}
-        <Library tab="tracks" />
-      {:else}
-        <EmptyState icon={IconSoon} title={t.common.soon} />
+    <div class="flex min-w-0 flex-1 gap-(--gap) pt-(--gap) pr-(--gap)" data-tauri-drag-region>
+      <div class="relative min-w-0 flex-1 overflow-hidden rounded-xl bg-panel">
+        <!-- Artwork glow, fixed behind the scrolling content. -->
+        <div
+          class="pointer-events-none absolute inset-x-0 top-0 h-[360px] transition-[background] duration-1000"
+          style:background="radial-gradient(90% 100% at 15% 0%, color-mix(in srgb, var(--glow) 55%, transparent) 0%, transparent 70%)"
+        ></div>
+        <!-- Drag strip along the top edge, clear of the caption buttons. -->
+        <div class="absolute top-0 right-[150px] left-0 z-10 h-7" data-tauri-drag-region></div>
+
+        <main bind:this={layout.scrollEl} class="relative h-full overflow-y-auto" style:scrollbar-gutter="stable">
+          {#if route.name === "home"}
+            <Home />
+          {:else if route.name === "library"}
+            <Library tab={route.tab} />
+          {:else if route.name === "album"}
+            {#key route.id}<Album id={route.id} />{/key}
+          {:else if route.name === "artist"}
+            {#key route.id}<Artist id={route.id} />{/key}
+          {:else if route.name === "playlist"}
+            {#key route.id}<Playlist id={route.id} />{/key}
+          {:else if route.name === "search"}
+            <Search query={route.query} />
+          {:else}
+            <EmptyState icon={IconSoon} title={t.common.soon} />
+          {/if}
+        </main>
+      </div>
+
+      {#if layout.drawer}
+        <aside class="w-(--drawer-w) shrink-0 overflow-hidden rounded-xl bg-panel pt-10" transition:fly={{ x: 40, duration: 220 }}>
+          {#if layout.drawer === "queue"}
+            <QueuePanel />
+          {:else}
+            <EmptyState icon={IconLyrics} title="Тексты песен" hint="Появятся позже" />
+          {/if}
+        </aside>
       {/if}
-    </main>
-
-    {#if layout.drawer}
-      <aside
-        class="w-(--drawer-w) shrink-0 overflow-hidden border-l border-line bg-[#121218]/70"
-        transition:fly={{ x: 40, duration: 220 }}
-      >
-        {#if layout.drawer === "queue"}
-          <QueuePanel />
-        {:else}
-          <EmptyState icon={IconLyrics} title="Тексты песен" hint="Появятся позже" />
-        {/if}
-      </aside>
-    {/if}
+    </div>
   </div>
 
   <MiniPlayer />

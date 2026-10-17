@@ -7,16 +7,16 @@ import { player } from "$lib/stores/player.svelte";
 import { router } from "$lib/stores/router.svelte";
 import { toasts, type MenuItem } from "$lib/stores/overlay.svelte";
 import { playlistPicker } from "$lib/stores/playlistPicker.svelte";
-import IconMix from "~icons/lucide/radio";
-import IconNext from "~icons/lucide/list-start";
-import IconQueue from "~icons/lucide/list-end";
-import IconPlaylist from "~icons/lucide/list-plus";
-import IconHeart from "~icons/lucide/heart";
-import IconHeartOff from "~icons/lucide/heart-off";
-import IconAlbum from "~icons/lucide/disc-3";
-import IconArtist from "~icons/lucide/mic-vocal";
-import IconDownload from "~icons/lucide/arrow-down-to-line";
-import IconTrash from "~icons/lucide/trash-2";
+import IconMix from "~icons/solar/radio-minimalistic-linear";
+import IconNext from "~icons/solar/list-arrow-up-linear";
+import IconQueue from "~icons/solar/list-arrow-down-linear";
+import IconPlaylist from "~icons/solar/playlist-linear";
+import IconHeart from "~icons/solar/heart-linear";
+import IconHeartOff from "~icons/solar/heart-unlock-linear";
+import IconAlbum from "~icons/solar/vinyl-linear";
+import IconArtist from "~icons/solar/microphone-3-linear";
+import IconDownload from "~icons/solar/download-minimalistic-linear";
+import IconTrash from "~icons/solar/trash-bin-minimalistic-linear";
 
 export function setLiked(track: Track, liked: boolean) {
   return invoke("track_set_liked", { id: track.id, liked });

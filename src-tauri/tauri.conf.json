@@ -20,15 +20,10 @@
         "minHeight": 600,
         "center": true,
         "decorations": false,
-        "transparent": true,
+        "transparent": false,
         "shadow": true,
         "visible": false,
-        "backgroundColor": "#0b0b0f",
-        "windowEffects": {
-          "effects": [
-            "mica"
-          ]
-        }
+        "backgroundColor": "#000000"
       }
     ],
     "security": {

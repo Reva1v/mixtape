@@ -55,13 +55,13 @@
     <input
       bind:this={input}
       bind:value={prompt.value}
-      class="h-10 w-full rounded-md bg-fill-2 px-3 text-[14px] outline-none ring-1 ring-line focus:ring-(--accent)"
+      class="h-10 w-full rounded-md bg-fill-2 px-3 text-[14px] outline-none ring-1 ring-line focus:ring-white/40"
     />
     <div class="mt-5 flex justify-end gap-2">
       <button type="button" class="h-9 rounded-full px-4 text-[13px] text-ink-2 hover:bg-fill-2" onclick={() => prompt.finish(false)}>
         {t.common.cancel}
       </button>
-      <button type="submit" class="h-9 rounded-full bg-(--accent) px-5 text-[13px] font-semibold text-white">{t.common.ok}</button>
+      <button type="submit" class="h-9 rounded-full bg-ink px-5 text-[13px] font-semibold text-black">{t.common.ok}</button>
     </div>
   </form>
 </Modal>

@@ -8,10 +8,28 @@
   import TrackList from "$lib/ui/TrackList.svelte";
   import Card from "$lib/ui/Card.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
-  import IconSearch from "~icons/lucide/search";
-  import IconNothing from "~icons/lucide/search-x";
+  import { layout } from "$lib/stores/layout.svelte";
+  import { t } from "$lib/i18n/ru";
+  import IconSearch from "~icons/solar/magnifier-linear";
+  import IconNothing from "~icons/solar/magnifier-bug-linear";
 
   let { query = "" }: { query?: string } = $props();
+
+  let input = $state<HTMLInputElement>();
+  // The route keeps the query; the input only needs it once on open.
+  // svelte-ignore state_referenced_locally
+  let text = $state(query);
+
+  // Focus on open and whenever Ctrl+K / "/" asks for it.
+  $effect(() => {
+    void layout.searchFocus;
+    input?.focus();
+    input?.select();
+  });
+
+  function onInput() {
+    router.replace({ name: "search", query: text });
+  }
 
   let result = $state.raw<SearchResult | null>(null);
   const tracks = new Fixed<Track>([]);
@@ -43,7 +61,20 @@
   }
 </script>
 
-<div class="pt-6 pb-10">
+<div class="pb-10">
+  <div class="sticky top-0 z-10 bg-panel/80 px-7 pt-10 pb-4 backdrop-blur-xl">
+    <label class="flex h-12 items-center gap-3 rounded-xl bg-fill-1 px-4 ring-1 ring-line transition-colors focus-within:bg-fill-2 focus-within:ring-white/15">
+      <IconSearch class="size-5 shrink-0 text-ink-3" />
+      <input
+        bind:this={input}
+        bind:value={text}
+        oninput={onInput}
+        placeholder={t.search.placeholder}
+        spellcheck="false"
+        class="min-w-0 flex-1 bg-transparent text-[16px] text-ink outline-none placeholder:text-ink-3"
+      />
+    </label>
+  </div>
   {#if !query.trim()}
     <EmptyState icon={IconSearch} title="Поиск по библиотеке" hint="Начните вводить название трека, альбома или исполнителя" />
   {:else if empty}

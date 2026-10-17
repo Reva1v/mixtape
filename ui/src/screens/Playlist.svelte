@@ -11,11 +11,11 @@
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import IconButton from "$lib/ui/IconButton.svelte";
-  import IconAlert from "~icons/lucide/circle-alert";
-  import IconList from "~icons/lucide/list-music";
-  import IconMore from "~icons/lucide/ellipsis";
-  import IconTrash from "~icons/lucide/trash-2";
-  import IconPencil from "~icons/lucide/pencil";
+  import IconAlert from "~icons/solar/danger-circle-linear";
+  import IconList from "~icons/solar/playlist-minimalistic-linear";
+  import IconMore from "~icons/solar/menu-dots-bold";
+  import IconTrash from "~icons/solar/trash-bin-minimalistic-linear";
+  import IconPencil from "~icons/solar/pen-linear";
 
   let { id }: { id: string } = $props();
 

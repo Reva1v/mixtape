@@ -39,7 +39,7 @@
     bind:this={el}
     role="menu"
     tabindex="-1"
-    class="fixed z-50 min-w-56 rounded-lg bg-[#1b1b22]/95 p-1.5 shadow-pop backdrop-blur-xl"
+    class="fixed z-50 min-w-56 rounded-lg bg-raised/95 p-1.5 shadow-pop backdrop-blur-xl"
     style:left="{pos.x}px"
     style:top="{pos.y}px"
     transition:fly={{ y: -4, duration: 120 }}
