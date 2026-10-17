@@ -13,6 +13,8 @@
   import { t } from "$lib/i18n";
   import Sidebar from "$lib/ui/Sidebar.svelte";
   import MiniPlayer from "$lib/ui/MiniPlayer.svelte";
+  import MiniWindow from "$lib/ui/MiniWindow.svelte";
+  import { mini } from "$lib/stores/mini";
   import QueuePanel from "$lib/ui/QueuePanel.svelte";
   import ContextMenu from "$lib/ui/ContextMenu.svelte";
   import Toaster from "$lib/ui/Toaster.svelte";
@@ -40,6 +42,7 @@
     void downloads.init();
     void net.init();
     void updates.init();
+    void mini.init();
     const un = on<{ level: "info" | "error"; text: string }>("toast", (e) => toasts.push(e.text, e.level));
     return () => void un.then((f) => f());
   });
@@ -120,7 +123,8 @@
 />
 
 <!-- Every block is its own rounded panel on a black window, separated by --gap. -->
-<div class="flex h-screen gap-(--gap) p-(--gap)" data-tauri-drag-region>
+<!-- Kept (hidden) under the mini player, so pages and scroll positions survive it. -->
+<div class="flex h-screen gap-(--gap) p-(--gap)" style:display={layout.mini ? "none" : undefined} data-tauri-drag-region>
   <Sidebar />
 
   <div class="flex min-w-0 flex-1 flex-col gap-(--gap)" data-tauri-drag-region>
@@ -202,14 +206,18 @@
   </div>
 </div>
 
-{#if layout.fullscreen && player.track}
+{#if layout.mini}
+  <MiniWindow />
+{:else if layout.fullscreen && player.track}
   <FullscreenPlayer />
 {/if}
 
 <ContextMenu />
-<Dialogs />
-<ConnectAccount />
-<ImportUrlModal />
-<Toaster />
+{#if !layout.mini}
+  <Dialogs />
+  <ConnectAccount />
+  <ImportUrlModal />
+  <Toaster />
+  <Shortcuts />
+{/if}
 <Tooltip />
-<Shortcuts />

@@ -11,6 +11,7 @@
   import { downloads } from "$lib/stores/downloads.svelte";
   import { router } from "$lib/stores/router.svelte";
   import type { StorageInfo } from "$lib/ipc/bindings/StorageInfo";
+  import type { Autostart } from "$lib/ipc/bindings/Autostart";
 
   async function importFolder() {
     const path = await prompt.ask(t.libraryScreen.importPrompt);
@@ -53,6 +54,18 @@
     }
   }
   let fadePreview = $state<number | null>(null);
+
+  // Start with Windows lives in the registry, not in prefs: read it each time the page opens.
+  let autostart = $state<Autostart>("off");
+  void invoke<Autostart>("autostart_get").then((v) => (autostart = v));
+  async function setAutostart(mode: Autostart) {
+    try {
+      autostart = await invoke<Autostart>("autostart_set", { mode });
+    } catch (e) {
+      toasts.push(e instanceof Error && e.message ? e.message : t.tray.autostartFailed, "error");
+      autostart = await invoke<Autostart>("autostart_get").catch(() => autostart);
+    }
+  }
 </script>
 
 {#snippet row(title: string, hint: string, control: Snippet)}
@@ -264,6 +277,29 @@
         t.settings.appearance.smoothBackgroundHint,
         bgSwitch,
       )}
+    </div>
+  </section>
+
+  <section class="mt-8">
+    <h2 class="mb-3 text-[13px] font-semibold tracking-wide text-ink-3 uppercase">{t.tray.section}</h2>
+    <div class="divide-y divide-line overflow-hidden rounded-lg bg-white/[0.04]">
+      {#snippet traySwitch()}
+        <Switch checked={p.closeToTray} label={t.tray.closeToTray} onchange={(v) => prefs.update({ closeToTray: v })} />
+      {/snippet}
+      {@render row(t.tray.closeToTray, t.tray.closeToTrayHint, traySwitch)}
+      {#snippet autostartSelect()}
+        <Select
+          value={autostart}
+          options={[
+            { id: "off", label: t.tray.autostartOff },
+            { id: "on", label: t.tray.autostartOn },
+            { id: "hidden", label: t.tray.autostartHidden },
+          ]}
+          label={t.tray.autostart}
+          onchange={(mode) => void setAutostart(mode)}
+        />
+      {/snippet}
+      {@render row(t.tray.autostart, t.tray.autostartHint, autostartSelect)}
     </div>
   </section>
 

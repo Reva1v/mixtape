@@ -74,9 +74,11 @@ pub fn on_player_event(app: &AppHandle, ev: PlayerEvent) {
                 let _ = ch.send(s.clone());
             }
             st.media.on_state(&s);
+            crate::tray::on_state(app, &s);
         }
         PlayerEvent::TrackChanged { track, palette } => {
             st.media.on_track(&st, &track);
+            crate::tray::on_track(app, &track);
             let _ = app.emit("track:changed", TrackChanged { track, palette });
         }
         PlayerEvent::QueueChanged => {

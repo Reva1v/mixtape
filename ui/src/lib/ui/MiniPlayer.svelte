@@ -23,6 +23,8 @@
   import IconQueue from "~icons/solar/panel-right-linear";
   import IconLyrics from "~icons/solar/microphone-2-linear";
   import IconExpand from "~icons/solar/maximize-square-3-linear";
+  import IconMini from "~icons/solar/to-pip-linear";
+  import { mini } from "$lib/stores/mini";
 
   const track = $derived(player.track);
 
@@ -183,6 +185,7 @@
     <Volume compact />
     {@render capsuleButton(t.player.lyrics, IconLyrics, false, () => layout.toggleLyrics(), !track)}
     {@render capsuleButton(t.player.fullscreen, IconExpand, false, () => (layout.fullscreen = true), !track)}
+    {@render capsuleButton(t.tray.miniPlayer, IconMini, false, () => mini.set(true))}
     {@render capsuleButton(t.player.queue, IconQueue, layout.drawer === "queue", () => layout.toggleDrawer("queue"))}
   </div>
 </div>

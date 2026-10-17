@@ -5,6 +5,7 @@ import { player } from "./player.svelte";
 import { layout } from "./layout.svelte";
 import { router } from "./router.svelte";
 import { downloads } from "./downloads.svelte";
+import { mini } from "./mini";
 import { setLiked } from "$lib/ui/trackMenu";
 import { t } from "$lib/i18n";
 
@@ -61,6 +62,7 @@ export function shortcuts(): { group: string; items: [keys: string, action: stri
       group: h.interface,
       items: [
         ["F", t.player.fullscreen],
+        ["Ctrl + M", t.tray.miniPlayer],
         ["Q", t.player.queue],
         ["T", h.lyrics],
         ["Ctrl + K  ·  /", t.nav.search],
@@ -76,8 +78,18 @@ export function shortcuts(): { group: string; items: [keys: string, action: stri
   ];
 }
 
+/** Keys for the full layout, which the mini player does not show. */
+function fullLayoutOnly(e: KeyboardEvent, ctrl: boolean) {
+  if (e.altKey) return true;
+  if (ctrl) return !e.code.startsWith("Arrow");
+  return ["KeyQ", "KeyT", "KeyF", "Slash", "Escape"].includes(e.code) || e.key === "?";
+}
+
 export function handleHotkey(e: KeyboardEvent): boolean {
   const ctrl = e.ctrlKey || e.metaKey;
+
+  if (ctrl && !e.shiftKey && !e.altKey && e.code === "KeyM") return (void mini.toggle(), true);
+  if (layout.mini && fullLayoutOnly(e, ctrl)) return false;
 
   // Work even while typing.
   if (ctrl && e.code === "KeyK") return (focusSearch(), true);

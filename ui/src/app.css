@@ -129,6 +129,10 @@ textarea {
 #frame-tb-close {
   color: var(--color-ink-2);
 }
+/* The mini player has no caption buttons: its own button goes back to the full window. */
+:root.mini [data-tauri-frame-tb] {
+  display: none !important;
+}
 
 ::-webkit-scrollbar {
   width: 10px;

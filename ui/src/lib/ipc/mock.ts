@@ -4,7 +4,7 @@
 // library. Commands it doesn't know fail the way a missing core does.
 //
 // URL switches: `lang=en|uk|ru` (interface language), `mock=off` (no account),
-// `scene=home|album|library|fullscreen|queue` (open that screen with a track playing).
+// `scene=home|album|library|fullscreen|queue|mini` (open that screen with a track playing).
 
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
@@ -400,8 +400,17 @@ mockIPC(
       case "app_ready":
         return null;
       case "prefs_get":
-        return { smoothBackground: true, crossfade: false, crossfadeSec: 6, mixFullscreen: false, autoUpdate: true, iconStyle: "outline", language: lang };
+        return { smoothBackground: true, crossfade: false, crossfadeSec: 6, mixFullscreen: false, autoUpdate: true, iconStyle: "outline", language: lang, closeToTray: true };
       case "prefs_set":
+        return null;
+      case "autostart_get":
+        return "off";
+      case "autostart_set":
+        return a.mode;
+      case "window_is_mini":
+        return scene === "mini";
+      case "window_set_mini":
+        void emit("window:mini", a.on);
         return null;
       case "account_status":
         return account;

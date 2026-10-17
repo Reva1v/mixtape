@@ -24,7 +24,7 @@ pub struct Media {
     last_timeline: Mutex<Option<Instant>>,
 }
 
-fn dispatch(app: &AppHandle, cmd: MediaCommand) {
+pub fn dispatch(app: &AppHandle, cmd: MediaCommand) {
     let Some(st) = app.try_state::<Arc<AppState>>() else { return };
     let p = st.player.clone();
     // Commands may arrive on the UI thread (thumbbar); never block it.

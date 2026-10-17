@@ -26,4 +26,8 @@ language?: Lang,
 /**
  * Look for a new version on start and once a day.
  */
-autoUpdate: boolean, iconStyle: IconStyle, };
+autoUpdate: boolean, iconStyle: IconStyle, 
+/**
+ * The window's close button hides it to the tray; the music keeps playing.
+ */
+closeToTray: boolean, };

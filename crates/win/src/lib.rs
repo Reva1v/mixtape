@@ -1,6 +1,8 @@
 //! Windows shell integration: media overlay / media keys (SMTC) and the taskbar
-//! thumbnail toolbar, and DPAPI for stored secrets. On other targets everything compiles to no-ops.
+//! thumbnail toolbar, DPAPI for stored secrets and the start-with-Windows entry. On other
+//! targets everything compiles to no-ops.
 
+pub mod autostart;
 #[cfg(windows)]
 pub mod dpapi;
 mod glyph;
@@ -58,6 +60,27 @@ pub fn enter_background_mode() {
         use windows::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_MODE_BACKGROUND_BEGIN};
         let _ = SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
     }
+}
+
+/// Shows or hides the child windows of `parent` (an HWND) with the window class `class`.
+/// Used for native overlays that a compact window layout must not have on top of it.
+pub fn show_child_windows(parent: isize, class: &str, show: bool) {
+    #[cfg(windows)]
+    // SAFETY: plain Win32 calls; a stale or foreign handle only makes them fail.
+    unsafe {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{FindWindowExW, SW_HIDE, SW_SHOWNA, ShowWindow};
+        use windows::core::{HSTRING, PCWSTR};
+        let parent = HWND(parent as *mut _);
+        let class = HSTRING::from(class);
+        let mut after = None;
+        while let Ok(child) = FindWindowExW(Some(parent), after, &class, PCWSTR::null()) {
+            let _ = ShowWindow(child, if show { SW_SHOWNA } else { SW_HIDE });
+            after = Some(child);
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = (parent, class, show);
 }
 
 #[derive(Debug, thiserror::Error)]

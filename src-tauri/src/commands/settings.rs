@@ -43,11 +43,13 @@ pub struct Prefs {
     /// Look for a new version on start and once a day.
     pub auto_update: bool,
     pub icon_style: IconStyle,
+    /// The window's close button hides it to the tray; the music keeps playing.
+    pub close_to_tray: bool,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        Self { smooth_background: true, crossfade: false, crossfade_sec: 6, mix_fullscreen: false, language: None, auto_update: true, icon_style: IconStyle::Outline }
+        Self { smooth_background: true, crossfade: false, crossfade_sec: 6, mix_fullscreen: false, language: None, auto_update: true, icon_style: IconStyle::Outline, close_to_tray: true }
     }
 }
 
@@ -85,6 +87,7 @@ pub async fn prefs_set(state: State<'_, Arc<AppState>>, prefs: Prefs) -> CmdResu
         settings::set(&st.db, KEY, &prefs)?;
         st.player.set_crossfade(prefs.crossfade_ms());
         Prefs::load(&st).apply_language(&st);
+        crate::tray::refresh(&st.app);
         Ok(())
     })
     .await

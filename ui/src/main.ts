@@ -18,6 +18,11 @@ window.addEventListener(
   "mousedown",
   (e) => {
     const el = e.target as HTMLElement | null;
+    // The mini player moves by any empty spot, but a double click must not maximize it.
+    if (document.documentElement.classList.contains("mini")) {
+      if (e.detail >= 2 && !el?.closest?.("button")) e.stopImmediatePropagation();
+      return;
+    }
     if (e.clientY > TITLE_BAR_H && el?.hasAttribute?.("data-tauri-drag-region")) {
       e.stopImmediatePropagation();
     }

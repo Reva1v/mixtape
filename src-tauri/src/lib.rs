@@ -1,4 +1,5 @@
 mod account;
+mod autostart;
 mod background;
 mod commands;
 mod cover_protocol;
@@ -6,14 +7,17 @@ mod downloads;
 mod events;
 mod login_window;
 mod media;
+mod mini;
 mod net;
 mod state;
 mod streaming;
+mod tray;
 mod updates;
 mod window;
 
 use std::sync::Arc;
 use tauri::Manager;
+use tauri_plugin_window_state::StateFlags;
 
 /// A small runtime: the app mostly waits on the network and the disk, so a worker per
 /// logical core only adds idle threads.
@@ -40,14 +44,14 @@ pub fn run() {
     install_runtime();
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.unminimize();
-                let _ = w.show();
-                let _ = w.set_focus();
-            }
-        }))
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // A second launch brings the running app's window forward (also out of the tray).
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| window::show_main(app)))
+        // The window is shown by `app_ready` (or stays in the tray), never by the plugin.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(StateFlags::all() - StateFlags::VISIBLE)
+                .build(),
+        )
         .plugin(window::frame_plugin())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .register_asynchronous_uri_scheme_protocol("cover", cover_protocol::handle)
@@ -68,6 +72,11 @@ pub fn run() {
             // `setup` runs on the main (UI) thread, which the thumbnail toolbar needs.
             state.media.install(app.handle());
             tracing::debug!("setup: media installed");
+            window::install(app.handle(), autostart::launched_hidden());
+            if let Err(e) = tray::install(app.handle(), &state) {
+                tracing::warn!(error = %e, "tray icon unavailable");
+            }
+            autostart::refresh();
             #[cfg(debug_assertions)]
             if let Ok(dir) = std::env::var("MIXTAPE_DEV_IMPORT") {
                 let st = state.clone();
@@ -82,14 +91,20 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event
-                && let Some(st) = window.app_handle().try_state::<Arc<state::AppState>>()
-            {
-                st.player.save_snapshot(true);
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == window::MAIN && window::close_to_tray(window.app_handle()) {
+                    api.prevent_close();
+                } else if let Some(st) = window.app_handle().try_state::<Arc<state::AppState>>() {
+                    st.player.save_snapshot(true);
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
             window::app_ready,
+            mini::window_set_mini,
+            mini::window_is_mini,
+            autostart::autostart_get,
+            autostart::autostart_set,
             commands::library::library_view,
             commands::library::library_rows,
             commands::library::library_search,
@@ -153,6 +168,12 @@ pub fn run() {
             updates::update_check,
             updates::update_install,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Mixtape");
+        .build(tauri::generate_context!())
+        .expect("error while building Mixtape")
+        .run(|app, event| {
+            // After the window-state plugin has written its file.
+            if let tauri::RunEvent::Exit = event {
+                mini::on_exit(app);
+            }
+        });
 }
