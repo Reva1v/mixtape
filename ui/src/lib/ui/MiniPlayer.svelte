@@ -64,7 +64,7 @@
   </button>
 {/snippet}
 
-<footer class="relative flex h-(--player-h) shrink-0 items-center rounded-xl bg-panel pr-2.5 pl-1.5">
+<footer class="relative flex h-(--player-h) shrink-0 items-center overflow-hidden rounded-xl bg-panel pr-2.5">
   <!-- Now playing -->
   {#if track}
     <div
@@ -76,7 +76,7 @@
       aria-valuemax={player.state.durationMs}
       aria-valuenow={player.state.positionMs}
       title="{formatTime((pct / 100) * player.state.durationMs)} / {formatTime(player.state.durationMs)}"
-      class="relative flex h-[60px] max-w-[34%] min-w-[260px] items-center gap-3.5 overflow-hidden rounded-lg pr-4 pl-[18px]"
+      class="relative flex h-full max-w-[34%] min-w-[260px] items-center gap-3.5 pr-4 pl-4"
       onpointerdown={(e) => {
         if ((e.target as HTMLElement).closest("button")) return;
         seeking = true;
