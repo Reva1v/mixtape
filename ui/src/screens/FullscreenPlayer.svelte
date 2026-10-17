@@ -23,7 +23,6 @@
   import IconPlus from "~icons/lucide/plus";
   import IconLyrics from "~icons/solar/microphone-2-linear";
   import IconQueue from "~icons/solar/playlist-minimalistic-linear";
-  import IconMore from "~icons/solar/menu-dots-bold";
   import QueuePanel from "$lib/ui/QueuePanel.svelte";
 
   const track = $derived(player.track);
@@ -132,12 +131,22 @@
         style:transform="translateX({lyrics ? '-25%' : '0'})"
         in:pop={{ scale: 0.97, y: 18, spring: springs.gentle }}
       >
-        <div class="relative" style:width="{coverSize}px">
+        <div
+          class="relative"
+          style:width="{coverSize}px"
+          role="img"
+          aria-label={track.title}
+          oncontextmenu={(e) => {
+            e.preventDefault();
+            menu.show(trackMenu(track), e.clientX, e.clientY);
+          }}
+        >
           <Cover coverKey={track.coverKey} size={coverSize} rounded="lg" class="shadow-[0_30px_80px_-24px_rgb(0_0_0/0.95)]" />
           <button
             type="button"
             aria-label="Ещё"
-            class="absolute bottom-2.5 left-2.5 grid size-7 place-items-center rounded-full bg-black/45 text-ink backdrop-blur transition-colors hover:bg-black/65"
+            data-tip="Ещё"
+            class="absolute right-2.5 bottom-2.5 grid size-7 place-items-center rounded-full bg-black/45 text-ink backdrop-blur transition-colors hover:bg-black/65"
             onclick={(e) => menu.showAt(trackMenu(track), e.currentTarget)}
           >
             <IconPlus class="size-4" />
@@ -179,15 +188,6 @@
             onclick={() => (queueOpen = !queueOpen)}
           >
             <IconQueue class="size-4" />
-          </button>
-          <button
-            type="button"
-            aria-label="Ещё"
-            data-tip="Ещё"
-            class="grid size-7 place-items-center rounded-full text-ink-3 transition-colors hover:text-ink"
-            onclick={(e) => menu.showAt(trackMenu(track), e.currentTarget)}
-          >
-            <IconMore class="size-4" />
           </button>
         </div>
       </section>

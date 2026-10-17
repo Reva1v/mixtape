@@ -1,6 +1,6 @@
 <script lang="ts">
   import { menu } from "$lib/stores/overlay.svelte";
-  import { pop } from "$lib/motion";
+  import { rise } from "$lib/motion";
 
   let el = $state<HTMLDivElement>();
   let pos = $state({ x: 0, y: 0 });
@@ -35,14 +35,16 @@
       menu.close();
     }}
   ></div>
+  <!-- Opaque and unscaled on purpose: a fading backdrop-filter or a scale animation
+       makes WebView2 draw the menu soft until the transition ends. -->
   <div
     bind:this={el}
     role="menu"
     tabindex="-1"
-    class="fixed z-50 min-w-56 rounded-lg bg-raised/95 p-1.5 shadow-pop backdrop-blur-xl"
+    class="fixed z-50 min-w-56 rounded-lg bg-raised p-1.5 shadow-pop"
     style:left="{pos.x}px"
     style:top="{pos.y}px"
-    transition:pop={{ y: -6, scale: 0.95, origin: "top left" }}
+    transition:rise={{ y: -6 }}
   >
     {#each menu.items as item, i (i)}
       {#if item === "separator"}
