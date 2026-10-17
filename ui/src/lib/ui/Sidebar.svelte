@@ -33,17 +33,17 @@
     title={item.label}
     aria-label={item.label}
     aria-current={active ? "page" : undefined}
-    class="grid size-9 place-items-center transition-colors
+    class="grid size-10 place-items-center transition-colors
       {active ? 'cursor-default text-ink' : 'text-[#8a8a8e] hover:text-ink'}"
     {@attach pressable(0.92, springs.soft)}
     onclick={() => !active && router.go(item.route)}
   >
-    <item.icon class="size-6" />
+    <item.icon class="size-7" />
   </button>
 {/snippet}
 
 <nav class="flex w-(--sidebar-w) shrink-0 flex-col items-center rounded-xl bg-panel pt-3.5 pb-4" data-tauri-drag-region>
-  <div class="mb-5 size-10 [&>svg]:size-full" aria-hidden="true">{@html Logo}</div>
+  <div class="mb-5 size-11 [&>svg]:size-full" aria-hidden="true">{@html Logo}</div>
   <div class="flex flex-col items-center gap-3.5">
     {#each items as item (item.label)}
       {@render navItem(item)}
