@@ -5,6 +5,7 @@
   import { Fixed } from "$lib/stores/paged.svelte";
   import { player } from "$lib/stores/player.svelte";
   import { router } from "$lib/stores/router.svelte";
+  import { openAlbum } from "$lib/stores/actions";
   import TrackList from "$lib/ui/TrackList.svelte";
   import Card from "$lib/ui/Card.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
@@ -106,7 +107,7 @@
                 coverKey={a.coverKey}
                 title={a.title}
                 subtitle={a.artists.map((x) => x.name).join(", ")}
-                onopen={() => router.go({ name: "album", id: a.id })}
+                onopen={() => openAlbum(a)}
                 onplay={() => player.play({ kind: "album", id: a.id })}
                 current={!!a && player.track?.album?.id === a.id}
               />

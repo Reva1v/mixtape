@@ -7,6 +7,7 @@
   import { Fixed } from "$lib/stores/paged.svelte";
   import { player } from "$lib/stores/player.svelte";
   import { router } from "$lib/stores/router.svelte";
+  import { openAlbum } from "$lib/stores/actions";
   import { prompt, toasts } from "$lib/stores/overlay.svelte";
   import { t, tracks } from "$lib/i18n/ru";
   import Card from "$lib/ui/Card.svelte";
@@ -81,7 +82,7 @@
           coverKey={a.coverKey}
           title={a.title}
           subtitle={albumSub(a)}
-          onopen={() => router.go({ name: "album", id: a.id })}
+          onopen={() => openAlbum(a)}
           onplay={() => player.play({ kind: "album", id: a.id })}
                 current={!!a && player.track?.album?.id === a.id}
         />
@@ -119,7 +120,7 @@
         <button
           type="button"
           class="flex h-14 min-w-0 items-center gap-3.5 overflow-hidden rounded-[5px] bg-white/[0.055] pr-3 text-left transition-colors hover:bg-white/[0.09]"
-          onclick={() => router.go({ name: "album", id: a.id })}
+          onclick={() => openAlbum(a)}
         >
           <Cover coverKey={a.coverKey} size={56} rounded="sm" class="rounded-none" />
           <div class="min-w-0">

@@ -5,6 +5,7 @@
   import { Fixed } from "$lib/stores/paged.svelte";
   import { player } from "$lib/stores/player.svelte";
   import { router } from "$lib/stores/router.svelte";
+  import { openAlbum } from "$lib/stores/actions";
   import { tracks } from "$lib/i18n/ru";
   import CollectionHeader from "$lib/ui/CollectionHeader.svelte";
   import TrackList from "$lib/ui/TrackList.svelte";
@@ -88,7 +89,7 @@
               coverKey={a.coverKey}
               title={a.title}
               subtitle={[a.year, { album: "Альбом", ep: "EP", single: "Сингл" }[a.albumType]].filter(Boolean).join(" • ")}
-              onopen={() => router.go({ name: "album", id: a.id })}
+              onopen={() => openAlbum(a)}
               onplay={() => player.play({ kind: "album", id: a.id })}
                 current={!!a && player.track?.album?.id === a.id}
             />

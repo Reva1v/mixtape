@@ -11,6 +11,7 @@
   import { Paged } from "$lib/stores/paged.svelte";
   import { pressable } from "$lib/motion";
   import { router, type LibraryTab } from "$lib/stores/router.svelte";
+  import { openAlbum } from "$lib/stores/actions";
   import { player } from "$lib/stores/player.svelte";
   import { prompt, toasts } from "$lib/stores/overlay.svelte";
   import { t, tracks } from "$lib/i18n/ru";
@@ -175,7 +176,7 @@
                 coverKey={a?.coverKey}
                 title={a?.title}
                 subtitle={a ? [a.artists.map((x) => x.name).join(", "), a.year].filter(Boolean).join(" • ") : undefined}
-                onopen={() => a && router.go({ name: "album", id: a.id })}
+                onopen={() => a && openAlbum(a)}
                 onplay={() => a && player.play({ kind: "album", id: a.id })}
                 current={!!a && player.track?.album?.id === a.id}
               />
