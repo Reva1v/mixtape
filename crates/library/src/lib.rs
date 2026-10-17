@@ -2,6 +2,7 @@
 
 pub mod cache_lru;
 pub mod conn;
+pub mod covers;
 pub mod db;
 pub mod integrity;
 pub mod jobs;

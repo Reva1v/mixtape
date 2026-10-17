@@ -111,12 +111,13 @@ pub async fn storage_set_autosave(state: State<'_, Arc<AppState>>, plays: Option
     .await
 }
 
-/// Deletes every cached stream except the playing track's.
+/// Deletes every cached stream except the playing track's, then covers left without a row.
 #[tauri::command]
 pub async fn cache_clear(state: State<'_, Arc<AppState>>) -> CmdResult<StorageInfo> {
     let st = state.inner().clone();
     blocking(move || {
         trim(&st, 0)?;
+        crate::background::clean_covers_in_background(st.clone());
         storage_info(&st)
     })
     .await

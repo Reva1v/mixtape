@@ -2,16 +2,57 @@
 //!
 //! Everything is computed once when a cover arrives, so the UI never decodes a large
 //! image or extracts colours at runtime.
+//!
+//! A cover is kept at one of two levels of [`Detail`]: `Small` (64 + 300 px) for things only
+//! browsed — home shelves, search, catalog and mix pages — and `Full` (also 1024 px) for
+//! library items, which fill page headers and the full-screen player.
 
 use fast_image_resize::{ResizeOptions, Resizer};
 use image::codecs::jpeg::JpegEncoder;
 use image::{DynamicImage, RgbImage};
 use kmeans_colors::{Sort, get_kmeans};
 use palette::{FromColor, IntoColor, Lab, Srgb};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 /// Thumbnail edge sizes in pixels: list rows, grid cards, full-screen player.
 pub const SIZES: [u32; 3] = [64, 300, 1024];
+/// The size only a [`Detail::Full`] cover has.
+pub const FULL_EDGE: u32 = 1024;
+
+/// How much of a cover is kept on disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Detail {
+    /// 64 and 300 px: rows and cards.
+    Small,
+    /// 64, 300 and 1024 px: library items.
+    Full,
+}
+
+impl Detail {
+    fn sizes(self) -> &'static [u32] {
+        match self {
+            Detail::Small => &SIZES[..2],
+            Detail::Full => &SIZES,
+        }
+    }
+
+    /// The largest size of this level; its file marks the level as stored.
+    fn edge(self) -> u32 {
+        self.sizes()[self.sizes().len() - 1]
+    }
+}
+
+/// What [`CoverStore::cleanup`] removed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Cleanup {
+    /// Whole covers no row refers to.
+    pub covers: usize,
+    /// 1024 px files of covers outside the library.
+    pub full_files: usize,
+    pub bytes: u64,
+}
 
 const JPEG_QUALITY: u8 = 86;
 const PALETTE_COLORS: usize = 5;
@@ -67,13 +108,37 @@ impl CoverStore {
         Ok(self.root.join(key).join(format!("{}.jpg", Self::nearest_size(size))))
     }
 
+    /// The cover is on disk, at least at [`Detail::Small`].
     pub fn exists(&self, key: &str) -> bool {
-        self.path(key, SIZES[SIZES.len() - 1]).map(|p| p.exists()).unwrap_or(false)
+        self.has(key, Detail::Small)
     }
 
-    /// Decodes `bytes`, centre-crops to a square, writes every thumbnail size and returns
+    /// The cover is on disk with at least `detail`.
+    pub fn has(&self, key: &str, detail: Detail) -> bool {
+        self.path(key, detail.edge()).map(|p| p.exists()).unwrap_or(false)
+    }
+
+    /// The file to serve for `size`: the stored size nearest from above, or else the
+    /// largest smaller one on disk (a small cover asked for at 1024). The flag is true
+    /// for such a smaller stand-in.
+    pub fn best_path(&self, key: &str, size: u32) -> Option<(PathBuf, bool)> {
+        let wanted = self.path(key, size).ok()?;
+        if wanted.exists() {
+            return Some((wanted, false));
+        }
+        let nearest = Self::nearest_size(size);
+        SIZES
+            .into_iter()
+            .rev()
+            .filter(|s| *s < nearest)
+            .map(|s| self.root.join(key).join(format!("{s}.jpg")))
+            .find(|p| p.exists())
+            .map(|p| (p, true))
+    }
+
+    /// Decodes `bytes`, centre-crops to a square, writes the sizes of `detail` and returns
     /// the palette.
-    pub fn process(&self, key: &str, bytes: &[u8]) -> Result<Processed> {
+    pub fn process(&self, key: &str, bytes: &[u8], detail: Detail) -> Result<Processed> {
         if !Self::valid_key(key) {
             return Err(Error::InvalidKey);
         }
@@ -82,7 +147,7 @@ impl CoverStore {
         std::fs::create_dir_all(&dir)?;
         let mut resizer = Resizer::new();
         let mut small = None;
-        for size in SIZES {
+        for &size in detail.sizes() {
             let thumb = resize(&mut resizer, &img, size)?;
             write_jpeg(&dir.join(format!("{size}.jpg")), &thumb)?;
             if size == SIZES[0] {
@@ -91,6 +156,55 @@ impl CoverStore {
         }
         let palette = palette_of(small.as_ref().expect("smallest size is always produced"));
         Ok(Processed { palette })
+    }
+
+    /// Deletes covers whose key is not in `keep`, and the 1024 px file of covers not in
+    /// `keep_full`. Files written within `min_age` stay: a card on screen or a sync still
+    /// saving may not be in the database yet.
+    pub fn cleanup(&self, keep: &HashSet<String>, keep_full: &HashSet<String>, min_age: Duration) -> Result<Cleanup> {
+        let mut out = Cleanup::default();
+        let entries = match std::fs::read_dir(&self.root) {
+            Ok(e) => e,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(out),
+            Err(e) => return Err(e.into()),
+        };
+        let now = SystemTime::now();
+        let old = |m: &std::fs::Metadata| m.modified().ok().and_then(|t| now.duration_since(t).ok()).is_some_and(|age| age >= min_age);
+        for entry in entries.flatten() {
+            let Ok(key) = entry.file_name().into_string() else { continue };
+            if !Self::valid_key(&key) || !entry.file_type().is_ok_and(|t| t.is_dir()) {
+                continue;
+            }
+            let dir = entry.path();
+            let files: Vec<(PathBuf, std::fs::Metadata)> = std::fs::read_dir(&dir)?
+                .flatten()
+                .filter_map(|f| Some((f.path(), f.metadata().ok()?)))
+                .filter(|(_, m)| m.is_file())
+                .collect();
+            if !keep.contains(&key) {
+                if files.iter().all(|(_, m)| old(m)) {
+                    let bytes: u64 = files.iter().map(|(_, m)| m.len()).sum();
+                    if std::fs::remove_dir_all(&dir).is_ok() {
+                        out.covers += 1;
+                        out.bytes += bytes;
+                    }
+                }
+                continue;
+            }
+            if !keep_full.contains(&key) {
+                let full = dir.join(format!("{FULL_EDGE}.jpg"));
+                if let Some((_, m)) = files.iter().find(|(p, _)| *p == full)
+                    && old(m)
+                    // Never leave a cover without any thumbnail.
+                    && dir.join(format!("{}.jpg", SIZES[1])).exists()
+                    && std::fs::remove_file(&full).is_ok()
+                {
+                    out.full_files += 1;
+                    out.bytes += m.len();
+                }
+            }
+        }
+        Ok(out)
     }
 }
 
@@ -167,15 +281,56 @@ mod tests {
     fn writes_all_sizes_and_palette() {
         let dir = tempfile::tempdir().unwrap();
         let store = CoverStore::new(dir.path());
-        let out = store.process("MPREabc_-1", &sample_png()).unwrap();
+        let out = store.process("MPREabc_-1", &sample_png(), Detail::Full).unwrap();
         for size in SIZES {
             let p = store.path("MPREabc_-1", size).unwrap();
             let img = image::open(&p).unwrap();
             let expect = size.min(300);
             assert_eq!((img.width(), img.height()), (expect, expect), "{size}");
         }
+        assert!(store.has("MPREabc_-1", Detail::Full));
         assert!(out.palette.len() >= 2, "{:?}", out.palette);
         assert!(out.palette.iter().all(|c| c.len() == 7 && c.starts_with('#')));
+    }
+
+    #[test]
+    fn small_covers_stand_in_for_the_large_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = CoverStore::new(dir.path());
+        store.process("k", &sample_png(), Detail::Small).unwrap();
+        assert!(store.exists("k") && !store.has("k", Detail::Full));
+        assert!(!dir.path().join("k/1024.jpg").exists());
+        let (p, smaller) = store.best_path("k", 1024).unwrap();
+        assert!(smaller && p.ends_with("300.jpg"));
+        let (p, smaller) = store.best_path("k", 64).unwrap();
+        assert!(!smaller && p.ends_with("64.jpg"));
+        assert!(store.best_path("missing", 300).is_none());
+        // Moving into the library fills in the large size.
+        store.process("k", &sample_png(), Detail::Full).unwrap();
+        assert!(store.has("k", Detail::Full));
+        assert!(!store.best_path("k", 1024).unwrap().1);
+    }
+
+    #[test]
+    fn cleanup_drops_unreferenced_covers_and_extra_large_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = CoverStore::new(dir.path());
+        for key in ["lib", "browse", "gone"] {
+            store.process(key, &sample_png(), Detail::Full).unwrap();
+        }
+        std::fs::write(dir.path().join("stray.txt"), b"x").unwrap();
+        let keep: HashSet<String> = ["lib", "browse"].map(String::from).into();
+        let keep_full: HashSet<String> = ["lib"].map(String::from).into();
+        // Fresh files are protected.
+        let none = store.cleanup(&keep, &keep_full, Duration::from_secs(3600)).unwrap();
+        assert_eq!(none, Cleanup::default());
+        let out = store.cleanup(&keep, &keep_full, Duration::ZERO).unwrap();
+        assert_eq!((out.covers, out.full_files), (1, 1));
+        assert!(out.bytes > 0);
+        assert!(!dir.path().join("gone").exists());
+        assert!(store.has("lib", Detail::Full));
+        assert!(store.exists("browse") && !store.has("browse", Detail::Full));
+        assert!(dir.path().join("stray.txt").exists());
     }
 
     #[test]

@@ -29,6 +29,17 @@ pub enum MediaCommand {
     Seek { position_ms: u64 },
 }
 
+/// Puts the calling thread in background mode (low CPU, I/O and memory priority) for
+/// housekeeping that must not compete with playback or the UI. Use on a thread of its own.
+pub fn enter_background_mode() {
+    #[cfg(windows)]
+    // SAFETY: plain Win32 calls on the current thread's pseudo-handle.
+    unsafe {
+        use windows::Win32::System::Threading::{GetCurrentThread, SetThreadPriority, THREAD_MODE_BACKGROUND_BEGIN};
+        let _ = SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[cfg(windows)]

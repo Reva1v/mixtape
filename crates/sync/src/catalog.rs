@@ -3,7 +3,7 @@
 //! and played; «Скачать» queues their downloads.
 
 use crate::sources::{self, Collected};
-use mixtape_artwork::CoverStore;
+use mixtape_artwork::{CoverStore, Detail};
 use mixtape_core::{AlbumId, AlbumType, ArtistId, Playlist, PlaylistId, PlaylistOrigin, TrackId};
 use mixtape_library::repo::{self, AlbumMeta};
 use mixtape_library::{Db, ytm};
@@ -100,14 +100,15 @@ pub async fn playlist_page<Y: YtMusic>(
     Ok((playlist, tracks))
 }
 
-/// Downloads a missing cover; returns its key when it is on disk.
+/// Downloads a missing card cover (small: these are only browsed); returns its key when
+/// it is on disk.
 async fn cover(http: &reqwest::Client, covers: &CoverStore, key: &str, url: Option<&str>) -> Option<String> {
     if !covers.exists(key)
         && let Some(url) = url
-        && let Ok(bytes) = thumbs::download(http, url).await
+        && let Ok(bytes) = thumbs::download_small(http, url).await
     {
         let (covers, key2) = (covers.clone(), key.to_owned());
-        let _ = tokio::task::spawn_blocking(move || covers.process(&key2, &bytes)).await;
+        let _ = tokio::task::spawn_blocking(move || covers.process(&key2, &bytes, Detail::Small)).await;
     }
     covers.exists(key).then(|| key.to_owned())
 }

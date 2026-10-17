@@ -179,15 +179,82 @@ pub fn merge_local_twins(conn: &Connection) -> Result<usize> {
     Ok(pairs.len())
 }
 
-/// Artists credited on any track or album that have no picture yet.
-pub fn artists_without_image(conn: &Connection) -> Result<Vec<mixtape_core::ArtistId>> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT id FROM artists WHERE image_key IS NULL AND id LIKE 'UC%'
-           AND (EXISTS (SELECT 1 FROM track_artists WHERE artist_id = artists.id)
-             OR EXISTS (SELECT 1 FROM album_artists WHERE artist_id = artists.id))",
-    )?;
-    let ids = stmt.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+/// How long an artist whose picture could not be found waits before the next try.
+pub const ARTIST_IMAGE_RECHECK_MS: i64 = 7 * 24 * 60 * 60 * 1000;
+
+/// SQL condition: artist `a` is in the library — saved, or credited on a track whose audio
+/// is in the library.
+const LIBRARY_ARTIST: &str = "(a.in_library = 1
+    OR EXISTS (SELECT 1 FROM track_artists ta JOIN tracks t ON t.id = ta.track_id
+               WHERE ta.artist_id = a.id AND t.state IN ('downloaded', 'broken'))
+    OR EXISTS (SELECT 1 FROM album_artists aa JOIN tracks t ON t.album_id = aa.album_id
+               WHERE aa.artist_id = a.id AND t.state IN ('downloaded', 'broken')))";
+
+/// Library artists without a picture that were not looked up since `checked_before`
+/// (Unix ms). Other artists get theirs when their page is opened.
+pub fn artists_without_image(conn: &Connection, checked_before: i64) -> Result<Vec<mixtape_core::ArtistId>> {
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT a.id FROM artists a WHERE a.image_key IS NULL AND a.id LIKE 'UC%'
+           AND COALESCE(a.image_checked_at, 0) < ?1 AND {LIBRARY_ARTIST}"
+    ))?;
+    let ids = stmt.query_map([checked_before], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(ids.into_iter().map(mixtape_core::ArtistId).collect())
+}
+
+/// Whether the artist is in the library (see [`artists_without_image`]).
+pub fn artist_in_library(conn: &Connection, id: &mixtape_core::ArtistId) -> Result<bool> {
+    let sql = format!("SELECT 1 FROM artists a WHERE a.id = ?1 AND {LIBRARY_ARTIST}");
+    Ok(conn.prepare_cached(&sql)?.exists([id.as_str()])?)
+}
+
+/// Whether the artist's picture may be looked for now: never tried, or not since
+/// `checked_before`.
+pub fn artist_image_due(conn: &Connection, id: &mixtape_core::ArtistId, checked_before: i64) -> Result<bool> {
+    let checked: Option<Option<i64>> = conn
+        .query_row("SELECT image_checked_at FROM artists WHERE id = ?1", [id.as_str()], |r| r.get(0))
+        .optional()?;
+    Ok(checked.flatten().is_none_or(|t| t < checked_before))
+}
+
+/// Records a look-up of the artist's picture, found or not.
+pub fn artist_image_checked(conn: &Connection, id: &mixtape_core::ArtistId, at: i64) -> Result<()> {
+    conn.execute("UPDATE artists SET image_checked_at = ?2 WHERE id = ?1", params![id.as_str(), at])?;
+    Ok(())
+}
+
+/// When the artist's page (and so the discography) was last read by a sync.
+pub fn artist_synced_at(conn: &Connection, id: &mixtape_core::ArtistId) -> Result<Option<i64>> {
+    Ok(conn
+        .query_row("SELECT synced_at FROM artists WHERE id = ?1", [id.as_str()], |r| r.get::<_, Option<i64>>(0))
+        .optional()?
+        .flatten())
+}
+
+/// Records that a sync read the artist's page now.
+pub fn set_artist_synced(conn: &Connection, id: &mixtape_core::ArtistId, name: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO artists(id, name, search_text, synced_at) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(id) DO UPDATE SET synced_at = excluded.synced_at",
+        params![id.as_str(), name, normalize(name), now_ms()],
+    )?;
+    Ok(())
+}
+
+/// Whether a sync already holds every track of the album: its full page was stored and
+/// each track is in the library or has a download job.
+pub fn album_synced(conn: &Connection, id: &AlbumId) -> Result<bool> {
+    let synced: Option<bool> = conn
+        .query_row(
+            "SELECT a.track_count IS NOT NULL AND a.track_count > 0 AND a.track_count <=
+                (SELECT count(*) FROM tracks t WHERE t.album_id = a.id
+                   AND (t.state IN ('downloaded', 'broken')
+                        OR EXISTS (SELECT 1 FROM download_jobs j WHERE j.track_id = t.id)))
+             FROM albums a WHERE a.id = ?1",
+            [id.as_str()],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(synced.unwrap_or(false))
 }
 
 pub fn set_artist_image(conn: &Connection, id: &mixtape_core::ArtistId, key: &str, palette: &[String]) -> Result<()> {
@@ -224,6 +291,56 @@ mod tests {
             .read(|c| Ok(c.query_row("SELECT count(*) FROM track_artists WHERE artist_id = 'UCx'", [], |r| r.get(0))?))
             .unwrap();
         assert_eq!(linked, 2);
+    }
+
+    #[test]
+    fn artist_pictures_are_looked_for_in_the_library_and_weekly() {
+        use mixtape_core::{ArtistId, TrackState};
+        let (_dir, db) = test_util::db();
+        let now = 10 * ARTIST_IMAGE_RECHECK_MS;
+        let due = move |c: &Connection| artists_without_image(c, now - ARTIST_IMAGE_RECHECK_MS);
+        let found = db
+            .write(move |t| {
+                repo::upsert_track(t, &test_util::meta("aaaaaaaaaaa", "A", ("UCown", "Own"), None))?;
+                repo::set_state(t, &TrackId::new("aaaaaaaaaaa"), TrackState::Downloaded)?;
+                // Only browsed: its picture comes when its page is opened.
+                repo::upsert_track(t, &test_util::meta("bbbbbbbbbbb", "B", ("UCbrowsed", "Browsed"), None))?;
+                let first = due(t)?;
+                let own = ArtistId::from("UCown");
+                artist_image_checked(t, &own, now - 1000)?;
+                let after_try = due(t)?;
+                let page_due = artist_image_due(t, &own, now - ARTIST_IMAGE_RECHECK_MS)?;
+                artist_image_checked(t, &own, now - ARTIST_IMAGE_RECHECK_MS - 1)?;
+                let week_later = due(t)?;
+                Ok((first, after_try, page_due, week_later, artist_in_library(t, &ArtistId::from("UCbrowsed"))?))
+            })
+            .unwrap();
+        let own = vec![mixtape_core::ArtistId::from("UCown")];
+        assert_eq!(found.0, own);
+        assert!(found.1.is_empty());
+        assert!(!found.2);
+        assert_eq!(found.3, own);
+        assert!(!found.4);
+    }
+
+    #[test]
+    fn album_counts_as_synced_once_every_track_is_held() {
+        let (_dir, db) = test_util::db();
+        let (before, after) = db
+            .write(|t| {
+                let album = AlbumId::from("MPREx");
+                for id in ["aaaaaaaaaaa", "bbbbbbbbbbb"] {
+                    repo::upsert_track(t, &test_util::meta(id, id, ("UCx", "X"), Some(("MPREx", "LP"))))?;
+                }
+                t.execute("UPDATE albums SET track_count = 2 WHERE id = 'MPREx'", [])?;
+                crate::jobs::enqueue(t, &TrackId::new("aaaaaaaaaaa"), "album")?;
+                let before = album_synced(t, &album)?;
+                crate::jobs::enqueue(t, &TrackId::new("bbbbbbbbbbb"), "album")?;
+                Ok((before, album_synced(t, &album)?))
+            })
+            .unwrap();
+        assert!(!before && after);
+        assert!(!db.read(|c| album_synced(c, &AlbumId::from("MPREnone"))).unwrap());
     }
 
     #[test]

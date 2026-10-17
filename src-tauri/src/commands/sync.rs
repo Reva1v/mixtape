@@ -86,9 +86,10 @@ pub async fn sync_preview(state: State<'_, Arc<AppState>>) -> CmdResult<SyncPrev
         let key = card.id.to_string();
         if !st.covers.exists(&key)
             && let Some(url) = &card.thumbnail
-            && let Ok(bytes) = mixtape_yt::thumbs::download(st.yt.http(), url).await
+            && let Ok(bytes) = mixtape_yt::thumbs::download_small(st.yt.http(), url).await
         {
-            let _ = st.covers.process(&key, &bytes);
+            // The sync itself fetches the full cover of a playlist the user picks.
+            let _ = st.covers.process(&key, &bytes, mixtape_artwork::Detail::Small);
         }
         playlists.push(Playlist {
             cover_key: st.covers.exists(&key).then_some(key),
@@ -155,16 +156,7 @@ fn run_sync(st: Arc<AppState>, plan: SyncPlan, quiet: bool) -> CmdResult<()> {
                 }
                 emit_changed(&st.app, &[ViewKind::Tracks, ViewKind::Albums, ViewKind::Artists, ViewKind::Playlists]);
                 st.downloads.wake();
-                let n = mixtape_sync::artists::fetch_missing(
-                    st.yt.clone(),
-                    st.yt.http().clone(),
-                    st.db.clone(),
-                    st.covers.clone(),
-                )
-                .await;
-                if n > 0 {
-                    emit_changed(&st.app, &[ViewKind::Artists]);
-                }
+                crate::background::fetch_artist_pictures(&st).await;
             }
             Err(e) => {
                 let e = yt_error(&st, e);
@@ -175,31 +167,66 @@ fn run_sync(st: Arc<AppState>, plan: SyncPlan, quiet: bool) -> CmdResult<()> {
                 }
             }
         }
+        // The schedule re-arms from the new `last_synced_at`.
+        AUTO_SYNC.notify_one();
     });
     Ok(())
 }
 
-/// Re-runs the last chosen sync when it is older than 12 hours (checked every 30 minutes,
-/// first a few minutes after start), so new likes and releases arrive without a click.
+/// Wakes the scheduled sync: a sync finished, or the network came back.
+static AUTO_SYNC: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+/// Re-check the schedule now (e.g. the network is back after the sync was due).
+pub fn nudge_auto_sync() {
+    AUTO_SYNC.notify_one();
+}
+
+/// A due sync that could not finish is tried again after this long.
+const AUTO_SYNC_RETRY: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// Time until the scheduled sync is due (zero = now), or `None` when it cannot run:
+/// no account, no saved plan, or offline. Those wait for [`nudge_auto_sync`].
+fn auto_sync_wait(st: &AppState) -> Option<std::time::Duration> {
+    if !st.yt.is_authenticated() || !st.online.load(Ordering::SeqCst) {
+        return None;
+    }
+    mixtape_library::settings::get::<SyncPlan>(&st.db, PLAN_KEY).ok().flatten()?;
+    let last = st.db.read(mixtape_library::ytm::last_synced_at).ok().flatten();
+    let left = last.map_or(0, |t| t + AUTO_SYNC_AFTER_MS - mixtape_library::repo::now_ms()).max(0);
+    Some(std::time::Duration::from_millis(left as u64))
+}
+
+/// Re-runs the last chosen sync 12 hours after the previous one, so new likes and releases
+/// arrive without a click. Sleeps until it is due (one timer, re-armed after every sync);
+/// nothing wakes it in between except a finished sync or the network coming back.
 pub fn spawn_auto_sync(st: Arc<AppState>) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(180)).await;
         loop {
-            let due = st.yt.is_authenticated()
-                && st.online.load(Ordering::SeqCst)
-                && st
-                    .db
-                    .read(mixtape_library::ytm::last_synced_at)
-                    .ok()
-                    .flatten()
-                    .is_none_or(|t| mixtape_library::repo::now_ms() - t > AUTO_SYNC_AFTER_MS);
-            if due
-                && let Ok(Some(plan)) = mixtape_library::settings::get::<SyncPlan>(&st.db, PLAN_KEY)
-            {
-                tracing::info!("scheduled sync");
-                let _ = run_sync(st.clone(), plan, true);
+            match auto_sync_wait(&st) {
+                None => AUTO_SYNC.notified().await,
+                Some(wait) if !wait.is_zero() => {
+                    tokio::select! {
+                        _ = tokio::time::sleep(wait) => {}
+                        _ = AUTO_SYNC.notified() => {}
+                    }
+                }
+                Some(_) => {
+                    let Ok(Some(plan)) = mixtape_library::settings::get::<SyncPlan>(&st.db, PLAN_KEY) else { continue };
+                    tracing::info!("scheduled sync");
+                    if run_sync(st.clone(), plan, true).is_ok() || st.syncing.load(Ordering::SeqCst) {
+                        // Until this sync (or the one already running) finishes.
+                        AUTO_SYNC.notified().await;
+                    }
+                    // Still due: it failed or was cut short. Try again later, not in a loop.
+                    if auto_sync_wait(&st).is_some_and(|w| w.is_zero()) {
+                        tokio::select! {
+                            _ = tokio::time::sleep(AUTO_SYNC_RETRY) => {}
+                            _ = AUTO_SYNC.notified() => {}
+                        }
+                    }
+                }
             }
-            tokio::time::sleep(std::time::Duration::from_secs(1800)).await;
         }
     });
 }

@@ -193,10 +193,17 @@ pub async fn artist_get(state: State<'_, Arc<AppState>>, id: ArtistId) -> CmdRes
         let _ = st.db.write(move |t| mixtape_library::ytm::set_artist_image(t, &aid, &k, &p));
         page.artist.palette = palette;
     }
-    // No picture yet: fetch it in the background; the page reloads on `library:changed`.
-    if page.artist.image_key.is_none() && id.as_str().starts_with("UC") && st.yt.is_authenticated() {
+    // No picture yet: fetch it in the background (not again within a week if the artist
+    // has none); the page reloads on `library:changed`.
+    if page.artist.image_key.is_none()
+        && id.as_str().starts_with("UC")
+        && st.yt.is_authenticated()
+        && mixtape_sync::artists::image_due(&st.db, &id)
+    {
         tauri::async_runtime::spawn(async move {
-            if mixtape_sync::artists::fetch_image(&*st.yt, st.yt.http(), &st.db, &st.covers, &id).await {
+            let in_library = st.db.read(|c| mixtape_library::ytm::artist_in_library(c, &id)).unwrap_or(false);
+            let detail = if in_library { mixtape_artwork::Detail::Full } else { mixtape_artwork::Detail::Small };
+            if mixtape_sync::artists::fetch_image(&*st.yt, st.yt.http(), &st.db, &st.covers, &id, detail).await {
                 emit_changed(&st.app, &[ViewKind::Artists]);
             }
         });

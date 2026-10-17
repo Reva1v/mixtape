@@ -158,21 +158,53 @@ pub async fn track_set_liked(state: St<'_>, id: TrackId, liked: bool) -> CmdResu
 }
 
 static FLUSHING: AtomicBool = AtomicBool::new(false);
+/// A retry timer is armed (at most one).
+static RETRY_ARMED: AtomicBool = AtomicBool::new(false);
 
-/// Sends pending likes to YouTube Music in the background; one flush at a time.
+/// Sends pending likes to YouTube Music in the background; one flush at a time. Runs on
+/// a like, at start and when the network returns; while rows are left after a failure, a
+/// single retry timer backs off by their attempts (1 min doubling to 6 h). Nothing runs
+/// while the outbox is empty.
 pub fn flush_likes(st: &Arc<AppState>) {
     if !st.yt.is_authenticated() || FLUSHING.swap(true, Ordering::SeqCst) {
         return;
     }
     let st = st.clone();
     tauri::async_runtime::spawn(async move {
-        let report = mixtape_sync::likes::flush(&*st.yt, &st.db).await;
+        let mut report = mixtape_sync::likes::flush(&*st.yt, &st.db).await;
+        // Likes queued while that flush ran have not been tried yet.
+        for _ in 0..3 {
+            if report.auth_expired || st.db.read(likes::oldest_attempts).ok().flatten() != Some(0) {
+                break;
+            }
+            report = mixtape_sync::likes::flush(&*st.yt, &st.db).await;
+        }
         FLUSHING.store(false, Ordering::SeqCst);
         if report.auth_expired {
             let _ = st.app.emit("account:expired", ());
+        } else {
+            arm_like_retry(&st);
         }
         if report.sent + report.failed + report.dropped > 0 {
             tracing::info!(?report, "likes flushed");
+        }
+    });
+}
+
+/// Schedules the next flush while the outbox still has rows.
+fn arm_like_retry(st: &Arc<AppState>) {
+    let Ok(Some(attempts)) = st.db.read(likes::oldest_attempts) else { return };
+    if RETRY_ARMED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let delay = likes::retry_delay(attempts);
+    let st = st.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(delay).await;
+        RETRY_ARMED.store(false, Ordering::SeqCst);
+        // Offline: `net.rs` flushes when the network is back.
+        if st.online.load(Ordering::SeqCst) {
+            flush_likes(&st);
         }
     });
 }

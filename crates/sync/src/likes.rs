@@ -74,14 +74,21 @@ pub async fn flush<A: LikeApi>(api: &A, db: &Db) -> FlushReport {
         };
         let res = db.write(move |t| {
             if done {
-                likes::like_sent(t, id)
+                likes::like_sent(t, id).map(|()| false)
             } else {
                 likes::like_failed(t, id)
             }
         });
-        if let Err(e) = res {
-            tracing::warn!(error = %e, "like outbox not updated");
-            break;
+        match res {
+            Ok(true) => {
+                tracing::warn!(track = %row.track_id, attempts = likes::MAX_ATTEMPTS, "like given up after repeated failures");
+                report.dropped += 1;
+            }
+            Ok(false) => {}
+            Err(e) => {
+                tracing::warn!(error = %e, "like outbox not updated");
+                break;
+            }
         }
         if stop {
             break;
@@ -215,5 +222,20 @@ mod tests {
             pending(&db),
             vec![("b".into(), false, 0), ("c".into(), true, 0)]
         );
+    }
+
+    #[tokio::test]
+    async fn a_row_failing_too_often_is_dropped() {
+        let (_d, db) = setup(&[("a", true), ("b", true)]);
+        let max = likes::MAX_ATTEMPTS;
+        db.write(move |t| {
+            t.execute("UPDATE like_outbox SET attempts = ?1 WHERE track_id = 'a'", [max - 1])?;
+            Ok(())
+        })
+        .unwrap();
+        let api = FakeApi::failing(vec![("a", YtError::Parse("bad".into()))]);
+        let report = flush(&api, &db).await;
+        assert_eq!(report, FlushReport { sent: 1, failed: 1, dropped: 1, ..Default::default() });
+        assert!(pending(&db).is_empty());
     }
 }

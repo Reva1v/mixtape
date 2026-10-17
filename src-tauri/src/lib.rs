@@ -1,4 +1,5 @@
 mod account;
+mod background;
 mod commands;
 mod cover_protocol;
 mod downloads;
@@ -13,13 +14,29 @@ mod window;
 use std::sync::Arc;
 use tauri::Manager;
 
+/// A small runtime: the app mostly waits on the network and the disk, so a worker per
+/// logical core only adds idle threads.
+fn install_runtime() {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(3)
+        .max_blocking_threads(32)
+        .thread_name("mixtape-rt")
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    tauri::async_runtime::set(rt.handle().clone());
+    // Lives as long as the process.
+    std::mem::forget(rt);
+}
+
 pub fn run() {
+    let default_filter = if cfg!(debug_assertions) { "info,mixtape=debug" } else { "warn,mixtape=info" };
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,mixtape=debug".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| default_filter.into()),
         )
         .init();
+    install_runtime();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -37,28 +54,10 @@ pub fn run() {
             app.manage(state.clone());
             tracing::debug!("setup: state managed");
             account::restore(&state);
-            // Pictures for artists synced before they were fetched, or that failed last time.
-            if state.yt.is_authenticated() {
-                let st = state.clone();
-                tauri::async_runtime::spawn(async move {
-                    let n = mixtape_sync::artists::fetch_missing(st.yt.clone(), st.yt.http().clone(), st.db.clone(), st.covers.clone()).await;
-                    if n > 0 {
-                        commands::library::emit_changed(&st.app, &[mixtape_library::views::ViewKind::Artists]);
-                    }
-                });
-            }
             net::spawn(state.clone());
             commands::sync::spawn_auto_sync(state.clone());
-            // Likes made offline or before a failure go out now and then every few minutes.
-            {
-                let st = state.clone();
-                tauri::async_runtime::spawn(async move {
-                    loop {
-                        commands::mix::flush_likes(&st);
-                        tokio::time::sleep(std::time::Duration::from_secs(300)).await;
-                    }
-                });
-            }
+            // Pending likes, artist pictures, unused covers: once, after start.
+            background::spawn(state.clone());
             state.player.set_crossfade(commands::settings::Prefs::load(&state).crossfade_ms());
             tracing::debug!("setup: crossfade applied");
             // `setup` runs on the main (UI) thread, which the thumbnail toolbar needs.

@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use ts_rs::TS;
 
 const KEY: &str = "account";
-const AVATAR_KEY: &str = "account-avatar";
+pub const AVATAR_KEY: &str = "account-avatar";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -111,8 +111,8 @@ pub async fn connect(st: &AppState, text: &str) -> Result<AccountStatus, AppErro
 
     let mut avatar = None;
     if let Some(url) = &account.avatar
-        && let Ok(bytes) = mixtape_yt::thumbs::download(st.yt.http(), url).await
-        && st.covers.process(AVATAR_KEY, &bytes).is_ok()
+        && let Ok(bytes) = mixtape_yt::thumbs::download_small(st.yt.http(), url).await
+        && st.covers.process(AVATAR_KEY, &bytes, mixtape_artwork::Detail::Small).is_ok()
     {
         avatar = Some(AVATAR_KEY.to_owned());
     }

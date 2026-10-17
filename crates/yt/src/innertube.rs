@@ -5,7 +5,7 @@ use crate::auth::{Cookies, ORIGIN};
 use crate::parse::find_all;
 use crate::{Result, YtError};
 use serde_json::{Value, json};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const CLIENT_NAME: &str = "WEB_REMIX";
@@ -16,11 +16,25 @@ pub const USER_AGENT: &str =
 /// Upper bound on continuation pages for one list (100 rows each → 20k rows).
 pub const MAX_PAGES: usize = 200;
 
+/// What a request said about the network, for the app's online/offline status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reach {
+    /// YouTube answered (with any status).
+    Answered,
+    /// The connection could not be made: no network, DNS failure, refused.
+    Unreachable,
+    /// The request timed out: the network may be gone or just slow.
+    TimedOut,
+}
+
+type ReachHook = Box<dyn Fn(Reach) + Send + Sync>;
+
 pub struct InnerTube {
     http: reqwest::Client,
     cookies: RwLock<Option<Arc<Cookies>>>,
     hl: String,
     gl: String,
+    on_reach: OnceLock<ReachHook>,
 }
 
 impl InnerTube {
@@ -31,7 +45,18 @@ impl InnerTube {
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(30))
             .build()?;
-        Ok(Self { http, cookies: RwLock::new(None), hl: hl.to_owned(), gl: gl.to_owned() })
+        Ok(Self { http, cookies: RwLock::new(None), hl: hl.to_owned(), gl: gl.to_owned(), on_reach: OnceLock::new() })
+    }
+
+    /// Called after every InnerTube request with what it said about the network; set once.
+    pub fn set_reach_hook(&self, hook: impl Fn(Reach) + Send + Sync + 'static) {
+        let _ = self.on_reach.set(Box::new(hook));
+    }
+
+    fn report(&self, reach: Reach) {
+        if let Some(hook) = self.on_reach.get() {
+            hook(reach);
+        }
     }
 
     /// Shared HTTP client, also used for covers.
@@ -74,7 +99,20 @@ impl InnerTube {
                 req = req.header("Authorization", auth);
             }
         }
-        let resp = req.send().await?;
+        let resp = match req.send().await {
+            Ok(r) => {
+                self.report(Reach::Answered);
+                r
+            }
+            Err(e) => {
+                if e.is_connect() {
+                    self.report(Reach::Unreachable);
+                } else if e.is_timeout() {
+                    self.report(Reach::TimedOut);
+                }
+                return Err(e.into());
+            }
+        };
         let status = resp.status();
         match status.as_u16() {
             200..=299 => {}

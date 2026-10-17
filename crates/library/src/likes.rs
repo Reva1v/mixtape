@@ -7,7 +7,7 @@
 use crate::Result;
 use crate::repo::{now_ms, set_liked};
 use mixtape_core::TrackId;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingLike {
@@ -62,13 +62,37 @@ pub fn like_sent(conn: &Connection, outbox_id: i64) -> Result<()> {
     Ok(())
 }
 
-/// A send failed; the row stays for a later retry.
-pub fn like_failed(conn: &Connection, outbox_id: i64) -> Result<()> {
+/// Sends tried before a row is given up.
+pub const MAX_ATTEMPTS: u32 = 20;
+
+/// A send failed: the row stays for a later retry, or is dropped once it has failed
+/// [`MAX_ATTEMPTS`] times. Returns whether it was dropped. The local like stays as it is.
+pub fn like_failed(conn: &Connection, outbox_id: i64) -> Result<bool> {
     conn.execute(
         "UPDATE like_outbox SET attempts = attempts + 1 WHERE id = ?1",
         [outbox_id],
     )?;
-    Ok(())
+    let dropped = conn.execute(
+        "DELETE FROM like_outbox WHERE id = ?1 AND attempts >= ?2",
+        params![outbox_id, MAX_ATTEMPTS],
+    )?;
+    Ok(dropped > 0)
+}
+
+/// Failed attempts of the oldest queued row (the one a flush tries first), or `None`
+/// when nothing is queued.
+pub fn oldest_attempts(conn: &Connection) -> Result<Option<u32>> {
+    Ok(conn
+        .query_row("SELECT attempts FROM like_outbox ORDER BY id LIMIT 1", [], |r| r.get(0))
+        .optional()?)
+}
+
+/// Wait before retrying a row that failed `attempts` times: 1 minute, doubling, at most
+/// 6 hours.
+pub fn retry_delay(attempts: u32) -> std::time::Duration {
+    const MAX_SECS: u64 = 6 * 60 * 60;
+    let secs = 60u64.saturating_mul(1u64 << attempts.saturating_sub(1).min(16));
+    std::time::Duration::from_secs(secs.min(MAX_SECS))
 }
 
 #[cfg(test)]
@@ -126,5 +150,35 @@ mod tests {
             .unwrap();
         assert_eq!(pending[0].attempts, 2);
         assert!(db.read(|c| track(c, &a)).unwrap().unwrap().liked);
+    }
+
+    #[test]
+    fn retries_back_off_and_stop_after_the_cap() {
+        let (_dir, db) = db();
+        let (dropped_at, left) = db
+            .write(|t| {
+                upsert_track(t, &meta("a", "A", ("UC1", "X"), None))?;
+                assert_eq!(oldest_attempts(t)?, None);
+                queue_like(t, &TrackId::from("a"), true)?;
+                assert_eq!(oldest_attempts(t)?, Some(0));
+                let id = pending_likes(t, 1)?[0].id;
+                let mut dropped_at = None;
+                for n in 1..=MAX_ATTEMPTS {
+                    if like_failed(t, id)? {
+                        dropped_at = Some(n);
+                        break;
+                    }
+                }
+                Ok((dropped_at, pending_likes(t, 10)?))
+            })
+            .unwrap();
+        assert_eq!(dropped_at, Some(MAX_ATTEMPTS));
+        assert!(left.is_empty());
+        use std::time::Duration;
+        assert_eq!(retry_delay(0), Duration::from_secs(60));
+        assert_eq!(retry_delay(1), Duration::from_secs(60));
+        assert_eq!(retry_delay(3), Duration::from_secs(240));
+        assert_eq!(retry_delay(10), Duration::from_secs(6 * 3600));
+        assert_eq!(retry_delay(u32::MAX), Duration::from_secs(6 * 3600));
     }
 }

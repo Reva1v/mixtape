@@ -11,6 +11,8 @@ use crate::{Result, YtError};
 
 /// Size options for a 1200 px square cover.
 pub const HI_RES_OPTIONS: &str = "w1200-h1200-l90-rj";
+/// Size options for a 300 px square card thumbnail.
+pub const SMALL_OPTIONS: &str = "w300-h300-l90-rj";
 
 const YTIMG_FALLBACK: &str = "hqdefault";
 /// Names kept by [`hi_res`] because the API only returns them when they exist.
@@ -105,9 +107,29 @@ pub fn candidates(url: &str) -> Vec<String> {
     out
 }
 
-/// Downloads the largest available version of a cover.
+/// URLs to try for a card-sized (300 px) cover. Google images are asked for at that size;
+/// video frames have no small letterbox-free name, so they go the [`candidates`] way.
+pub fn small_candidates(url: &str) -> Vec<String> {
+    let url = absolute(url);
+    let mut out = match shape(&url) {
+        Shape::Google { base } => vec![format!("{base}={SMALL_OPTIONS}")],
+        Shape::Ytimg { .. } => return candidates(&url),
+        Shape::Other => Vec::new(),
+    };
+    if !out.contains(&url) {
+        out.push(url);
+    }
+    out
+}
+
+/// Downloads the largest available version of a cover (library items).
 pub async fn download(client: &reqwest::Client, url: &str) -> Result<Vec<u8>> {
     fetch_first(client, &candidates(url)).await
+}
+
+/// Downloads a 300 px version of a cover (cards of things only browsed).
+pub async fn download_small(client: &reqwest::Client, url: &str) -> Result<Vec<u8>> {
+    fetch_first(client, &small_candidates(url)).await
 }
 
 /// The body of the first URL that answers 2xx with content.
@@ -181,6 +203,14 @@ mod tests {
             assert_eq!(c[0], want);
             assert_eq!(c.last().unwrap(), &absolute(input));
         }
+        let small = small_candidates("https://lh3.googleusercontent.com/AbC=w120-h120-l90-rj");
+        assert_eq!(
+            small,
+            [
+                "https://lh3.googleusercontent.com/AbC=w300-h300-l90-rj",
+                "https://lh3.googleusercontent.com/AbC=w120-h120-l90-rj"
+            ]
+        );
         // Already hi-res: no duplicate candidate.
         let hi = "https://lh3.googleusercontent.com/AbC=w1200-h1200-l90-rj";
         assert_eq!(candidates(hi), [hi]);

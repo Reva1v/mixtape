@@ -1,8 +1,8 @@
 //! Source sync (T060): reads the chosen YouTube Music sources, writes their metadata to
 //! the library, fetches covers and queues downloads for tracks not yet in the library.
 
-use mixtape_artwork::CoverStore;
-use mixtape_core::{AlbumId, AlbumRef, AlbumType, Artist, PlaylistId, TrackId};
+use mixtape_artwork::{CoverStore, Detail};
+use mixtape_core::{AlbumId, AlbumRef, AlbumType, Artist, ArtistId, PlaylistId, TrackId};
 use mixtape_library::repo::{self, AlbumMeta, TrackMeta};
 use mixtape_library::{Db, jobs, ytm};
 use mixtape_yt::api::{YtAlbum, YtMusic, YtTrack};
@@ -43,6 +43,10 @@ pub enum SyncStage {
 }
 
 const COVER_PARALLEL: usize = 6;
+/// A subscribed artist's discography is read again after this long.
+const ARTIST_RESYNC_MS: i64 = 7 * 24 * 60 * 60 * 1000;
+/// `sync_sources.kind` of a whole scheduled or manual sync that reached YouTube.
+pub const PLAN_SOURCE: &str = "plan";
 
 /// One source's tracks, tagged for `download_jobs.source`.
 #[derive(Default)]
@@ -54,7 +58,11 @@ pub(crate) struct Collected {
     pub(crate) sources: HashMap<TrackId, String>,
     /// Albums saved in the user's YouTube Music library.
     saved_albums: HashSet<AlbumId>,
+    /// Artists whose page (discography) was read just now.
+    artists_read: Vec<(ArtistId, String)>,
     errors: Vec<(String, String)>,
+    /// A source failed for lack of network: the sync is not counted as done.
+    network_failed: bool,
 }
 
 /// Covers on disk after the fetch step, with palettes for the ones fetched just now.
@@ -81,22 +89,32 @@ pub async fn run<Y: YtMusic>(
     plan: &SyncPlan,
     stage: impl Fn(SyncStage),
 ) -> Result<SyncReport, YtError> {
-    let collected = collect(yt, plan, &stage).await?;
+    let collected = collect(yt, db, plan, &stage).await?;
+    let reached = !collected.network_failed;
     stage(SyncStage::Covers { done: 0, total: 0 });
-    let covers = fetch_covers(http, covers, &collected, &stage).await;
+    let covers = fetch_covers(http, covers, &collected, Detail::Full, &stage).await;
     stage(SyncStage::Saving);
-    save(db, collected, covers, true).map_err(|e| YtError::Parse(format!("библиотека: {e}")))
+    let report = save(db, collected, covers, true).map_err(|e| YtError::Parse(format!("библиотека: {e}")))?;
+    // The schedule counts from here; a sync cut short by the network is tried again sooner.
+    if reached {
+        let _ = db.write(|t| ytm::source_synced(t, PLAN_SOURCE, None));
+    }
+    Ok(report)
 }
 
-async fn collect<Y: YtMusic>(yt: &Y, plan: &SyncPlan, stage: &impl Fn(SyncStage)) -> Result<Collected, YtError> {
+/// Reads the plan's sources. Albums whose tracks are all held already are not read again,
+/// and a subscribed artist's discography is read at most once a week; liked tracks and
+/// playlists are read every time.
+async fn collect<Y: YtMusic>(yt: &Y, db: &Db, plan: &SyncPlan, stage: &impl Fn(SyncStage)) -> Result<Collected, YtError> {
     let mut c = Collected::default();
     // Auth failures abort the whole sync; anything else only skips that source.
-    fn soft<T>(r: Result<T, YtError>, what: &str, errors: &mut Vec<(String, String)>) -> Result<Option<T>, YtError> {
+    fn soft<T>(r: Result<T, YtError>, what: &str, c: &mut Collected) -> Result<Option<T>, YtError> {
         match r {
             Ok(v) => Ok(Some(v)),
             Err(YtError::Auth) => Err(YtError::Auth),
             Err(e) => {
-                errors.push((what.to_owned(), e.to_string()));
+                c.network_failed |= matches!(e, YtError::Network(_) | YtError::RateLimited);
+                c.errors.push((what.to_owned(), e.to_string()));
                 Ok(None)
             }
         }
@@ -110,14 +128,17 @@ async fn collect<Y: YtMusic>(yt: &Y, plan: &SyncPlan, stage: &impl Fn(SyncStage)
 
     if plan.liked {
         stage(SyncStage::Liked);
-        if let Some(liked) = soft(yt.liked_tracks().await, "liked", &mut c.errors)? {
+        if let Some(liked) = soft(yt.liked_tracks().await, "liked", &mut c)? {
             c.liked = Some(liked.iter().map(|t| t.id.clone()).collect());
             add(&mut c, liked, "liked");
         }
     }
     for id in &plan.playlist_ids {
+        if c.network_failed {
+            break;
+        }
         stage(SyncStage::Playlist(id.to_string()));
-        if let Some(p) = soft(yt.playlist(id).await, &format!("playlist:{id}"), &mut c.errors)? {
+        if let Some(p) = soft(yt.playlist(id).await, &format!("playlist:{id}"), &mut c)? {
             let ids = p.tracks.iter().map(|t| t.id.clone()).collect();
             c.playlists.push((p.card.id.clone(), p.card.title.clone(), p.card.thumbnail.clone(), ids));
             add(&mut c, p.tracks, &format!("playlist:{id}"));
@@ -125,28 +146,42 @@ async fn collect<Y: YtMusic>(yt: &Y, plan: &SyncPlan, stage: &impl Fn(SyncStage)
     }
     let mut album_ids: Vec<(AlbumId, &'static str)> = Vec::new();
     if plan.albums
-        && let Some(saved) = soft(yt.library_albums().await, "albums", &mut c.errors)?
+        && !c.network_failed
+        && let Some(saved) = soft(yt.library_albums().await, "albums", &mut c)?
     {
         c.saved_albums.extend(saved.iter().map(|a| a.id.clone()));
         album_ids.extend(saved.into_iter().map(|a| (a.id, "album")));
     }
     if plan.artists
-        && let Some(artists) = soft(yt.library_artists().await, "artists", &mut c.errors)?
+        && !c.network_failed
+        && let Some(artists) = soft(yt.library_artists().await, "artists", &mut c)?
     {
-        let total = artists.len();
-        for (i, a) in artists.iter().enumerate() {
+        let fresh_since = repo::now_ms() - ARTIST_RESYNC_MS;
+        let due: Vec<_> = artists
+            .into_iter()
+            .filter(|a| db.read(|conn| ytm::artist_synced_at(conn, &a.id)).ok().flatten().is_none_or(|t| t < fresh_since))
+            .collect();
+        let total = due.len();
+        for (i, a) in due.into_iter().enumerate() {
+            if c.network_failed {
+                break;
+            }
             stage(SyncStage::Artists { done: i, total });
-            if let Some(full) = soft(yt.artist(&a.id).await, &format!("artist:{}", a.id), &mut c.errors)? {
+            if let Some(full) = soft(yt.artist(&a.id).await, &format!("artist:{}", a.id), &mut c)? {
                 album_ids.extend(full.discography.into_iter().map(|d| (d.id, "artist")));
+                c.artists_read.push((a.id, a.name));
             }
         }
     }
     let mut seen = HashSet::new();
-    album_ids.retain(|(id, _)| seen.insert(id.clone()));
+    album_ids.retain(|(id, _)| seen.insert(id.clone()) && !db.read(|conn| ytm::album_synced(conn, id)).unwrap_or(false));
     let total = album_ids.len();
     for (i, (id, source)) in album_ids.into_iter().enumerate() {
+        if c.network_failed {
+            break;
+        }
         stage(SyncStage::Albums { done: i, total });
-        if let Some(album) = soft(yt.album(&id).await, &format!("album:{id}"), &mut c.errors)? {
+        if let Some(album) = soft(yt.album(&id).await, &format!("album:{id}"), &mut c)? {
             add(&mut c, album.tracks.clone(), source);
             c.albums.push(album);
         }
@@ -181,11 +216,20 @@ fn cover_key(t: &YtTrack) -> String {
     t.album.as_ref().map(|a| a.id.to_string()).unwrap_or_else(|| t.id.to_string())
 }
 
-/// Downloads missing covers. Covers already on disk are skipped and keep the palette
+/// Downloads covers missing at `detail` (a small cover of something now in the library
+/// is fetched again in full). Covers already on disk are skipped and keep the palette
 /// stored with their album.
-async fn fetch_covers(http: &reqwest::Client, covers: &CoverStore, c: &Collected, stage: &impl Fn(SyncStage)) -> Covers {
-    let (have, todo): (Vec<_>, Vec<_>) = cover_jobs(c).into_iter().partition(|(k, _)| covers.exists(k));
+async fn fetch_covers(
+    http: &reqwest::Client,
+    covers: &CoverStore,
+    c: &Collected,
+    detail: Detail,
+    stage: &impl Fn(SyncStage),
+) -> Covers {
+    let (have, todo): (Vec<_>, Vec<_>) = cover_jobs(c).into_iter().partition(|(k, _)| covers.has(k, detail));
     let mut available: HashSet<String> = have.into_iter().map(|(k, _)| k).collect();
+    // A small cover stays usable if its upgrade fails.
+    available.extend(todo.iter().filter(|(k, _)| covers.exists(k)).map(|(k, _)| k.clone()));
     let total = todo.len();
     let sem = Arc::new(tokio::sync::Semaphore::new(COVER_PARALLEL));
     let mut set = tokio::task::JoinSet::new();
@@ -193,9 +237,14 @@ async fn fetch_covers(http: &reqwest::Client, covers: &CoverStore, c: &Collected
         let (http, covers, sem) = (http.clone(), covers.clone(), sem.clone());
         set.spawn(async move {
             let _permit = sem.acquire().await.ok()?;
-            let bytes = thumbs::download(&http, &url).await.ok()?;
+            let bytes = match detail {
+                Detail::Full => thumbs::download(&http, &url).await,
+                Detail::Small => thumbs::download_small(&http, &url).await,
+            };
+            let bytes = bytes.ok()?;
             let processed =
-                tokio::task::spawn_blocking(move || covers.process(&key, &bytes).map(|p| (key, p.palette))).await;
+                tokio::task::spawn_blocking(move || covers.process(&key, &bytes, detail).map(|p| (key, p.palette)))
+                    .await;
             processed.ok()?.ok()
         });
     }
@@ -290,6 +339,9 @@ fn save(db: &Db, c: Collected, covers: Covers, enqueue: bool) -> mixtape_library
         for (what, err) in &c.errors {
             ytm::source_synced(t, what, Some(err))?;
         }
+        for (id, name) in &c.artists_read {
+            ytm::set_artist_synced(t, id, name)?;
+        }
         ytm::link_artists_by_name(t)?;
         Ok(queued)
     })?;
@@ -307,7 +359,8 @@ pub fn save_library_artists(db: &Db, artists: Vec<Artist>) -> mixtape_library::R
     })
 }
 
-/// Fetches covers for what was collected and writes it; `enqueue` queues downloads.
+/// Fetches covers for what was collected and writes it; `enqueue` queues downloads (and
+/// so keeps full-size covers, the rest is only browsed and gets small ones).
 pub(crate) async fn store(
     http: &reqwest::Client,
     db: &Db,
@@ -315,11 +368,12 @@ pub(crate) async fn store(
     c: Collected,
     enqueue: bool,
 ) -> mixtape_library::Result<SyncReport> {
-    let covers = fetch_covers(http, covers, &c, &|_| {}).await;
+    let detail = if enqueue { Detail::Full } else { Detail::Small };
+    let covers = fetch_covers(http, covers, &c, detail, &|_| {}).await;
     save(db, c, covers, enqueue)
 }
 
-/// Stores catalog tracks (a mix page, search results) with their covers, without queueing
+/// Stores catalog tracks (a mix page, search results) with small covers, without queueing
 /// downloads; they stay `remote` until played or saved. Returns their ids in order.
 pub async fn store_tracks(
     http: &reqwest::Client,
@@ -329,7 +383,7 @@ pub async fn store_tracks(
 ) -> mixtape_library::Result<Vec<TrackId>> {
     let ids = tracks.iter().map(|t| t.id.clone()).collect();
     let c = Collected { tracks, ..Default::default() };
-    let covers = fetch_covers(http, covers, &c, &|_| {}).await;
+    let covers = fetch_covers(http, covers, &c, Detail::Small, &|_| {}).await;
     save(db, c, covers, false)?;
     Ok(ids)
 }
@@ -416,7 +470,7 @@ pub async fn import_link<Y: YtMusic>(
             return Ok(ImportResult { kind: "artist".into(), title: name, track_count: n as u32 });
         }
     };
-    let covers = fetch_covers(http, covers, &c, &|_| {}).await;
+    let covers = fetch_covers(http, covers, &c, Detail::Full, &|_| {}).await;
     save(db, c, covers, true).map_err(|e| YtError::Parse(format!("библиотека: {e}")))?;
     Ok(result)
 }

@@ -153,7 +153,9 @@ pub struct ViewCache {
     views: Mutex<VecDeque<(u64, ViewIds)>>,
 }
 
-const KEEP: usize = 8;
+/// The Library screen holds one view at a time and a dialog briefly a second, so three
+/// is enough; each view may hold tens of thousands of ids.
+const KEEP: usize = 3;
 
 impl Default for ViewCache {
     fn default() -> Self {

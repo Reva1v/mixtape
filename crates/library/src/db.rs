@@ -9,6 +9,7 @@ use std::time::Duration;
 const MIGRATIONS_SLICE: &[M<'static>] = &[
     M::up(include_str!("../migrations/001_init.sql")),
     M::up(include_str!("../migrations/002_artist_palette.sql")),
+    M::up(include_str!("../migrations/003_artist_image_checked.sql")),
 ];
 
 fn migrations() -> Migrations<'static> {
@@ -19,6 +20,9 @@ fn migrations() -> Migrations<'static> {
 pub fn open_writer(path: &Path) -> Result<Connection> {
     let mut conn = Connection::open(path)?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
+    // After a checkpoint the WAL file shrinks back to 1 MB instead of staying at its
+    // high-water mark (a sync can grow it to several MB).
+    conn.pragma_update(None, "journal_size_limit", 1_048_576)?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.pragma_update(None, "temp_store", "MEMORY")?;
@@ -53,6 +57,23 @@ mod tests {
     #[test]
     fn migrations_are_valid() {
         migrations().validate().unwrap();
+    }
+
+    #[test]
+    fn v2_database_gains_image_checked_at() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        {
+            let mut conn = Connection::open(&path).unwrap();
+            Migrations::from_slice(&MIGRATIONS_SLICE[..2]).to_latest(&mut conn).unwrap();
+            conn.execute("INSERT INTO artists(id, name) VALUES ('UCa', 'A')", []).unwrap();
+        }
+        let conn = open_writer(&path).unwrap();
+        let checked: Option<i64> =
+            conn.query_row("SELECT image_checked_at FROM artists WHERE id = 'UCa'", [], |r| r.get(0)).unwrap();
+        assert_eq!(checked, None);
+        let limit: i64 = conn.query_row("PRAGMA journal_size_limit", [], |r| r.get(0)).unwrap();
+        assert_eq!(limit, 1_048_576);
     }
 
     #[test]

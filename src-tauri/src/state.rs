@@ -11,7 +11,7 @@ use mixtape_yt::innertube::InnerTube;
 use mixtape_yt::resolver::StreamResolver;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 use tauri::AppHandle;
 use tauri::ipc::Channel;
@@ -36,8 +36,11 @@ pub struct AppState {
     pub syncing: AtomicBool,
     /// Last network probe succeeded (see `net.rs`).
     pub online: AtomicBool,
-    pub lrclib: Lrclib,
+    lrclib: OnceLock<Lrclib>,
 }
+
+/// Settings flag: the one-time fold of local imports into their YouTube twins is done.
+const LOCAL_TWINS_KEY: &str = "local_twins_merged";
 
 /// yt-dlp and deno sit next to the executable (Tauri `externalBin`); in a debug build
 /// they may still be only in `src-tauri/binaries`.
@@ -59,13 +62,17 @@ impl AppState {
         let covers = CoverStore::new(&paths.covers);
         let report = mixtape_library::integrity::check(&db, &paths.root)?;
         tracing::debug!(ms = started.elapsed().as_millis() as u64, "integrity checked");
-        let merged = db.write(|t| {
-            let merged = mixtape_library::ytm::merge_local_twins(t)?;
-            mixtape_library::ytm::link_artists_by_name(t)?;
-            Ok(merged)
-        })?;
-        if merged > 0 {
-            tracing::info!(merged, "local imports folded into their YouTube Music twins");
+        // Once per database: later imports and syncs link their own credits.
+        if !mixtape_library::settings::get_or(&db, LOCAL_TWINS_KEY, false)? {
+            let merged = db.write(|t| {
+                let merged = mixtape_library::ytm::merge_local_twins(t)?;
+                mixtape_library::ytm::link_artists_by_name(t)?;
+                Ok(merged)
+            })?;
+            mixtape_library::settings::set(&db, LOCAL_TWINS_KEY, &true)?;
+            if merged > 0 {
+                tracing::info!(merged, "local imports folded into their YouTube Music twins");
+            }
         }
         tracing::info!(root = %paths.root.display(), ?report, "data directory ready");
         let yt = Arc::new(InnerTube::new("ru", "RU")?);
@@ -113,7 +120,17 @@ impl AppState {
             downloads_channel: Mutex::new(None),
             syncing: AtomicBool::new(false),
             online: AtomicBool::new(true),
-            lrclib: Lrclib::new()?,
+            lrclib: OnceLock::new(),
         })
+    }
+
+    /// The lrclib client, built on first use (most sessions never open lyrics).
+    pub fn lrclib(&self) -> Result<&Lrclib, mixtape_core::AppError> {
+        if let Some(l) = self.lrclib.get() {
+            return Ok(l);
+        }
+        let l = Lrclib::new()
+            .map_err(|e| mixtape_core::AppError::new(mixtape_core::ErrorKind::Internal, e.to_string()))?;
+        Ok(self.lrclib.get_or_init(|| l))
     }
 }

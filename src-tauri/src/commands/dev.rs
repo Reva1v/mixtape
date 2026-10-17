@@ -76,7 +76,7 @@ pub fn import_dir(st: &AppState, path: &str) -> CmdResult<u32> {
             let artists = vec![ArtistRef { id: None, name: artist.unwrap_or_else(|| "Неизвестный исполнитель".into()) }];
             // Each file becomes a single with its own cover, which is what YouTube Music
             // gives for loose tracks too.
-            let processed = sibling_cover(&file).and_then(|b| st.covers.process(id.as_str(), &b).ok());
+            let processed = sibling_cover(&file).and_then(|b| st.covers.process(id.as_str(), &b, mixtape_artwork::Detail::Full).ok());
             let cover_key = processed.as_ref().map(|_| id.0.clone());
             let album = AlbumMeta {
                 id: AlbumId(format!("localalb{}", short_hash(&full))),
@@ -113,6 +113,8 @@ pub fn import_dir(st: &AppState, path: &str) -> CmdResult<u32> {
             })?;
             imported += 1;
         }
+        // Imported credits have names only; give them artist ids (no longer done at start).
+        st.db.write(|t| mixtape_library::ytm::link_artists_by_name(t).map(drop))?;
         Ok(imported)
     }
 }

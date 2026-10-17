@@ -19,5 +19,5 @@ pub async fn lyrics_get(
         .db
         .read(|c| repo::track(c, &track_id))?
         .ok_or_else(|| AppError::new(ErrorKind::NotFound, "Трек не найден"))?;
-    Ok(lyrics::get(&st.lrclib, &st.db, &track).await?)
+    Ok(lyrics::get(st.lrclib()?, &st.db, &track).await?)
 }

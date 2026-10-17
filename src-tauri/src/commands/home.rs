@@ -260,6 +260,7 @@ fn card_thumb(item: &HomeItem) -> Option<(String, String)> {
     Some((key, url?.clone()))
 }
 
+/// Card thumbnails are only browsed, so they are fetched and kept small.
 async fn download_thumbs(st: &AppState, jobs: Vec<(String, String)>) {
     let sem = Arc::new(tokio::sync::Semaphore::new(COVER_PARALLEL));
     let mut set = tokio::task::JoinSet::new();
@@ -267,8 +268,8 @@ async fn download_thumbs(st: &AppState, jobs: Vec<(String, String)>) {
         let (http, covers, sem) = (st.yt.http().clone(), st.covers.clone(), sem.clone());
         set.spawn(async move {
             let _permit = sem.acquire().await.ok()?;
-            let bytes = mixtape_yt::thumbs::download(&http, &url).await.ok()?;
-            tokio::task::spawn_blocking(move || covers.process(&key, &bytes).ok())
+            let bytes = mixtape_yt::thumbs::download_small(&http, &url).await.ok()?;
+            tokio::task::spawn_blocking(move || covers.process(&key, &bytes, mixtape_artwork::Detail::Small).ok())
                 .await
                 .ok()
                 .flatten()

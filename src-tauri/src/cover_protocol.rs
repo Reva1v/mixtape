@@ -1,5 +1,7 @@
 //! `cover://` protocol: `http://cover.localhost/{key}/{size}` serves a pre-cut JPEG
-//! thumbnail. Responses are immutable, so the webview caches them for good.
+//! thumbnail. Responses are immutable, so the webview caches them for good — except a
+//! smaller stand-in for a size not stored (a browsed item's cover asked for at 1024), which
+//! is revalidated so the full size shows once the item is in the library.
 
 use crate::state::AppState;
 use mixtape_artwork::CoverStore;
@@ -13,7 +15,8 @@ pub fn handle<R: Runtime>(
 ) {
     let store = ctx.app_handle().state::<std::sync::Arc<AppState>>().covers.clone();
     let path = request.uri().path().to_owned();
-    std::thread::spawn(move || responder.respond(serve(&store, &path)));
+    // A pooled blocking thread instead of a new OS thread per image.
+    tauri::async_runtime::spawn_blocking(move || responder.respond(serve(&store, &path)));
 }
 
 fn serve(store: &CoverStore, path: &str) -> Response<Vec<u8>> {
@@ -24,13 +27,16 @@ fn serve(store: &CoverStore, path: &str) -> Response<Vec<u8>> {
     let Ok(size) = size.parse::<u32>() else {
         return status(StatusCode::BAD_REQUEST);
     };
-    let Ok(file) = store.path(key, size) else {
+    if !CoverStore::valid_key(key) {
         return status(StatusCode::BAD_REQUEST);
+    }
+    let Some((file, stand_in)) = store.best_path(key, size) else {
+        return status(StatusCode::NOT_FOUND);
     };
     match std::fs::read(&file) {
         Ok(bytes) => Response::builder()
             .header(header::CONTENT_TYPE, "image/jpeg")
-            .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
+            .header(header::CACHE_CONTROL, if stand_in { "no-cache" } else { "public, max-age=31536000, immutable" })
             .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
             .body(bytes)
             .expect("static response parts are valid"),
