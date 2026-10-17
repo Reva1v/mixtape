@@ -62,19 +62,27 @@ impl AppState {
             tracing::info!(merged, "local imports folded into their YouTube Music twins");
         }
         tracing::info!(root = %paths.root.display(), ?report, "data directory ready");
+        let yt = Arc::new(InnerTube::new("ru", "RU")?);
+        let tmp = paths.root.join("tmp");
+        std::fs::create_dir_all(&tmp)?;
+        let resolver = Arc::new(StreamResolver::new(sidecar("yt-dlp"), sidecar("deno"), tmp));
+        let streams = crate::streaming::AppStreams::new(
+            app.clone(),
+            tauri::async_runtime::handle().inner().clone(),
+            db.clone(),
+            paths.root.clone(),
+            resolver.clone(),
+            yt.http().clone(),
+        );
         let handle = app.clone();
         tracing::debug!("starting player");
         let player = Player::start(
             db.clone(),
             paths.root.clone(),
             Arc::new(move |ev| crate::events::on_player_event(&handle, ev)),
-            None,
+            Some(streams),
         )?;
         tracing::debug!("player started");
-        let yt = Arc::new(InnerTube::new("ru", "RU")?);
-        let tmp = paths.root.join("tmp");
-        std::fs::create_dir_all(&tmp)?;
-        let resolver = Arc::new(StreamResolver::new(sidecar("yt-dlp"), sidecar("deno"), tmp));
         let downloads = Downloader::start(
             tauri::async_runtime::handle().inner(),
             db.clone(),

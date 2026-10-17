@@ -11,5 +11,7 @@ pub mod sources;
 pub mod stream;
 pub mod url_import;
 
+pub use reqwest;
+
 #[cfg(test)]
 mod test_http;

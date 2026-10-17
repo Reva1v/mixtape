@@ -6,6 +6,7 @@ mod events;
 mod login_window;
 mod media;
 mod state;
+mod streaming;
 mod window;
 
 use std::sync::Arc;

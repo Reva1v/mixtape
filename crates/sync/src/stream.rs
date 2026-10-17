@@ -12,11 +12,11 @@ use std::time::Duration;
 
 use mixtape_audio::SparseCacheFile;
 use reqwest::StatusCode;
-use reqwest::header::{CONTENT_RANGE, RANGE};
+use reqwest::header::CONTENT_RANGE;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-use crate::fetch::{Cancel, FetchError, with_range};
+use crate::fetch::{Cancel, FetchError, ranged};
 
 /// Size of one ranged request (1 MiB): small enough to retarget quickly after a seek.
 pub const PIECE: u64 = 1024 * 1024;
@@ -151,11 +151,7 @@ impl Job {
     /// different hole (it sought away).
     async fn fetch_piece(&self, url: &str, gap: Range<u64>) -> Result<(), FetchError> {
         let (start, end) = (gap.start, gap.end.min(gap.start + self.piece) - 1);
-        let req = self
-            .client
-            .get(with_range(url, start, end))
-            .header(RANGE, format!("bytes={start}-{end}"))
-            .send();
+        let req = ranged(&self.client, url, start, end).send();
         let mut resp = tokio::select! {
             r = req => r?,
             _ = self.cancel.cancelled() => return Err(FetchError::Cancelled),

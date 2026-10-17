@@ -190,10 +190,7 @@ async fn download(
             None => start + chunk - 1,
         };
         let want = end - start + 1;
-        let req = client
-            .get(with_range(url, start, end))
-            .header(RANGE, format!("bytes={start}-{end}"))
-            .send();
+        let req = ranged(client, url, start, end).send();
         let mut resp = tokio::select! {
             r = req => r?,
             _ = cancel.cancelled() => return Err(FetchError::Cancelled),
@@ -255,10 +252,51 @@ async fn download(
     }
 }
 
+/// A request for bytes `start..=end`. googlevideo gets only its `range` parameter: with a
+/// `Range` header as well it applies the header to the already cut piece and answers 416
+/// for any piece not starting at 0. Other servers get the standard header.
+pub(crate) fn ranged(client: &reqwest::Client, url: &str, start: u64, end: u64) -> reqwest::RequestBuilder {
+    let googlevideo = url::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.ends_with(".googlevideo.com")))
+        .unwrap_or(false);
+    if googlevideo {
+        client.get(with_range(url, start, end))
+    } else {
+        client.get(url).header(RANGE, format!("bytes={start}-{end}"))
+    }
+}
+
 /// Appends the googlevideo `range` parameter.
 pub(crate) fn with_range(url: &str, start: u64, end: u64) -> String {
     let sep = if url.contains('?') { '&' } else { '?' };
     format!("{url}{sep}range={start}-{end}")
+}
+
+/// The exact size of the file behind `url`: its `clen` parameter, else the total of a
+/// one-byte ranged request. `Err(Expired)` on HTTP 403.
+pub async fn exact_len(client: &reqwest::Client, url: &str) -> Result<u64, FetchError> {
+    if let Some(n) = clen_param(url) {
+        return Ok(n);
+    }
+    // A `Range` header alone: googlevideo answers it with the total in `Content-Range`.
+    let resp = client
+        .get(url)
+        .header(RANGE, "bytes=0-0")
+        .send()
+        .await
+        .map_err(|e| FetchError::Network(e.to_string()))?;
+    match resp.status() {
+        StatusCode::FORBIDDEN => return Err(FetchError::Expired),
+        s if !s.is_success() => return Err(FetchError::Http(s.as_u16())),
+        _ => {}
+    }
+    resp.headers()
+        .get(CONTENT_RANGE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(content_range_total)
+        .or(resp.content_length().filter(|&n| n > 1))
+        .ok_or(FetchError::Http(resp.status().as_u16()))
 }
 
 /// The `clen` (content length) parameter of a googlevideo URL.
@@ -443,6 +481,17 @@ mod tests {
             .expect("cancel was not prompt");
         assert!(matches!(res, Err(FetchError::Cancelled)));
         assert_eq!(std::fs::metadata(&part).unwrap().len(), 10_000);
+    }
+
+    #[test]
+    fn googlevideo_gets_only_the_range_parameter() {
+        let c = reqwest::Client::new();
+        let g = ranged(&c, "https://rr1---sn-x.googlevideo.com/videoplayback?a=1", 100, 199).build().unwrap();
+        assert!(g.url().as_str().ends_with("&range=100-199"));
+        assert!(g.headers().get(RANGE).is_none(), "both together answer 416 past 0");
+        let o = ranged(&c, "http://127.0.0.1:9/f", 100, 199).build().unwrap();
+        assert_eq!(o.headers().get(RANGE).unwrap(), "bytes=100-199");
+        assert!(o.url().query().is_none());
     }
 
     #[test]
