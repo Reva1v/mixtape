@@ -1,20 +1,30 @@
 <script lang="ts">
-  import type { Component } from "svelte";
+  import { untrack, type Component } from "svelte";
+  import type { TransitionConfig } from "svelte/transition";
   import { invoke, on } from "$lib/ipc";
   import type { HomePage } from "$lib/ipc/bindings/HomePage";
+  import type { HomeShelf } from "$lib/ipc/bindings/HomeShelf";
+  import type { ShelfItem } from "$lib/ipc/bindings/ShelfItem";
   import type { Album } from "$lib/ipc/bindings/Album";
   import type { Track } from "$lib/ipc/bindings/Track";
   import { Fixed } from "$lib/stores/paged.svelte";
   import { player } from "$lib/stores/player.svelte";
   import { router } from "$lib/stores/router.svelte";
+  import { downloads } from "$lib/stores/downloads.svelte";
+  import { net } from "$lib/stores/net.svelte";
+  import { prefs } from "$lib/stores/prefs.svelte";
+  import { layout } from "$lib/stores/layout.svelte";
   import { openAlbum } from "$lib/stores/actions";
-  import { menu, prompt, toasts } from "$lib/stores/overlay.svelte";
+  import { menu, prompt, toasts, type MenuItem } from "$lib/stores/overlay.svelte";
   import { t, tracks } from "$lib/i18n/ru";
-  import { dragScroll } from "$lib/motion";
+  import { dragScroll, enter } from "$lib/motion";
   import Card from "$lib/ui/Card.svelte";
   import ArtistLinks from "$lib/ui/ArtistLinks.svelte";
   import { albumMenu } from "$lib/ui/collectionMenu";
+  import { trackMenu } from "$lib/ui/trackMenu";
   import Cover from "$lib/ui/Cover.svelte";
+  import Equalizer from "$lib/ui/Equalizer.svelte";
+  import Skeleton from "$lib/ui/Skeleton.svelte";
   import TrackList from "$lib/ui/TrackList.svelte";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import IconHeart from "~icons/solar/heart-bold";
@@ -26,6 +36,10 @@
   import IconSunset from "~icons/solar/sun-fog-bold";
   import IconMoon from "~icons/solar/moon-bold";
   import IconLibrary from "~icons/solar/music-library-2-bold";
+  import IconMix from "~icons/solar/radio-minimalistic-linear";
+  import IconPlaylist from "~icons/solar/playlist-linear";
+  import IconAlbum from "~icons/solar/vinyl-linear";
+  import IconArtist from "~icons/solar/microphone-3-linear";
 
   let page = $state.raw<HomePage | null>(null);
   const top = new Fixed<Track>([]);
@@ -48,6 +62,33 @@
     return () => clearTimeout(id);
   });
 
+  // YouTube Music shelves: fetched after the local part, cached by the core for 30 min.
+  // `null` while the first answer is on its way (skeletons), `[]` when there is nothing.
+  let shelves = $state.raw<HomeShelf[] | null>(null);
+  const ytm = $derived(downloads.account.connected && net.online);
+  let seq = 0;
+
+  async function loadShelves(force = false) {
+    const n = ++seq;
+    const res = await invoke<HomeShelf[]>("home_shelves", { force }).catch(() => [] as HomeShelf[]);
+    if (n === seq) shelves = res;
+  }
+
+  $effect(() => {
+    if (!ytm) {
+      seq++;
+      shelves = [];
+      return;
+    }
+    untrack(() => {
+      if (!shelves?.length) shelves = null;
+    });
+    void loadShelves();
+    // Track rows are re-read from the library on each call: likes and states stay current.
+    const un = on("library:changed", () => void loadShelves());
+    return () => void un.then((f) => f());
+  });
+
   const hour = new Date().getHours();
   const greeting: { text: string; icon: Component } =
     hour < 5 ? { text: "Доброй ночи", icon: IconMoon }
@@ -64,6 +105,98 @@
     if (!path) return;
     const n = await invoke<number>("dev_import_folder", { path });
     toasts.push(`Импортировано треков: ${n}`);
+  }
+
+  // --- YouTube Music shelf items ---
+
+  function itemKey(i: ShelfItem): string {
+    switch (i.kind) {
+      case "track":
+        return `t:${i.track.id}`;
+      case "mix":
+        return `m:${i.playlistId}`;
+      default:
+        return `${i.kind}:${i.id}`;
+    }
+  }
+
+  const shelfTracks = (s: HomeShelf) => s.items.flatMap((i) => (i.kind === "track" ? [i.track] : []));
+
+  /** A track tile plays the shelf's tracks from that one; the playing one pauses/resumes. */
+  function playFrom(s: HomeShelf, track: Track) {
+    if (player.currentId === track.id) return void player.toggle();
+    const ids = shelfTracks(s).map((x) => x.id);
+    void player.play({ kind: "tracks", trackIds: ids }, Math.max(0, ids.indexOf(track.id)));
+  }
+
+  async function startMix(playlistId: string) {
+    toasts.push("Собираю микс…");
+    try {
+      await invoke("mix_start_playlist", { playlistId });
+      if (prefs.value.mixFullscreen) layout.fullscreen = true;
+    } catch (e) {
+      toasts.push(e instanceof Error && e.message ? e.message : "Не удалось включить микс", "error");
+    }
+  }
+
+  function openPlaylist(id: string) {
+    // «Понравившиеся» on YouTube Music is the library's liked list here.
+    if (id === "VLLM") router.go({ name: "library", tab: "liked" });
+    else router.go({ name: "playlist", id });
+  }
+
+  /** Opens the item's page (or plays it: tracks and mixes have no page). */
+  function activate(s: HomeShelf, i: ShelfItem) {
+    switch (i.kind) {
+      case "track":
+        return playFrom(s, i.track);
+      case "album":
+        return router.go({ name: "album", id: i.id });
+      case "artist":
+        return router.go({ name: "artist", id: i.id });
+      case "playlist":
+        return openPlaylist(i.id);
+      case "mix":
+        return void startMix(i.playlistId);
+    }
+  }
+
+  function itemMenu(i: ShelfItem): MenuItem[] {
+    switch (i.kind) {
+      case "track":
+        return trackMenu(i.track);
+      case "album": {
+        const artist = i.artists.find((a) => a.id);
+        return [
+          { label: t.track.openAlbum, icon: IconAlbum, action: () => router.go({ name: "album", id: i.id }) },
+          {
+            label: t.track.openArtist,
+            icon: IconArtist,
+            disabled: !artist,
+            action: () => artist?.id && router.go({ name: "artist", id: artist.id }),
+          },
+        ];
+      }
+      case "artist":
+        return [{ label: t.track.openArtist, icon: IconArtist, action: () => router.go({ name: "artist", id: i.id }) }];
+      case "playlist":
+        return [{ label: "Открыть плейлист", icon: IconPlaylist, action: () => openPlaylist(i.id) }];
+      case "mix":
+        return [{ label: t.track.mix, icon: IconMix, action: () => void startMix(i.playlistId) }];
+    }
+  }
+
+  const coverOf = (i: ShelfItem) => (i.kind === "track" ? i.track.coverKey : i.coverKey);
+  const titleOf = (i: ShelfItem) => (i.kind === "artist" ? i.name : i.kind === "track" ? i.track.title : i.title);
+  const artistsOf = (i: ShelfItem) => (i.kind === "track" ? i.track.artists : i.kind === "album" ? i.artists : undefined);
+  const subtitleOf = (i: ShelfItem) =>
+    i.kind === "playlist" || i.kind === "mix" ? (i.subtitle ?? undefined) : i.kind === "artist" ? "Исполнитель" : undefined;
+
+  /** Long song lists (quick picks) read better as compact rows, four to a column. */
+  const asRows = (s: HomeShelf) => shelfTracks(s).length >= 12;
+
+  function shelfIn(node: Element, i: number): TransitionConfig {
+    return { ...enter(node, { y: 12 }), delay: Math.min(i, 5) * 70 };
   }
 </script>
 
@@ -91,7 +224,62 @@
   </div>
 {/snippet}
 
-<div class="pt-9 pb-12">
+{#snippet shelfCards(s: HomeShelf)}
+  <div class="no-scrollbar -mt-2 flex snap-x gap-7 overflow-x-auto scroll-px-8 px-8 pt-2 pb-2" {@attach dragScroll()}>
+    {#each s.items as i (itemKey(i))}
+      <div class="w-44 shrink-0 snap-start">
+        <Card
+          coverKey={coverOf(i)}
+          title={titleOf(i)}
+          subtitle={subtitleOf(i)}
+          artists={artistsOf(i)}
+          meta={i.kind === "album" ? (i.year ?? undefined) : undefined}
+          round={i.kind === "artist"}
+          onopen={() => activate(s, i)}
+          onplay={i.kind === "track" || i.kind === "mix" ? () => activate(s, i) : undefined}
+          current={i.kind === "track" && player.currentId === i.track.id}
+          menu={() => itemMenu(i)}
+        />
+      </div>
+    {/each}
+  </div>
+{/snippet}
+
+{#snippet shelfRows(s: HomeShelf)}
+  <div
+    class="no-scrollbar grid snap-x auto-cols-[minmax(260px,320px)] grid-flow-col grid-rows-4 gap-x-4 gap-y-1 overflow-x-auto scroll-px-8 px-8 pb-2"
+    {@attach dragScroll()}
+  >
+    {#each s.items as i (itemKey(i))}
+      {@const current = i.kind === "track" && player.currentId === i.track.id}
+      <!-- A div, not a button: the artist names inside are buttons of their own. -->
+      <div
+        role="button"
+        tabindex="0"
+        class="group flex h-14 min-w-0 cursor-pointer snap-start items-center gap-3 rounded-md px-2 text-left transition-colors duration-100 hover:bg-fill-2
+          {current ? 'bg-fill-1' : ''}"
+        onclick={(e) => !(e.target as HTMLElement).closest("button") && activate(s, i)}
+        onkeydown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), activate(s, i))}
+        oncontextmenu={(e) => (e.preventDefault(), menu.show(itemMenu(i), e.clientX, e.clientY))}
+      >
+        <div class="relative">
+          <Cover coverKey={coverOf(i)} size={44} rounded={i.kind === "artist" ? "full" : "sm"} />
+          {#if current}
+            <div class="absolute inset-0 grid place-items-center rounded-sm bg-black/50"><Equalizer playing={player.playing} /></div>
+          {/if}
+        </div>
+        <div class="min-w-0">
+          <div class="truncate text-[14px] font-medium">{titleOf(i)}</div>
+          <div class="truncate text-[12.5px] text-ink-3">
+            {#if artistsOf(i)?.length}<ArtistLinks artists={artistsOf(i)!} />{:else}{subtitleOf(i) ?? ""}{/if}
+          </div>
+        </div>
+      </div>
+    {/each}
+  </div>
+{/snippet}
+
+<div class="pt-9 pb-12 [&>section:last-child]:mb-0">
   <header class="mb-5 flex items-center gap-3.5 px-8">
     <div class="grid size-9 place-items-center rounded-full bg-white/[0.08]"><greeting.icon class="size-5" /></div>
     <h1 class="text-[26px] font-bold tracking-tight">{greeting.text}</h1>
@@ -148,10 +336,39 @@
       </section>
     {/if}
     {#if page.added.length}
-      <section>
+      <section class="mb-10">
         {@render section("Недавно добавлено", IconClock)}
         {@render carousel(page.added)}
       </section>
     {/if}
+  {/if}
+
+  <!-- YouTube Music shelves go below the local part, so nothing on screen moves when they
+       arrive; they wait for the local part to avoid being pushed down by it. -->
+  {#if page}
+    {#if shelves === null && ytm}
+      {#each [0, 1] as n (n)}
+        <section class="mb-10" aria-hidden="true">
+          <Skeleton class="mx-8 mb-5 h-5 w-52" />
+          <div class="flex gap-7 overflow-hidden px-8">
+            {#each [0, 1, 2, 3, 4, 5, 6, 7] as k (k)}
+              <div class="w-44 shrink-0"><Card /></div>
+            {/each}
+          </div>
+        </section>
+      {/each}
+    {/if}
+    {#each shelves ?? [] as s, n (`${n}:${s.title}`)}
+      <section class="mb-10" in:shelfIn={n}>
+        {#if s.title}
+          <h2 class="mb-4 truncate px-8 text-[20px] font-bold tracking-tight">{s.title}</h2>
+        {/if}
+        {#if asRows(s)}
+          {@render shelfRows(s)}
+        {:else}
+          {@render shelfCards(s)}
+        {/if}
+      </section>
+    {/each}
   {/if}
 </div>

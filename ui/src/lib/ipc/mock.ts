@@ -1,10 +1,56 @@
 // Dev-only fake core for looking at screens in a plain browser: open the Vite page with
-// `?mock` (never bundled into the app, see main.ts). Only the sync/downloads and spectrum
+// `?mock` (never bundled into the app, see main.ts). Only the sync/downloads, spectrum and home
 // commands answer, with made-up data; everything else fails the way a missing core does.
 
 import { mockIPC } from "@tauri-apps/api/mocks";
 import type { Channel } from "@tauri-apps/api/core";
 import type { AccountStatus, DownloadsProgress, FailedJob, SyncPreview } from "./sync";
+import type { HomePage } from "./bindings/HomePage";
+import type { HomeShelf } from "./bindings/HomeShelf";
+import type { Track } from "./bindings/Track";
+
+const mockTrack = (n: number): Track => ({
+  id: `trk${String(n).padStart(8, "0")}`,
+  title: `Тестовый трек ${n}`,
+  artists: [{ id: `UCart${n % 4}`, name: `Исполнитель ${"АБВГ"[n % 4]}` }],
+  durationMs: 180_000 + n * 1000,
+  state: n % 3 ? "remote" : "downloaded",
+  liked: n % 5 === 0,
+});
+
+const homePage: HomePage = {
+  likedCount: 412,
+  recent: [1, 2, 3, 4, 5, 6].map((n) => ({
+    id: `MPREalb${n}`,
+    title: `Альбом ${n}`,
+    artists: [{ id: `UCart${n % 4}`, name: `Исполнитель ${"АБВГ"[n % 4]}` }],
+    albumType: "album",
+    palette: [],
+  })),
+  added: [],
+  top: [1, 2, 3].map(mockTrack),
+};
+
+const range = (from: number, n: number) => Array.from({ length: n }, (_, i) => from + i);
+const homeShelves: HomeShelf[] = [
+  { title: "Быстрый выбор", items: range(10, 16).map((n) => ({ kind: "track", track: mockTrack(n) })) },
+  {
+    title: "Миксы для вас",
+    items: range(1, 6).map((n) => ({ kind: "mix", playlistId: `RDTMAKmix${n}`, title: `Микс ${n}`, subtitle: "Исполнитель А, Исполнитель Б и не только" })),
+  },
+  { title: "Послушать ещё раз", items: range(40, 8).map((n) => ({ kind: "track", track: mockTrack(n) })) },
+  {
+    title: "Альбомы для вас",
+    items: range(1, 8).map((n) => ({ kind: "album", id: `MPREyt${n}`, title: `Альбом YouTube ${n}`, artists: [{ id: "UCart1", name: "Исполнитель Б" }], year: 2010 + n })),
+  },
+  {
+    title: "Исполнители и плейлисты",
+    items: [
+      ...range(1, 3).map((n) => ({ kind: "artist" as const, id: `UCyt${n}`, name: `Исполнитель ${n}` })),
+      ...range(1, 4).map((n) => ({ kind: "playlist" as const, id: `VLPLyt${n}`, title: `Плейлист ${n}`, subtitle: "YouTube Music" })),
+    ],
+  },
+];
 
 let account: AccountStatus = { connected: new URLSearchParams(location.search).get("mock") !== "off" };
 const named = (): AccountStatus => ({ connected: true, name: "Тестовый пользователь", lastSyncAt: Date.now() - 3_600_000 });
@@ -113,6 +159,12 @@ mockIPC(
       case "spectrum_unsubscribe":
         spectrum = null;
         return null;
+      case "home_get":
+        return homePage;
+      case "home_shelves":
+        return new Promise((r) => setTimeout(() => r(account.connected ? homeShelves : []), 1500));
+      case "net_status":
+        return true;
     }
     throw { kind: "internal", message: `mock: нет команды ${cmd}` };
   },

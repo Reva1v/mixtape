@@ -53,6 +53,11 @@ pub fn chip_body(seed: &TrackId, chip: &RadioChip) -> Value {
     body
 }
 
+/// `next` body for the first page of a ready-made mix (a home page card, `RD…`).
+pub fn playlist_body(playlist_id: &str) -> Value {
+    json!({ "playlistId": playlist_id, "isAudioOnly": true })
+}
+
 /// `next` body for the page after `continuation`.
 pub fn more_body(playlist_id: &str, continuation: &str) -> Value {
     json!({ "playlistId": playlist_id, "continuation": continuation, "isAudioOnly": true })
@@ -191,6 +196,17 @@ impl InnerTube {
                 .clone()
                 .or_else(|| Some(format!("RDAMVM{seed}")));
         }
+        Ok(page)
+    }
+
+    /// A ready-made mix (`RD…`, from a home page card): `next` {playlistId}. The first track
+    /// is where the mix starts; continuations work as for a track's mix.
+    pub async fn radio_playlist(&self, playlist_id: &str) -> Result<RadioPage> {
+        let resp = self.call("next", playlist_body(playlist_id)).await?;
+        let mut page =
+            parse_page(&resp).ok_or_else(|| YtError::Unavailable("микс недоступен".into()))?;
+        page.playlist_id
+            .get_or_insert_with(|| playlist_id.to_owned());
         Ok(page)
     }
 
@@ -383,6 +399,9 @@ mod tests {
             (b["playlistId"].as_str(), b["continuation"].as_str()),
             (Some("RDAMVMx"), Some("CTOKEN"))
         );
+        let b = playlist_body("RDTMAK5uy_x");
+        assert_eq!(b["playlistId"], "RDTMAK5uy_x");
+        assert!(b.get("videoId").is_none() && b.get("continuation").is_none());
     }
 
     #[test]

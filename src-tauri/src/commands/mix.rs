@@ -28,7 +28,7 @@ fn need_account(st: &AppState) -> CmdResult<()> {
     }
 }
 
-fn yt_error(st: &AppState, e: YtError) -> AppError {
+pub(super) fn yt_error(st: &AppState, e: YtError) -> AppError {
     if matches!(e, YtError::Auth) {
         let _ = st.app.emit("account:expired", ());
     }
@@ -36,7 +36,7 @@ fn yt_error(st: &AppState, e: YtError) -> AppError {
 }
 
 /// Stores the page's tracks (they stay `remote`) and turns it into the player's shape.
-async fn page_of(st: &AppState, radio: RadioPage) -> CmdResult<MixPage> {
+pub(super) async fn page_of(st: &AppState, radio: RadioPage) -> CmdResult<MixPage> {
     let tracks = sources::store_tracks(st.yt.http(), &st.db, &st.covers, radio.tracks).await?;
     Ok(MixPage {
         tracks,

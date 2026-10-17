@@ -1,6 +1,7 @@
 pub mod catalog;
 pub mod library;
 pub mod dev;
+pub mod home;
 pub mod mix;
 pub mod lyrics;
 pub mod player;

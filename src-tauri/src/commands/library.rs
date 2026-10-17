@@ -271,30 +271,3 @@ pub async fn playlist_edit(
     emit_changed(&app, &[ViewKind::Playlists]);
     Ok(res)
 }
-
-#[derive(Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub struct HomePage {
-    pub liked_count: u32,
-    pub recent: Vec<Album>,
-    pub added: Vec<Album>,
-    pub top: Vec<Track>,
-}
-
-/// Home screen from local data (FR-024, local part). YouTube Music shelves come later.
-#[tauri::command]
-pub async fn home_get(state: State<'_, Arc<AppState>>) -> CmdResult<HomePage> {
-    let st = state.inner().clone();
-    blocking(move || {
-        Ok(st.db.read(|c| {
-            Ok(HomePage {
-                liked_count: repo::liked_count(c)?,
-                recent: repo::albums_by_ids(c, &repo::recently_played_album_ids(c, 12)?)?,
-                added: repo::albums_by_ids(c, &repo::recently_added_album_ids(c, 12)?)?,
-                top: repo::tracks_by_ids(c, &repo::most_played_track_ids(c, 10)?)?,
-            })
-        })?)
-    })
-    .await
-}

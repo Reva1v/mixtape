@@ -30,7 +30,13 @@ interface PlaylistCard { id: PlaylistId; title: string; origin: "ytm"|"local"; t
 | `playlist_get` / `playlist_create` / `playlist_rename` / `playlist_delete` / `playlist_move_item` / `playlist_add` / `playlist_remove` | … | … |
 | `track_set_liked` | `{ id, liked }` | `void` (лайк → загрузка + outbox в YTM) |
 | `track_download` / `track_remove` | `{ id }` | `void` |
-| `home_get` | — | `{ continue: TrackRow[], frequent, recentlyAdded, ytm?: Shelf[] }` |
+| `home_get` | — | `{ likedCount, recent: Album[], added: Album[], top: Track[] }` (только БД, мгновенно) |
+| `home_shelves` | `{ force? }` | `HomeShelf[]` — шелфы YTM `{ title, items: ShelfItem[] }`, кэш в памяти 30 мин; `[]` без сети/аккаунта |
+| `mix_start_playlist` | `{ playlistId }` | `void` — карточка микса (`RD…`) с главной заменяет очередь |
+
+`ShelfItem` = `{kind:"track", track: Track}` (сохранён как `remote`) \| `{kind:"album", id, title, artists, year?, coverKey?}`
+\| `{kind:"playlist", id, title, subtitle?, coverKey?}` \| `{kind:"artist", id, name, coverKey?}`
+\| `{kind:"mix", playlistId, title, subtitle?, coverKey?}`; обложки карточек лежат в CoverStore под ключом = id.
 
 ## Каталог YouTube Music
 
