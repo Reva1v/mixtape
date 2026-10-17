@@ -96,6 +96,7 @@ pub fn run() {
                     api.prevent_close();
                 } else if let Some(st) = window.app_handle().try_state::<Arc<state::AppState>>() {
                     st.player.save_snapshot(true);
+                    st.player.finish_listens();
                 }
             }
         })
@@ -143,6 +144,7 @@ pub fn run() {
             commands::player::queue_clear,
             commands::player::queue_jump,
             commands::lyrics::lyrics_get,
+            commands::stats::stats_get,
             commands::dev::dev_import_folder,
             commands::settings::prefs_get,
             commands::settings::prefs_set,

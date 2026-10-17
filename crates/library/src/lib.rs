@@ -14,6 +14,7 @@ pub mod playlists;
 pub mod repo;
 pub mod search;
 pub mod settings;
+pub mod stats;
 pub mod views;
 pub mod ytm;
 

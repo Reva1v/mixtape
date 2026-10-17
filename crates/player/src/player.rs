@@ -2,13 +2,14 @@
 //! UI shows, keeps the next track lined up for gapless playback and remembers where the
 //! user stopped.
 
+use crate::listen::{Listen, Listens};
 use crate::mix::{MixPage, MixSession, MoreRequest};
 use crate::prefetch::{self, StreamProvider};
 use crate::queue::{Queue, QueueContext, Repeat};
 use crate::state::{PlaybackState, QueueEntry, QueueView, Status};
 use mixtape_audio::{Engine, EngineEvent, Source};
 use mixtape_core::{AppError, AppResult, ErrorKind, Track, TrackId, tr, trf};
-use mixtape_library::{Db, repo, settings};
+use mixtape_library::{Db, repo, settings, stats};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
@@ -22,6 +23,8 @@ pub enum PlayerEvent {
     QueueChanged,
     /// A play finished: `full` when it counts as a complete listen.
     Played { track_id: TrackId, full: bool, full_plays: u32 },
+    /// A play was added to the listening log (`play_events`).
+    Listened(Listen),
     Error(String),
 }
 
@@ -119,6 +122,8 @@ struct Inner {
     deferred: Option<(TrackId, u64)>,
     /// The remote successor whose stream is being opened.
     next_request: Option<TrackId>,
+    /// Listening time of the plays in progress, for the statistics log.
+    listens: Listens,
 }
 
 impl Inner {
@@ -206,6 +211,7 @@ impl Player {
                 load_seq: 0,
                 deferred: None,
                 next_request: None,
+                listens: Listens::default(),
             }),
             engine,
             db,
@@ -596,6 +602,9 @@ impl Player {
         if ms > inner.live_position() + 5_000 {
             inner.seeked_forward = true;
         }
+        if let Some(id) = inner.state.track_id.clone() {
+            inner.listens.seek(id.as_str(), ms);
+        }
         inner.set_position(ms);
         inner.position_dirty = true;
         self.emit_state(&mut inner);
@@ -772,7 +781,7 @@ impl Player {
         match ev {
             EngineEvent::Started { id, duration_ms } => {
                 let id = TrackId(id);
-                let advanced = {
+                let (advanced, closed) = {
                     let mut inner = self.lock();
                     inner.skips = 0;
                     // `load` clears `pending_next`, so a match here can only be the
@@ -791,8 +800,11 @@ impl Player {
                     }
                     inner.set_status(Status::Playing);
                     self.emit_state(&mut inner);
-                    gapless
+                    let at = inner.state.position_ms;
+                    let closed = inner.listens.start(id.clone(), at, now_ms() as i64);
+                    (gapless, closed)
                 };
+                self.log_listens(closed);
                 if advanced {
                     if let Ok(Some(t)) = self.db.read(|c| repo::track(c, &id)) {
                         self.announce(t);
@@ -804,6 +816,7 @@ impl Player {
             }
             EngineEvent::Position { id, ms } => {
                 let mut inner = self.lock();
+                inner.listens.position(&id, ms);
                 if inner.state.track_id.as_ref().map(|t| t.as_str()) == Some(id.as_str()) {
                     inner.set_position(ms);
                     // The UI extrapolates while playing; this only corrects drift.
@@ -827,8 +840,9 @@ impl Player {
             EngineEvent::NeedNext { .. } => self.refresh_next(),
             EngineEvent::Ended { id, played_ms, completed } => {
                 let id = TrackId(id);
-                let (full, last, stalled) = {
-                    let inner = self.lock();
+                let (full, last, stalled, listened) = {
+                    let mut inner = self.lock();
+                    let listened = inner.listens.end(id.as_str(), Some(played_ms));
                     let dur = inner.state.duration_ms.max(1);
                     let full = !inner.seeked_forward && (completed || played_ms * 10 >= dur * 9);
                     let ahead = inner.queue.peek_next(true).is_some();
@@ -836,9 +850,10 @@ impl Player {
                     let last = completed && inner.pending_next.is_none() && !ahead;
                     // The successor was still resolving when this track ran out.
                     let stalled = completed && current && inner.pending_next.is_none() && ahead;
-                    (full, last, stalled)
+                    (full, last, stalled, listened)
                 };
                 self.count_play(&id, full);
+                self.log_listens(listened.into_iter().collect());
                 if stalled {
                     self.lock().queue.advance(true);
                     (self.sink)(PlayerEvent::QueueChanged);
@@ -855,6 +870,8 @@ impl Player {
             }
             EngineEvent::Error { id, message } => {
                 tracing::warn!(%id, %message, "playback error");
+                let listened = self.lock().listens.end(&id, None);
+                self.log_listens(listened.into_iter().collect());
                 (self.sink)(PlayerEvent::Error(trf!(
                     "Playback error: {message}",
                     "Помилка відтворення: {message}",
@@ -893,6 +910,23 @@ impl Player {
         if let Ok(full_plays) = self.db.write(move |t| repo::record_play(t, &id2, full)) {
             (self.sink)(PlayerEvent::Played { track_id: id.clone(), full, full_plays });
         }
+    }
+
+    /// Adds finished plays to the listening log.
+    fn log_listens(&self, done: Vec<Listen>) {
+        for l in done {
+            let row = l.clone();
+            match self.db.write(move |t| stats::record(t, &row.track_id, row.started_at, row.listened_ms)) {
+                Ok(()) => (self.sink)(PlayerEvent::Listened(l)),
+                Err(e) => tracing::warn!(error = %e, "logging a play failed"),
+            }
+        }
+    }
+
+    /// Logs the plays in progress; called when the app quits.
+    pub fn finish_listens(&self) {
+        let done = self.lock().listens.finish();
+        self.log_listens(done);
     }
 
     /// Persists what changed: the queue snapshot when the queue or mix did, the position and

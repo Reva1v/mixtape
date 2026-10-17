@@ -158,6 +158,7 @@ pub fn merge_local_twins(conn: &Connection) -> Result<usize> {
             params![local, yt],
         )?;
         conn.execute("UPDATE playlist_items SET track_id = ?2 WHERE track_id = ?1", params![local, yt])?;
+        conn.execute("UPDATE play_events SET track_id = ?2 WHERE track_id = ?1", params![local, yt])?;
         if let Some(s) = &mut snapshot {
             *s = s.replace(&format!("\"{local}\""), &format!("\"{yt}\""));
         }
@@ -352,6 +353,7 @@ mod tests {
                 repo::upsert_track(t, &test_util::meta("yyyyyyyyyyy", "Song", ("UCx", "X"), None))?;
                 repo::set_state(t, &TrackId::new("yyyyyyyyyyy"), mixtape_core::TrackState::Downloaded)?;
                 repo::record_play(t, &TrackId::new("localabc"), true)?;
+                crate::stats::record(t, &TrackId::new("localabc"), 1_000, 60_000)?;
                 repo::set_liked(t, &TrackId::new("localabc"), true)?;
                 t.execute("INSERT INTO settings(key, value) VALUES ('queue_snapshot', '{\"ids\":[\"localabc\"]}')", [])?;
                 merge_local_twins(t)
@@ -371,6 +373,8 @@ mod tests {
         assert!(gone && liked);
         assert_eq!(plays, 1);
         assert!(snap.contains("yyyyyyyyyyy"));
+        let events = db.read(|c| crate::stats::listening(c, i64::MIN, 0)).unwrap();
+        assert_eq!(events.top_tracks[0].track.id.as_str(), "yyyyyyyyyyy", "the play log follows the merge");
     }
 
     #[test]

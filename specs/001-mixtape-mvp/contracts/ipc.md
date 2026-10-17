@@ -38,6 +38,12 @@ interface PlaylistCard { id: PlaylistId; title: string; origin: "ytm"|"local"; t
 \| `{kind:"playlist", id, title, subtitle?, coverKey?}` \| `{kind:"artist", id, name, coverKey?}`
 \| `{kind:"mix", playlistId, title, subtitle?, coverKey?}`; обложки карточек лежат в CoverStore под ключом = id.
 
+## Статистика
+
+| команда | вход | выход |
+|---|---|---|
+| `stats_get` | `{ period: "week"\|"month"\|"year"\|"all", tzOffsetMin }` (`-getTimezoneOffset()`) | `ListeningStats`: `listenedMs, plays, tracks, artists`, `topTracks/topArtists/topAlbums` (по 10, с `plays` и `listenedMs`), `byHour[24]`, `byWeekday[7]` (с понедельника), `topDay?` |
+
 ## Каталог YouTube Music
 
 | команда | вход | выход |
@@ -89,6 +95,7 @@ interface DownloadsProgress { running: boolean; paused: boolean; done: number; t
 | `library:changed` | `{ kinds: ("tracks"\|"albums"\|"artists"\|"playlists")[] }` — UI инвалидирует view |
 | `track:changed` | `{ track: TrackRow, palette?: string[] }` |
 | `queue:changed` | `{}` — UI перезапрашивает `queue_get` |
+| `stats:changed` | `{}` — в журнал прослушиваний добавлена запись; экран статистики перечитывает сводку (с задержкой) |
 | `account:expired` | `{}` — показать переподключение |
 | `net:status` | `{ online: boolean }` |
 | `toast` | `{ level: "info"\|"error", text }` |

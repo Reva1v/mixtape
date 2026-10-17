@@ -116,6 +116,7 @@ pub fn close_to_tray(app: &AppHandle) -> bool {
 pub fn quit(app: &AppHandle) {
     if let Some(st) = app.try_state::<std::sync::Arc<AppState>>() {
         st.player.save_snapshot(true);
+        st.player.finish_listens();
     }
     app.exit(0);
 }

@@ -90,6 +90,10 @@ pub fn on_player_event(app: &AppHandle, ev: PlayerEvent) {
                 crate::commands::mix::autosave(st.inner(), &track_id, full_plays);
             }
         }
+        // The statistics screen re-reads its recap (debounced on its side).
+        PlayerEvent::Listened(_) => {
+            let _ = app.emit("stats:changed", ());
+        }
         PlayerEvent::Error(msg) => toast_error(app, msg),
     }
 }

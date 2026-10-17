@@ -6,6 +6,7 @@ pub mod mix;
 pub mod lyrics;
 pub mod player;
 pub mod settings;
+pub mod stats;
 pub mod sync;
 
 use mixtape_core::{AppError, ErrorKind, trf};
