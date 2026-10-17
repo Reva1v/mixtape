@@ -28,7 +28,15 @@ export function on<T>(event: string, handler: (payload: T) => void): Promise<Unl
   return listen<T>(event, (e) => handler(e.payload));
 }
 
+let coverSource: ((key: string, size: number) => string) | null = null;
+
+/** Dev mock only (lib/ipc/mock.ts): covers drawn in the page instead of served by the core. */
+export function setCoverSource(source: (key: string, size: number) => string) {
+  coverSource = source;
+}
+
 /** URL of a cover thumbnail. Sizes are cut ahead of time: 64, 300 and 1024 px. */
 export function coverUrl(key: string | null | undefined, size: 64 | 300 | 1024): string | undefined {
-  return key ? `http://cover.localhost/${key}/${size}` : undefined;
+  if (!key) return undefined;
+  return coverSource ? coverSource(key, size) : `http://cover.localhost/${key}/${size}`;
 }
