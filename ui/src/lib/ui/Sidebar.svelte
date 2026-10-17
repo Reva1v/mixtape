@@ -21,6 +21,7 @@
       route: { name: "library", tab: "tracks" },
       match: ["library", "album", "artist", "playlist"],
     },
+    { label: t.stats.title, icon: icons.stats, route: { name: "stats" }, match: ["stats"] },
     { label: t.nav.downloads, icon: icons.downloads, route: { name: "downloads" }, match: ["downloads"] },
   ]);
   // Download progress for the badge on the «Загрузки» icon.

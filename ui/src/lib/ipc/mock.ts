@@ -4,7 +4,7 @@
 // library. Commands it doesn't know fail the way a missing core does.
 //
 // URL switches: `lang=en|uk|ru` (interface language), `mock=off` (no account),
-// `scene=home|album|library|fullscreen|queue|mini` (open that screen with a track playing).
+// `scene=home|album|library|stats|fullscreen|queue|mini` (open that screen with a track playing).
 
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
@@ -14,6 +14,7 @@ import type { Album } from "./bindings/Album";
 import type { HomePage } from "./bindings/HomePage";
 import type { HomeShelf } from "./bindings/HomeShelf";
 import type { Lang } from "./bindings/Lang";
+import type { ListeningStats } from "./bindings/ListeningStats";
 import type { Lyrics } from "./bindings/Lyrics";
 import type { PlaybackState } from "./bindings/PlaybackState";
 import type { QueueView } from "./bindings/QueueView";
@@ -375,6 +376,39 @@ setInterval(() => {
   channel?.onmessage({ ...progress, failed: failed.length });
 }, 250);
 
+// ---- Listening statistics ----
+
+/** A made-up recap; longer periods scale the numbers up. `?stats=empty` shows the empty state. */
+function demoStats(period: string): ListeningStats {
+  const empty: ListeningStats = { listenedMs: 0, plays: 0, tracks: 0, artists: 0, topTracks: [], topArtists: [], topAlbums: [], byHour: Array(24).fill(0), byWeekday: Array(7).fill(0) };
+  if (params.get("stats") === "empty") return empty;
+  const scale = { week: 1, month: 4.3, year: 38, all: 52 }[period] ?? 1;
+  const n = (x: number) => Math.round(x * scale);
+  const MIN = 60_000;
+  // An evening listener: a morning commute bump, a quiet afternoon, most after dinner.
+  const hourShape = [3, 1, 0, 0, 0, 0, 1, 6, 9, 5, 3, 4, 5, 3, 2, 3, 5, 7, 9, 12, 14, 13, 10, 6];
+  const dayShape = [8, 7, 9, 8, 12, 15, 11];
+  const topTracks = [0, 4, 2, 7, 1, 8, 3, 5, 9, 6].map((al, i) => {
+    const t = track(al, (al * 3 + i) % (albums[al].albumType === "single" ? 1 : 10));
+    const plays = n(14 - i) + 1;
+    return { track: t, plays, listenedMs: plays * t.durationMs * 0.92 };
+  });
+  const plays = n(212);
+  const listenedMs = n(212 * 3.4 * MIN);
+  return {
+    listenedMs,
+    plays,
+    tracks: n(118),
+    artists: Math.min(ARTISTS.length * 4, n(31)),
+    topTracks,
+    topArtists: [0, 4, 2, 7, 1, 8, 3, 5].map((a, i) => ({ id: artist(a).id, name: ARTISTS[a], imageKey: `demo-artist-${a}`, plays: n(40 - i * 4), listenedMs: n((40 - i * 4) * 3.5 * MIN) })),
+    topAlbums: [0, 4, 2, 7, 1, 8, 3].map((al, i) => ({ album: albums[al], plays: n(34 - i * 4), listenedMs: n((34 - i * 4) * 3.5 * MIN) })),
+    byHour: hourShape.map((x) => (x * listenedMs) / 141),
+    byWeekday: dayShape.map((x) => (x * listenedMs) / 70),
+    topDay: { dayMs: new Date(2026, 9, 10).getTime(), plays: 31, listenedMs: 196 * MIN },
+  };
+}
+
 // ---- Library views ----
 
 const views = new Map<number, unknown[]>();
@@ -482,6 +516,8 @@ mockIPC(
         const kind = rows === albums ? "albums" : (rows[0] as { imageKey?: string })?.imageKey ? "artists" : "tracks";
         return { kind, items: rows.slice(a.offset as number, (a.offset as number) + (a.limit as number)) };
       }
+      case "stats_get":
+        return demoStats(a.period as string);
       case "storage_get":
         return { cacheBytes: 1_830_000_000, cacheLimit: 5 * 1024 ** 3, autosavePlays: 3, dataDir: "C:\\Users\\demo\\AppData\\Local\\Mixtape" };
     }
@@ -497,6 +533,9 @@ switch (scene) {
     break;
   case "library":
     router.current = { name: "library", tab: "albums" };
+    break;
+  case "stats":
+    router.current = { name: "stats" };
     break;
   case "queue":
     layout.drawer = "queue";

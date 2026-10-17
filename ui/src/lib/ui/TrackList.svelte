@@ -16,9 +16,11 @@
     showAlbum?: boolean;
     /** Use track numbers (album page). */
     numbered?: boolean;
+    /** A note shown instead of the album, e.g. the play count. */
+    note?: (index: number) => string | undefined;
   }
 
-  let { rows, onplay, showCover = true, showAlbum = true, numbered = false }: Props = $props();
+  let { rows, onplay, showCover = true, showAlbum = true, numbered = false, note }: Props = $props();
 
   /** Below this many rows the DOM cost is negligible and plain rendering never flickers. */
   const VIRTUAL_FROM = 150;
@@ -54,6 +56,7 @@
     number={numbered ? (track?.trackNo ?? null) : null}
     {showCover}
     {showAlbum}
+    note={note?.(i)}
     onplay={() => onplay(i)}
   />
 {/snippet}

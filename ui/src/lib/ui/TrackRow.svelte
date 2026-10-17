@@ -22,10 +22,12 @@
     number?: number | null;
     showCover?: boolean;
     showAlbum?: boolean;
+    /** Shown instead of the album, e.g. the play count. */
+    note?: string;
     onplay: () => void;
   }
 
-  let { track, index, number, showCover = true, showAlbum = true, onplay }: Props = $props();
+  let { track, index, number, showCover = true, showAlbum = true, note, onplay }: Props = $props();
 
   const current = $derived(!!track && player.currentId === track.id);
 
@@ -84,7 +86,9 @@
     </div>
 
     <div class="album min-w-0 truncate text-[13px] text-ink-3">
-      {#if showAlbum && track.album}
+      {#if note}
+        <span class="tnum">{note}</span>
+      {:else if showAlbum && track.album}
         <button type="button" class="truncate hover:text-ink hover:underline" onclick={() => router.go({ name: "album", id: track.album!.id })}>
           {track.album.title}
         </button>

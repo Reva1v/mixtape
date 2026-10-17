@@ -32,6 +32,7 @@
   import Search from "./screens/Search.svelte";
   import Settings from "./screens/Settings.svelte";
   import Downloads from "./screens/Downloads.svelte";
+  import Stats from "./screens/Stats.svelte";
   import FullscreenPlayer from "./screens/FullscreenPlayer.svelte";
   import IconSoon from "~icons/solar/widget-bold";
   import IconBack from "~icons/solar/alt-arrow-left-linear";
@@ -176,6 +177,8 @@
             {#key route.id}<Playlist id={route.id} />{/key}
           {:else if route.name === "search"}
             <Search query={route.query} />
+          {:else if route.name === "stats"}
+            <Stats />
           {:else if route.name === "downloads"}
             <Downloads />
           {:else if route.name === "settings"}
