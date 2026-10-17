@@ -5,5 +5,6 @@ pub mod artists;
 pub mod disk;
 pub mod downloader;
 pub mod fetch;
+pub mod likes;
 pub mod sources;
 pub mod url_import;
