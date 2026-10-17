@@ -56,11 +56,12 @@
   onmouseup={(e) => (e.button === 3 ? router.back() : e.button === 4 && router.forward())}
 />
 
-<div class="flex h-screen" data-tauri-drag-region>
+<!-- Every block is its own rounded panel on a black window, separated by --gap. -->
+<div class="flex h-screen gap-(--gap) p-(--gap)" data-tauri-drag-region>
   <Sidebar />
 
-  <div class="flex min-w-0 flex-1 flex-col" data-tauri-drag-region>
-    <div class="flex min-h-0 flex-1 gap-(--gap) pt-(--gap) pr-(--gap)" data-tauri-drag-region>
+  <div class="flex min-w-0 flex-1 flex-col gap-(--gap)" data-tauri-drag-region>
+    <div class="flex min-h-0 flex-1 gap-(--gap)" data-tauri-drag-region>
       <div class="relative min-w-0 flex-1 overflow-hidden rounded-xl bg-panel">
         <!-- Artwork glow, fixed behind the scrolling content. -->
         <div

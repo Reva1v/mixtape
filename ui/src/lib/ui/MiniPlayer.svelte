@@ -64,7 +64,7 @@
   </button>
 {/snippet}
 
-<footer class="relative flex h-(--player-h) shrink-0 items-center pr-(--gap)">
+<footer class="relative flex h-(--player-h) shrink-0 items-center rounded-xl bg-panel pr-2.5 pl-1.5">
   <!-- Now playing -->
   {#if track}
     <div

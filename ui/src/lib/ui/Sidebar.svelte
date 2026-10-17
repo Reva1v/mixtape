@@ -40,7 +40,7 @@
   </button>
 {/snippet}
 
-<nav class="flex w-(--sidebar-w) shrink-0 flex-col items-center pt-3.5 pb-4" data-tauri-drag-region>
+<nav class="flex w-(--sidebar-w) shrink-0 flex-col items-center rounded-xl bg-panel pt-3.5 pb-4" data-tauri-drag-region>
   <div class="mb-5 size-10 [&>svg]:size-full" aria-hidden="true">{@html Logo}</div>
   <div class="flex flex-col items-center gap-3.5">
     {#each items as item (item.label)}
