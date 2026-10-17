@@ -59,7 +59,7 @@
 **Очередь и плеер**
 
 - [x] T029 [US1] Модель `Queue` (data-model.md): «следующим», «в конец блока User», remove, move, clear, repeat Off/All/One, shuffle только будущих с `original_order` + unit-тесты в `crates/player/src/queue.rs`
-- [x] T030 [US1] `Player`: связка Queue ↔ Engine, переходы next/prev (prev в первые 3 с — предыдущий трек, иначе в начало), `play_stats` (полное прослушивание = ≥ 90 % без перемотки за последние 10 %) в `crates/player/src/player.rs`
+- [x] T030 [US1] `Player`: связка Queue ↔ Engine, переходы next/prev (prev всегда предыдущий трек, без перезапуска текущего — решение пользователя), `play_stats` (полное прослушивание = ≥ 90 % без перемотки за последние 10 %) в `crates/player/src/player.rs`
 - [x] T031 [US1] Снимок очереди/позиции/громкости в `settings.queue_snapshot` (дебаунс 2 с + при выходе), восстановление на паузе при старте в `crates/player/src/persist.rs` + тест
 
 **Библиотека**

@@ -25,8 +25,6 @@ pub enum PlayerEvent {
 
 pub type EventSink = Arc<dyn Fn(PlayerEvent) + Send + Sync>;
 
-/// Restart the current track instead of going back when past this point.
-const PREV_RESTART_MS: u64 = 3_000;
 /// Stop skipping after this many tracks failed in a row.
 const MAX_SKIPS: u32 = 3;
 const SNAPSHOT_KEY: &str = "queue_snapshot";
@@ -280,18 +278,13 @@ impl Player {
         }
     }
 
+    /// Previous track in the queue. Never restarts the current one; with nothing before
+    /// it (and repeat off) it does nothing.
     pub fn prev(&self) {
-        let pos = self.lock().state.position_ms;
-        if pos > PREV_RESTART_MS {
-            self.seek(0);
-            return;
-        }
         let moved = self.lock().queue.back().is_some();
         if moved {
             (self.sink)(PlayerEvent::QueueChanged);
             self.start_current(0);
-        } else {
-            self.seek(0);
         }
     }
 
