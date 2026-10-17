@@ -86,10 +86,12 @@ pub async fn library_view(
     state: State<'_, Arc<AppState>>,
     kind: ViewKind,
     sort: Option<ViewSort>,
+    filter: Option<String>,
 ) -> CmdResult<ViewInfo> {
     let st = state.inner().clone();
     blocking(move || {
-        let ids = st.db.read(|c| views::build(c, kind, sort.unwrap_or_default()))?;
+        let filter = filter.unwrap_or_default();
+        let ids = st.db.read(|c| views::build_filtered(c, kind, sort.unwrap_or_default(), &filter))?;
         let count = ids.len() as u32;
         Ok(ViewInfo { view_id: st.views.insert(ids), count })
     })

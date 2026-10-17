@@ -1,6 +1,7 @@
 <script lang="ts">
   import { menu } from "$lib/stores/overlay.svelte";
   import { rise } from "$lib/motion";
+  import IconCheck from "~icons/solar/unread-linear";
 
   let el = $state<HTMLDivElement>();
   let pos = $state({ x: 0, y: 0 });
@@ -65,7 +66,10 @@
           {#if item.icon}
             <item.icon class="size-4 shrink-0 text-ink-2" />
           {/if}
-          {item.label}
+          <span class="flex-1">{item.label}</span>
+          {#if item.checked}
+            <IconCheck class="size-4 shrink-0 text-ink" />
+          {/if}
         </button>
       {/if}
     {/each}

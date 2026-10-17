@@ -9,6 +9,8 @@ export type MenuItem =
       action: () => void;
       danger?: boolean;
       disabled?: boolean;
+      /** The chosen option of a dropdown (`Select`): drawn with a check mark. */
+      checked?: boolean;
     }
   | "separator";
 
@@ -29,6 +31,12 @@ class MenuState {
   showAt(items: MenuItem[], el: Element) {
     const r = el.getBoundingClientRect();
     this.show(items, r.right, r.bottom + 4);
+  }
+
+  /** Opens under an element, left edges aligned (dropdowns). */
+  showUnder(items: MenuItem[], el: Element) {
+    const r = el.getBoundingClientRect();
+    this.show(items, r.left, r.bottom + 4);
   }
 
   close() {

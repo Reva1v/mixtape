@@ -59,9 +59,9 @@ impl ViewIds {
 
 const IN_LIBRARY: &str = "t.state IN ('downloaded', 'broken')";
 
-fn collect<T>(conn: &Connection, sql: &str, wrap: impl Fn(String) -> T) -> Result<Vec<T>> {
+fn collect<T>(conn: &Connection, sql: &str, args: &[String], wrap: impl Fn(String) -> T) -> Result<Vec<T>> {
     let mut stmt = conn.prepare(sql)?;
-    let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(args), |r| r.get::<_, String>(0))?;
     let mut out = Vec::new();
     for r in rows {
         out.push(wrap(r?));
@@ -74,9 +74,26 @@ const FIRST_ARTIST: &str =
 
 /// Builds the ordered id list for a library screen.
 pub fn build(conn: &Connection, kind: ViewKind, sort: ViewSort) -> Result<ViewIds> {
+    build_filtered(conn, kind, sort, "")
+}
+
+/// `AND`-ed `LIKE` conditions on `column` for every word of `filter` (normalized like the
+/// stored `search_text`, so case, «ё» and diacritics don't matter), with their arguments.
+fn word_filter(column: &str, filter: &str) -> (String, Vec<String>) {
+    let norm = crate::normalize::normalize(filter);
+    let args: Vec<String> = norm
+        .split_whitespace()
+        .map(|w| format!("%{}%", w.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")))
+        .collect();
+    let sql = args.iter().map(|_| format!(" AND {column} LIKE ? ESCAPE '\\'")).collect();
+    (sql, args)
+}
+
+/// [`build`] narrowed to rows matching every word of `filter` (the library's own search box).
+pub fn build_filtered(conn: &Connection, kind: ViewKind, sort: ViewSort, filter: &str) -> Result<ViewIds> {
     Ok(match kind {
         ViewKind::Tracks | ViewKind::Liked => {
-            let filter = if kind == ViewKind::Liked { "t.liked = 1" } else { IN_LIBRARY };
+            let scope = if kind == ViewKind::Liked { "t.liked = 1" } else { IN_LIBRARY };
             let order = match (kind, sort) {
                 (ViewKind::Liked, ViewSort::Recent) => "t.liked_at DESC".to_owned(),
                 (_, ViewSort::Recent) => "t.added_at DESC, t.rowid DESC".to_owned(),
@@ -86,10 +103,11 @@ pub fn build(conn: &Connection, kind: ViewKind, sort: ViewSort) -> Result<ViewId
                     "al.title COLLATE NOCASE, t.track_no, t.title".to_owned()
                 }
             };
+            let (words, args) = word_filter("t.search_text", filter);
             let sql = format!(
-                "SELECT t.id FROM tracks t LEFT JOIN albums al ON al.id = t.album_id WHERE {filter} ORDER BY {order}"
+                "SELECT t.id FROM tracks t LEFT JOIN albums al ON al.id = t.album_id WHERE {scope}{words} ORDER BY {order}"
             );
-            ViewIds::Tracks(collect(conn, &sql, TrackId)?)
+            ViewIds::Tracks(collect(conn, &sql, &args, TrackId)?)
         }
         ViewKind::Albums => {
             let order = match sort {
@@ -100,26 +118,30 @@ pub fn build(conn: &Connection, kind: ViewKind, sort: ViewSort) -> Result<ViewId
                 ViewSort::Year => "al.year DESC, al.title",
                 _ => "last_added DESC",
             };
+            let (words, args) = word_filter("al.search_text", filter);
             let sql = format!(
                 "SELECT al.id, MAX(t.added_at) AS last_added FROM albums al
                  JOIN tracks t ON t.album_id = al.id AND {IN_LIBRARY}
+                 WHERE 1 = 1{words}
                  GROUP BY al.id ORDER BY {order}"
             );
-            ViewIds::Albums(collect(conn, &sql, AlbumId)?)
+            ViewIds::Albums(collect(conn, &sql, &args, AlbumId)?)
         }
         ViewKind::Artists => {
+            let (words, args) = word_filter("ar.search_text", filter);
             let sql = format!(
-                "SELECT ar.id FROM artists ar WHERE ar.in_library = 1 OR EXISTS (
+                "SELECT ar.id FROM artists ar WHERE (ar.in_library = 1 OR EXISTS (
                     SELECT 1 FROM track_artists ta JOIN tracks t ON t.id = ta.track_id
-                    WHERE ta.artist_id = ar.id AND {IN_LIBRARY})
+                    WHERE ta.artist_id = ar.id AND {IN_LIBRARY})){words}
                  ORDER BY ar.name COLLATE NOCASE"
             );
-            ViewIds::Artists(collect(conn, &sql, ArtistId)?)
+            ViewIds::Artists(collect(conn, &sql, &args, ArtistId)?)
         }
         ViewKind::Playlists => {
             let order = if sort == ViewSort::Title { "title COLLATE NOCASE" } else { "rowid DESC" };
-            let sql = format!("SELECT id FROM playlists ORDER BY origin = 'ytm', {order}");
-            ViewIds::Playlists(collect(conn, &sql, PlaylistId)?)
+            let (words, args) = word_filter("search_text", filter);
+            let sql = format!("SELECT id FROM playlists WHERE 1 = 1{words} ORDER BY origin = 'ytm', {order}");
+            ViewIds::Playlists(collect(conn, &sql, &args, PlaylistId)?)
         }
     })
 }
@@ -181,6 +203,31 @@ mod tests {
     use crate::repo::tests::{db, meta};
     use crate::repo::{set_liked, set_state, upsert_track};
     use mixtape_core::TrackState;
+
+    #[test]
+    fn library_search_box_matches_every_word() {
+        let (_d, db) = db();
+        db.write(|t| {
+            upsert_track(t, &meta("1", "Ёлка в лесу", ("UCa", "Alpha"), Some(("MPa", "Winter 100%"))))?;
+            upsert_track(t, &meta("2", "Apple", ("UCb", "Beta"), Some(("MPb", "Album B"))))?;
+            set_state(t, &TrackId::from("1"), TrackState::Downloaded)?;
+            set_state(t, &TrackId::from("2"), TrackState::Downloaded)?;
+            Ok(())
+        })
+        .unwrap();
+        let ids = |kind, f: &str| match db.read(|c| build_filtered(c, kind, ViewSort::Title, f)).unwrap() {
+            ViewIds::Tracks(v) => v.into_iter().map(|t| t.0).collect::<Vec<_>>(),
+            ViewIds::Albums(v) => v.into_iter().map(|a| a.0).collect(),
+            ViewIds::Artists(v) => v.into_iter().map(|a| a.0).collect(),
+            ViewIds::Playlists(v) => v.into_iter().map(|p| p.0).collect(),
+        };
+        assert_eq!(ids(ViewKind::Tracks, "елка ALPHA"), ["1"], "case, ё and words in any order");
+        assert_eq!(ids(ViewKind::Tracks, "100%"), ["1"], "% is literal");
+        assert!(ids(ViewKind::Tracks, "_").is_empty(), "_ is literal");
+        assert_eq!(ids(ViewKind::Tracks, ""), ["2", "1"]);
+        assert_eq!(ids(ViewKind::Albums, "album"), ["MPb"]);
+        assert_eq!(ids(ViewKind::Artists, "bet"), ["UCb"]);
+    }
 
     #[test]
     fn library_views_filter_and_sort() {

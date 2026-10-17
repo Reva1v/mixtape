@@ -10,6 +10,9 @@
   import type { Playlist } from "$lib/ipc/bindings/Playlist";
   import { Paged } from "$lib/stores/paged.svelte";
   import { pressable } from "$lib/motion";
+  import Select from "$lib/ui/Select.svelte";
+  import IconFind from "~icons/solar/magnifier-linear";
+  import IconClear from "~icons/solar/close-circle-linear";
   import { router, type LibraryTab } from "$lib/stores/router.svelte";
   import { openAlbum } from "$lib/stores/actions";
   import { player } from "$lib/stores/player.svelte";
@@ -64,8 +67,18 @@
   let rows = $state<Paged<unknown> | null>(null);
   let loaded = $state(false);
 
-  async function load(k: ViewKind, s: ViewSort) {
-    const info = await invoke<ViewInfo>("library_view", { kind: k, sort: s });
+  // Narrows the open tab to rows matching every typed word (title, artist, album).
+  let filterText = $state("");
+  let filter = $state("");
+  let filterEl = $state<HTMLInputElement>();
+  $effect(() => {
+    const f = filterText.trim();
+    const id = setTimeout(() => (filter = f), 150);
+    return () => clearTimeout(id);
+  });
+
+  async function load(k: ViewKind, s: ViewSort, f = filter) {
+    const info = await invoke<ViewInfo>("library_view", { kind: k, sort: s, filter: f || null });
     const fetch = async (offset: number, limit: number) =>
       (await invoke<Rows>("library_rows", { viewId: info.viewId, offset, limit })).items as unknown[];
     if (rows && viewId !== null && k === kind) rows.reset(info.count, fetch);
@@ -76,7 +89,7 @@
 
   $effect(() => {
     if (!sorts[kind].some((s) => s.id === sort)) sort = sorts[kind][0].id;
-    void load(kind, sort);
+    void load(kind, sort, filter);
   });
 
   $effect(() => {
@@ -140,22 +153,48 @@
         {/each}
       </div>
       <div class="flex items-center gap-3 text-[12.5px] text-ink-3">
+        <label
+          class="flex h-8 w-56 items-center gap-2 rounded-md bg-fill-1 px-2.5 ring-1 ring-line transition-colors focus-within:bg-fill-2 focus-within:ring-white/15"
+        >
+          <IconFind class="size-3.5 shrink-0" />
+          <input
+            bind:this={filterEl}
+            bind:value={filterText}
+            placeholder="Найти в библиотеке"
+            spellcheck="false"
+            class="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink outline-none placeholder:text-ink-3"
+            onkeydown={(e) => {
+              if (e.key === "Escape" && filterText) {
+                e.stopPropagation();
+                filterText = "";
+              }
+            }}
+          />
+          {#if filterText}
+            <button type="button" aria-label="Очистить" class="text-ink-3 hover:text-ink" onclick={() => ((filterText = ""), filterEl?.focus())}>
+              <IconClear class="size-3.5" />
+            </button>
+          {/if}
+        </label>
         {#if rows}<span class="tnum">{rows.count}</span>{/if}
         {#if sorts[kind].length > 1}
-          <select
-            bind:value={sort}
-            class="h-8 cursor-pointer rounded-md bg-fill-1 px-2 text-[12.5px] text-ink-2 outline-none ring-1 ring-line hover:bg-fill-2"
-          >
-            {#each sorts[kind] as s (s.id)}
-              <option value={s.id} class="bg-raised">{s.label}</option>
-            {/each}
-          </select>
+          <Select bind:value={sort} options={sorts[kind]} label="Сортировка" />
         {/if}
       </div>
     </div>
   </div>
 
-  {#if loaded && rows && rows.count === 0}
+  {#if loaded && rows && rows.count === 0 && filter}
+    <EmptyState icon={IconFind} title="Ничего не найдено" hint={`В этом разделе нет ничего по запросу «${filter}»`}>
+      <button
+        type="button"
+        class="h-9 rounded-full bg-fill-2 px-4 text-[13px] font-medium text-ink-2 hover:bg-fill-3 hover:text-ink"
+        onclick={() => router.go({ name: "search", query: filter })}
+      >
+        Искать везде
+      </button>
+    </EmptyState>
+  {:else if loaded && rows && rows.count === 0}
     <EmptyState icon={IconLibrary} title={t.library.empty} hint={t.library.emptyHint}>
       <button
         type="button"
