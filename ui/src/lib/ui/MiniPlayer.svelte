@@ -118,7 +118,7 @@
         <button
           type="button"
           class="block max-w-full truncate text-[15px] leading-tight font-medium text-ink hover:underline"
-          onclick={() => track.album && router.go({ name: "album", id: track.album.id })}
+          onclick={() => (layout.fullscreen = true)}
         >
           {track.title}
         </button>
