@@ -41,6 +41,8 @@
     step: number;
     active: boolean;
     settling: boolean;
+    /** Hovering over the playing track: dropping makes the dragged track play now. */
+    replace: boolean;
   };
   let drag = $state<Drag | null>(null);
   let instant = $state(false);
@@ -69,6 +71,7 @@
       step: rowStep(),
       active: false,
       settling: false,
+      replace: false,
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up, { once: true });
@@ -77,7 +80,9 @@
   function update() {
     if (!drag || !listEl) return;
     drag.dy = drag.y - drag.startY + (listEl.scrollTop - drag.startScroll);
-    drag.to = Math.max(0, Math.min(items.length - 1, drag.from + Math.round(drag.dy / drag.step)));
+    const at = drag.from + drag.dy / drag.step;
+    drag.replace = currentIndex >= 0 && Math.abs(at - currentIndex) < 0.35;
+    drag.to = drag.replace ? drag.from : Math.max(0, Math.min(items.length - 1, drag.from + Math.round(drag.dy / drag.step)));
   }
 
   function move(ev: PointerEvent) {
@@ -114,6 +119,10 @@
     cancelAnimationFrame(raf);
     const d = drag;
     if (!d) return;
+    if (d.active && d.replace) {
+      playInstead(d);
+      return;
+    }
     if (!d.active || d.to === d.from) {
       if (d.active) {
         d.settling = true;
@@ -137,6 +146,25 @@
       view = { ...view, items: next, current };
       drag = null;
       void invoke("queue_move", { uid: d.uid, toIndex: d.to });
+      requestAnimationFrame(() => requestAnimationFrame(() => (instant = false)));
+    }, 220);
+  }
+
+  // Dropped onto the playing track: glide onto it, place the dragged track right after
+  // the old one (which stays in history) and switch to it.
+  function playInstead(d: Drag) {
+    d.settling = true;
+    d.dy = (currentIndex - d.from) * d.step;
+    setTimeout(() => {
+      if (!view) return;
+      const next = [...view.items];
+      const [moved] = next.splice(d.from, 1);
+      const playingAt = next.findIndex((x) => x.uid === view!.items[currentIndex].uid);
+      next.splice(playingAt + 1, 0, moved);
+      instant = true;
+      view = { ...view, items: next, current: playingAt + 1 };
+      drag = null;
+      void invoke("queue_move", { uid: d.uid, toIndex: playingAt + 1 }).then(() => invoke("queue_jump", { uid: d.uid }));
       requestAnimationFrame(() => requestAnimationFrame(() => (instant = false)));
     }, 220);
   }
@@ -181,6 +209,7 @@
       {instant ? '' : 'transition-[background-color,transform,box-shadow] duration-200 ease-out-soft'}
       {cards ? 'mb-2 h-16 rounded-xl bg-[#0e0e10]/85 px-3 ring-1 ring-white/[0.06] hover:bg-[#18181a]/90' : ''}
       {isCurrent ? (cards ? 'bg-white/[0.13]! ring-white/[0.14]!' : 'bg-fill-2') : ''}
+      {isCurrent && drag?.active && drag.replace ? 'ring-2! ring-white/70!' : ''}
       {!isCurrent ? (drag?.active && drag.from === i ? 'cursor-grabbing bg-[#1a1a1c]/90 shadow-[0_16px_40px_-10px_rgb(0_0_0/0.8)]' : 'cursor-grab') : ''}"
     style={rowStyle(i)}
     onpointerdown={(ev) => !isCurrent && down(ev, i, e.uid)}
