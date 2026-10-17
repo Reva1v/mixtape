@@ -83,7 +83,12 @@
     <IconCollapse class="size-[18px]" />
   </button>
 
-  <div data-tauri-drag-region class="relative grid h-full transition-[grid-template-columns] duration-500 ease-out-soft {lyrics ? 'grid-cols-2' : 'grid-cols-1'}">
+  <div
+    data-tauri-drag-region
+    class="relative grid h-full transition-[grid-template-columns,filter,opacity] duration-500 ease-out-soft {lyrics ? 'grid-cols-2' : 'grid-cols-1'}"
+    style:filter={queueOpen ? "blur(28px)" : "none"}
+    style:opacity={queueOpen ? 0.45 : 1}
+  >
     {#if track}
       <!-- Player column -->
       <section data-tauri-drag-region class="flex flex-col items-center justify-center px-8" style:width="100%" in:pop={{ scale: 0.97, y: 18, spring: springs.gentle }}>
@@ -150,7 +155,7 @@
   <!-- Queue as a bottom sheet over the player, which blurs out behind it. Clicking any
        empty space (outside rows and controls) closes it. -->
   {#if queueOpen}
-    <div class="absolute inset-0 z-20 bg-black/55 backdrop-blur-[40px]" transition:fadeSpring></div>
+    <div class="absolute inset-0 z-20 bg-black/50" transition:fadeSpring></div>
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
     <div
       class="absolute inset-0 z-30 flex justify-center"

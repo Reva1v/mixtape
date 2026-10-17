@@ -172,7 +172,7 @@
     data-current={isCurrent ? "" : undefined}
     class="group flex h-14 items-center gap-3 rounded-md px-2 hover:bg-fill-2
       {instant ? '' : 'transition-[background-color,transform,box-shadow] duration-200 ease-out-soft'}
-      {cards ? 'mb-2 h-16 rounded-xl bg-[#0c0c0d]/65 px-3 ring-1 ring-white/[0.06] backdrop-blur-xl hover:bg-[#161618]/75' : ''}
+      {cards ? 'mb-2 h-16 rounded-xl bg-[#0e0e10]/85 px-3 ring-1 ring-white/[0.06] hover:bg-[#18181a]/90' : ''}
       {isCurrent ? (cards ? 'bg-white/[0.13]! ring-white/[0.14]!' : 'bg-fill-2') : ''}
       {!isCurrent ? (drag?.active && drag.from === i ? 'cursor-grabbing bg-[#1a1a1c]/90 shadow-[0_16px_40px_-10px_rgb(0_0_0/0.8)]' : 'cursor-grab') : ''}"
     style={rowStyle(i)}
