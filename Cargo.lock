@@ -2515,6 +2515,7 @@ dependencies = [
  "rubato",
  "symphonia",
  "symphonia-adapter-libopus",
+ "tempfile",
  "thiserror 2.0.21",
  "tracing",
 ]
@@ -2565,6 +2566,7 @@ name = "mixtape-sync"
 version = "0.1.0"
 dependencies = [
  "mixtape-artwork",
+ "mixtape-audio",
  "mixtape-core",
  "mixtape-library",
  "mixtape-yt",

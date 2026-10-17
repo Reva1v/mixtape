@@ -12,6 +12,7 @@ mod loudness;
 mod output;
 mod pipeline;
 mod resample;
+mod sparse;
 mod timeline;
 
 use std::fmt;
@@ -22,6 +23,7 @@ pub use decoder::{ProbeInfo, probe};
 pub use engine::{Engine, EngineEvent};
 pub use gain::gain_for;
 pub use loudness::{Loudness, measure_loudness};
+pub use sparse::{READ_TIMEOUT, SparseCacheFile, SparseReader};
 pub use symphonia::core::io::MediaSource;
 
 #[derive(Debug, thiserror::Error)]
@@ -38,11 +40,15 @@ pub enum Error {
     Output(String),
     #[error("loudness: {0}")]
     Loudness(#[from] ebur128::Error),
+    /// A streamed source's bytes are not downloaded yet; the engine retries later.
+    #[error("waiting for the download")]
+    Buffering,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Something the engine can play.
+#[derive(Clone)]
 pub struct Source {
     /// Opaque id echoed back in [`EngineEvent`]s.
     pub id: String,
@@ -62,8 +68,11 @@ pub struct Source {
 #[derive(Clone)]
 pub enum SourceOpener {
     File(PathBuf),
-    /// Any seekable stream, e.g. a partially downloaded cache file.
+    /// Any seekable stream. Its reads run on the engine thread, so they should not block.
     Custom(Arc<dyn Fn() -> std::io::Result<Box<dyn MediaSource>> + Send + Sync>),
+    /// A file still being downloaded. The engine never waits inside its reads: while the bytes
+    /// it needs are missing it skips decoding and reports [`EngineEvent::Buffering`].
+    Sparse(Arc<SparseCacheFile>),
 }
 
 impl Source {
@@ -81,6 +90,22 @@ impl Source {
             crossfade: true,
         }
     }
+
+    /// A track streamed into `file`; `ext` is its container (`"webm"`, `"m4a"`).
+    pub fn stream(
+        id: impl Into<String>,
+        file: Arc<SparseCacheFile>,
+        ext: &str,
+        gain_db: f32,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            open: SourceOpener::Sparse(file),
+            gain_db,
+            hint_ext: Some(ext.to_ascii_lowercase()),
+            crossfade: true,
+        }
+    }
 }
 
 impl SourceOpener {
@@ -88,6 +113,19 @@ impl SourceOpener {
         match self {
             Self::File(path) => Ok(Box::new(std::fs::File::open(path)?)),
             Self::Custom(open) => open(),
+            Self::Sparse(file) => {
+                let mut r = file.reader();
+                r.set_nonblocking(true);
+                Ok(Box::new(r))
+            }
+        }
+    }
+
+    /// Whether opening can start without waiting for a download.
+    fn ready(&self) -> bool {
+        match self {
+            Self::Sparse(file) => decoder::can_open(file),
+            _ => true,
         }
     }
 }
@@ -108,6 +146,7 @@ impl fmt::Debug for SourceOpener {
         match self {
             Self::File(p) => f.debug_tuple("File").field(p).finish(),
             Self::Custom(_) => f.write_str("Custom"),
+            Self::Sparse(file) => f.debug_tuple("Sparse").field(&file.path()).finish(),
         }
     }
 }

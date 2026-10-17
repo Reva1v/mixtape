@@ -7,6 +7,12 @@
 //! A crossfade is done before the ring: when the decode head reaches the start of the overlap,
 //! the successor becomes the head and a [`Fade`] keeps decoding the outgoing track into a
 //! [`Mixer`] alongside it, so the ring only ever holds one already-mixed stream.
+//!
+//! Streamed sources ([`crate::SourceOpener::Sparse`]) never block this thread: their decoder
+//! answers [`Error::Buffering`] instead of waiting for bytes, and the engine skips that decode
+//! step (commands and events keep flowing) and tries again on the next turn. A load whose header
+//! is not downloaded yet waits in `waiting`, a successor in `next_src`. While the head starves
+//! and the ring is nearly empty, Buffering(true) is reported.
 
 use std::collections::VecDeque;
 use std::sync::atomic::Ordering;
@@ -17,10 +23,10 @@ use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 
 use crate::crossfade::Mixer;
 use crate::gain::volume_curve;
-use crate::output::Output;
+use crate::output::{Output, RING_MS};
 use crate::pipeline::Pipeline;
 use crate::timeline::{Handover, Timeline, Transition};
-use crate::{Result, Source};
+use crate::{Error, Result, Source};
 
 /// Open the successor and ask for one this long (plus the crossfade) before the head ends.
 const NEXT_LEAD_MS: u64 = 10_000;
@@ -63,7 +69,9 @@ pub enum EngineEvent {
         played_ms: u64,
         completed: bool,
     },
-    /// The device ran dry while playing (slow source); `false` once refilled.
+    /// Playback waits for data: the device ran dry, or a streamed source's bytes are not
+    /// downloaded yet (also right after a load or seek into a missing region); `false` once
+    /// audio flows again.
     Buffering(bool),
     /// `id` could not be opened or decoded; the engine moves on to the queued next if any.
     Error {
@@ -223,6 +231,10 @@ struct State {
     primed_at: Instant,
     underruns_seen: u64,
     buffering: bool,
+    /// A loaded streamed source (and its start) whose header is not downloaded yet.
+    waiting: Option<(Source, u64)>,
+    /// The last decode step had to wait for a download.
+    starved: bool,
     transitions: Vec<Transition>,
 }
 
@@ -251,6 +263,8 @@ impl State {
             primed_at: now,
             underruns_seen: 0,
             buffering: false,
+            waiting: None,
+            starved: false,
             transitions: Vec::new(),
         }
     }
@@ -274,6 +288,7 @@ impl State {
                 Err(RecvTimeoutError::Disconnected) => break,
             }
             self.check_output();
+            self.open_waiting();
             busy = false;
             for _ in 0..PACKETS_PER_TURN {
                 if !self.pump() {
@@ -367,8 +382,37 @@ impl State {
         self.ensure_output();
         self.reset();
         let id = src.id.clone();
-        match Pipeline::open(src, self.rate()) {
+        if !src.open.ready() {
+            return self.wait_for(src, start_ms, play);
+        }
+        match Pipeline::open(src.clone(), self.rate()) {
             Ok(p) => self.start_fresh(p, start_ms, play),
+            Err(Error::Buffering) => self.wait_for(src, start_ms, play),
+            Err(e) => {
+                self.emit_error(id, e);
+                self.set_playing(false);
+            }
+        }
+    }
+
+    /// Holds a streamed source until its header is downloaded (see [`State::open_waiting`]).
+    fn wait_for(&mut self, src: Source, start_ms: u64, play: bool) {
+        let id = src.id.clone();
+        self.waiting = Some((src, start_ms));
+        self.starved = true;
+        self.emit(EngineEvent::Position { id, ms: start_ms });
+        self.set_playing(play);
+    }
+
+    /// Opens the waiting source once its header is there.
+    fn open_waiting(&mut self) {
+        let Some((src, start_ms)) = self.waiting.take_if(|(s, _)| s.open.ready()) else {
+            return;
+        };
+        let id = src.id.clone();
+        match Pipeline::open(src.clone(), self.rate()) {
+            Ok(p) => self.start_fresh(p, start_ms, self.playing),
+            Err(Error::Buffering) => self.waiting = Some((src, start_ms)),
             Err(e) => {
                 self.emit_error(id, e);
                 self.set_playing(false);
@@ -396,12 +440,15 @@ impl State {
     /// successor or a fade already in the ring) the audible track is re-primed at the device
     /// position first, which costs the usual 10 ms flush dip before the fade.
     fn crossfade_to(&mut self, src: Source, ms: u32) {
-        if ms == 0 || !self.playing || self.slots.is_empty() || self.timeline.ended() {
+        let cut = ms == 0 || !self.playing || self.slots.is_empty() || self.timeline.ended();
+        // A stream that is not downloaded yet has nothing to fade in: cut and buffer.
+        if cut || !src.open.ready() {
             return self.load(src, 0, true);
         }
         let id = src.id.clone();
-        let b = match Pipeline::open(src, self.rate()) {
+        let b = match Pipeline::open(src.clone(), self.rate()) {
             Ok(p) => p,
+            Err(Error::Buffering) => return self.load(src, 0, true),
             Err(e) => {
                 self.reset();
                 self.emit_error(id, e);
@@ -489,7 +536,7 @@ impl State {
     }
 
     fn set_playing(&mut self, playing: bool) {
-        let playing = playing && !self.slots.is_empty();
+        let playing = playing && (!self.slots.is_empty() || self.waiting.is_some());
         if let Some(o) = &self.out {
             o.shared.paused.store(!playing, Ordering::Relaxed);
         }
@@ -500,6 +547,11 @@ impl State {
     }
 
     fn seek(&mut self, ms: u64) {
+        if let Some((src, start_ms)) = &mut self.waiting {
+            *start_ms = ms;
+            let id = src.id.clone();
+            return self.emit(EngineEvent::Position { id, ms });
+        }
         let Some(id) = self.slots.front().map(|p| p.id.clone()) else {
             return;
         };
@@ -525,6 +577,8 @@ impl State {
         self.fade = None;
         self.timeline.clear(self.rate());
         self.head_done = false;
+        self.waiting = None;
+        self.starved = false;
     }
 
     /// Reports the audible track (and one fading out under it) as cut short.
@@ -693,8 +747,7 @@ impl State {
             return false;
         }
         if self.fade.is_some() {
-            self.fade_step();
-            return true;
+            return self.fade_step();
         }
         if self.head_done {
             return self.advance_head();
@@ -706,7 +759,14 @@ impl State {
         };
         let before = head.out_pos();
         match head.fill(&mut self.pending) {
-            Ok(more) => self.head_done = !more,
+            Ok(more) => {
+                self.head_done = !more;
+                self.starved = false;
+            }
+            Err(Error::Buffering) => {
+                self.starved = true;
+                return false;
+            }
             Err(e) => {
                 let (id, message) = (head.id.clone(), e.to_string());
                 tracing::warn!(%id, "decode failed: {message}");
@@ -743,10 +803,11 @@ impl State {
         (len > 0).then_some((la, len))
     }
 
-    /// Feeds the mixer from whichever side it waits for, or mixes.
-    fn fade_step(&mut self) {
+    /// Feeds the mixer from whichever side it waits for, or mixes. Returns whether anything
+    /// happened (not while a side waits for its download).
+    fn fade_step(&mut self) -> bool {
         let Some(fade) = &mut self.fade else {
-            return;
+            return false;
         };
         let mut failed = None;
         if fade.mix.needs_a() {
@@ -760,6 +821,10 @@ impl State {
             };
             fade.mix.a.ended = match res {
                 Ok(more) => !more,
+                Err((_, Error::Buffering)) => {
+                    self.starved = true;
+                    return false;
+                }
                 Err(f) => {
                     failed = Some(f);
                     true
@@ -767,10 +832,14 @@ impl State {
             };
         } else if fade.mix.needs_b() {
             let Some(head) = self.slots.back_mut() else {
-                return;
+                return false;
             };
             fade.mix.b.ended = match head.fill(&mut fade.mix.b.buf) {
                 Ok(more) => !more,
+                Err(Error::Buffering) => {
+                    self.starved = true;
+                    return false;
+                }
                 Err(e) => {
                     failed = Some((head.id.clone(), e));
                     true
@@ -784,10 +853,12 @@ impl State {
                 self.pending.extend_from_slice(&rest);
             }
         }
+        self.starved = false;
         if let Some((id, e)) = failed {
             tracing::warn!(%id, "decode failed: {e}");
             self.emit_error(id, e);
         }
+        true
     }
 
     /// The head is fully in the ring: continue with the successor, or mark the end.
@@ -800,6 +871,11 @@ impl State {
                 self.start_head(p, 0, false);
                 true
             }
+            // A streamed successor whose header is still downloading.
+            None if self.next_src.is_some() => {
+                self.starved = true;
+                false
+            }
             None => {
                 self.timeline.push_end(self.written);
                 false
@@ -807,18 +883,20 @@ impl State {
         }
     }
 
+    /// Opens the queued successor, unless it is a stream whose header is not there yet.
     fn open_next(&mut self) {
-        let Some(src) = self.next_src.take() else {
+        let Some(src) = self.next_src.take_if(|s| s.open.ready()) else {
             return;
         };
         let id = src.id.clone();
-        match Pipeline::open(src, self.rate()) {
+        match Pipeline::open(src.clone(), self.rate()) {
             Ok(mut p) => {
                 if self.crossfade_ms > 0 && p.crossfade {
                     p.measure();
                 }
                 self.next = Some(p);
             }
+            Err(Error::Buffering) => self.next_src = Some(src),
             Err(e) => {
                 self.emit_error(id, e);
                 self.need_next_sent = false;
@@ -875,26 +953,31 @@ impl State {
         self.check_buffering();
     }
 
+    /// Buffering(true) on an underrun of a slow source, or as soon as a starved stream has let
+    /// the queue run nearly dry (at once after a load or seek); `false` once refilled.
     fn check_buffering(&mut self) {
-        let Some(out) = &self.out else { return };
-        let underruns = out.shared.underruns.load(Ordering::Relaxed);
-        let fresh = underruns > self.underruns_seen;
-        self.underruns_seen = underruns;
-        let starving = fresh
-            && self.playing
-            && !self.timeline.ended()
-            && !self.head_done
-            && self.primed_at.elapsed() > PRIME_GRACE;
+        let mut underrun = false;
+        // Without a device (tests) there is no ring to refill.
+        let mut refilled = !self.starved;
+        if let Some(out) = &self.out {
+            let underruns = out.shared.underruns.load(Ordering::Relaxed);
+            underrun = underruns > self.underruns_seen;
+            self.underruns_seen = underruns;
+            let filled = out.ring.buffer().capacity() - out.ring.slots();
+            refilled &= filled >= out.ring.buffer().capacity() / 3;
+        }
+        let low = self.rate() as u64 * RING_MS as u64 / 3000;
+        let dry = self.queued_end().saturating_sub(self.consumed()) < low;
+        let active = self.playing && !self.timeline.ended();
+        let starving = active
+            && (self.starved && dry
+                || underrun && !self.head_done && self.primed_at.elapsed() > PRIME_GRACE);
         if starving && !self.buffering {
             self.buffering = true;
             self.emit(EngineEvent::Buffering(true));
-        } else if self.buffering {
-            let filled = out.ring.buffer().capacity() - out.ring.slots();
-            if !self.playing || self.timeline.ended() || filled >= out.ring.buffer().capacity() / 3
-            {
-                self.buffering = false;
-                self.emit(EngineEvent::Buffering(false));
-            }
+        } else if self.buffering && (!active || refilled) {
+            self.buffering = false;
+            self.emit(EngineEvent::Buffering(false));
         }
     }
 }
@@ -902,7 +985,9 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SparseCacheFile;
     use crate::decoder::tests::fixture;
+    use std::sync::Arc;
 
     const RATE: u64 = FALLBACK_RATE as u64;
     /// One Opus frame (20 ms) at the output rate: the granularity of a decode step.
@@ -1115,5 +1200,176 @@ mod tests {
         play(&mut st, &rx, &mut p, u64::MAX);
         assert_eq!(p.story(), ["+a", "+b", "-a", "-b"]);
         assert!((p.frames() - seeked).abs_diff(RATE * 8 / 10) <= FRAME);
+    }
+
+    /// A sparse file for fixture `name` with nothing downloaded, and the bytes to download.
+    fn sparse(name: &str) -> (tempfile::TempDir, Arc<SparseCacheFile>, Arc<Vec<u8>>) {
+        let data = Arc::new(std::fs::read(fixture(name)).unwrap());
+        let dir = tempfile::tempdir().unwrap();
+        let file = SparseCacheFile::create(dir.path().join(name), data.len() as u64).unwrap();
+        (dir, file, data)
+    }
+
+    /// A downloader thread that follows the reader: `piece` bytes of the next hole every 1 ms.
+    fn download(
+        file: &Arc<SparseCacheFile>,
+        data: &Arc<Vec<u8>>,
+        piece: u64,
+    ) -> std::thread::JoinHandle<()> {
+        let (file, data) = (file.clone(), data.clone());
+        std::thread::spawn(move || {
+            while let Some(gap) = file.next_gap(file.wanted()) {
+                let end = gap.end.min(gap.start + piece);
+                let bytes = &data[gap.start as usize..end as usize];
+                file.write_at(gap.start, bytes).unwrap();
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        })
+    }
+
+    /// Runs the engine loop's steps until `done`. No step may wait for the download.
+    fn stream(
+        st: &mut State,
+        rx: &Receiver<EngineEvent>,
+        out: &mut Played,
+        done: impl Fn(&State) -> bool,
+    ) {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            st.tick();
+            out.events.extend(rx.try_iter().map(|e| (st.written, e)));
+            if done(st) {
+                return;
+            }
+            assert!(Instant::now() < deadline, "stuck");
+            st.open_waiting();
+            let t = Instant::now();
+            let more = st.produce();
+            let took = t.elapsed();
+            assert!(
+                took < Duration::from_millis(100),
+                "a step blocked: {took:?}"
+            );
+            st.written += (st.pending.len() / 2) as u64;
+            out.pcm.append(&mut st.pending);
+            if !more {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+    }
+
+    fn buffering(p: &Played) -> Vec<bool> {
+        let mut v: Vec<bool> = p
+            .events
+            .iter()
+            .filter_map(|(_, e)| match e {
+                EngineEvent::Buffering(b) => Some(*b),
+                _ => None,
+            })
+            .collect();
+        v.dedup();
+        v
+    }
+
+    fn errors(p: &Played) -> Vec<&EngineEvent> {
+        let err = |e: &&EngineEvent| matches!(e, EngineEvent::Error { .. });
+        p.events.iter().map(|(_, e)| e).filter(err).collect()
+    }
+
+    #[test]
+    fn streams_while_downloading() {
+        for (name, ext) in [(A, "webm"), ("sine_aac.m4a", "m4a")] {
+            let mut reference = Vec::new();
+            let mut p = Pipeline::open(src(name, true), FALLBACK_RATE).unwrap();
+            while p.fill(&mut reference).unwrap() {}
+
+            let (_dir, file, data) = sparse(name);
+            let (tx, rx) = crossbeam_channel::unbounded();
+            let mut st = State::new(tx);
+            st.load(Source::stream(name, file.clone(), ext, 0.0), 0, true);
+            assert!(
+                st.waiting.is_some() && st.playing,
+                "{name}: waits for the header"
+            );
+            let mut out = Played::default();
+            stream(&mut st, &rx, &mut out, |_| true);
+            assert_eq!(buffering(&out), [true], "{name}: buffering before any data");
+
+            let dl = download(&file, &data, 512);
+            stream(&mut st, &rx, &mut out, |st| st.timeline.ended());
+            dl.join().unwrap();
+            assert!(file.is_complete());
+            assert!(errors(&out).is_empty(), "{name}: {:?}", errors(&out));
+            // The download is slower than decoding: it rebuffers along the way.
+            assert_eq!(buffering(&out).last(), Some(&false), "{name}");
+            let first = |f: fn(&EngineEvent) -> bool| out.events.iter().position(|(_, e)| f(e));
+            let started = first(|e| matches!(e, EngineEvent::Started { .. }));
+            assert!(first(|e| *e == EngineEvent::Buffering(true)) < started);
+            assert!(out.events.iter().any(|(_, e)| matches!(
+                e,
+                EngineEvent::Ended {
+                    completed: true,
+                    ..
+                }
+            )));
+            let fade = (2 * RATE / 100) as usize;
+            let diff: Vec<usize> = (fade..out.pcm.len().min(reference.len()))
+                .filter(|&i| (out.pcm[i] - reference[i]).abs() > 1e-6)
+                .collect();
+            assert!(
+                out.pcm.len() == reference.len() && diff.is_empty(),
+                "{name}: {} frames streamed, {} from the file, {} differ from {:?}",
+                out.frames(),
+                reference.len() / 2,
+                diff.len(),
+                diff.first().map(|i| i / 2)
+            );
+        }
+    }
+
+    #[test]
+    fn seek_into_a_missing_region_buffers() {
+        let (_dir, file, data) = sparse(A);
+        // The head, the first ~0.6 s and the cues at the end are there.
+        file.write_at(0, &data[..7000]).unwrap();
+        let tail = data.len() - 100;
+        file.write_at(tail as u64, &data[tail..]).unwrap();
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let mut st = State::new(tx);
+        st.load(Source::stream(A, file.clone(), "webm", 0.0), 0, true);
+        assert!(st.waiting.is_none(), "opens at once");
+        let mut out = Played::default();
+        stream(&mut st, &rx, &mut out, |st| st.written >= RATE / 4);
+        assert!(buffering(&out).is_empty());
+
+        st.seek(1500);
+        stream(&mut st, &rx, &mut out, |st| st.starved);
+        let seeked = st.written;
+        stream(&mut st, &rx, &mut out, |_| true);
+        assert_eq!(buffering(&out), [true]);
+        assert!(
+            out.events
+                .iter()
+                .any(|(_, e)| matches!(e, EngineEvent::Position { ms: 1500, .. }))
+        );
+
+        // Commands still work while it waits.
+        st.set_playing(false);
+        stream(&mut st, &rx, &mut out, |_| true);
+        assert_eq!(buffering(&out), [true, false]);
+        st.play();
+
+        let dl = download(&file, &data, 1024);
+        stream(&mut st, &rx, &mut out, |st| st.timeline.ended());
+        dl.join().unwrap();
+        assert!(errors(&out).is_empty(), "{:?}", errors(&out));
+        let b = buffering(&out);
+        assert!(b.starts_with(&[true, false, true]) && b.last() == Some(&false));
+        let after = out.frames() - seeked;
+        assert!(
+            after.abs_diff(RATE / 2) <= FRAME,
+            "{after} frames after the seek"
+        );
+        assert!(out.ended_ms(A).abs_diff(2000) <= 20);
     }
 }

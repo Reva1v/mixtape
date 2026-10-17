@@ -3,8 +3,13 @@
 //! Positions are counted in *presentation* frames: encoder delay is already gone (libopus
 //! pre-skip, MP4 edit list) and frame 0 is the first audible sample. Seeks are exact: a coarse
 //! container seek a little earlier (pre-roll), then decoded frames before the target are dropped.
+//!
+//! A [`SourceOpener::Sparse`] stream is read without blocking. Decoding only starts when
+//! [`READ_AHEAD`] bytes past the reader are downloaded; a read that still finds a hole (or a seek
+//! into one) leaves the decoder waiting at its position, and once the bytes are there it reopens
+//! the stream and seeks back exactly, since symphonia's state after a failed read is undefined.
 
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{ErrorKind, Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::OnceLock;
 
@@ -19,7 +24,16 @@ use symphonia::core::meta::MetadataOptions;
 use symphonia::core::packet::Packet;
 use symphonia::core::units::{TimeBase, Timestamp};
 
-use crate::{Error, Result, SourceOpener};
+use crate::{Error, Result, SourceOpener, SparseCacheFile};
+
+/// Downloaded bytes past the reader's position before a streamed source decodes the next
+/// packet: several packets plus container headers, so a decode step does not run into a hole.
+/// The test fixtures are tiny, so tests use less to actually stream them.
+const READ_AHEAD: u64 = if cfg!(test) { 1024 } else { 16 * 1024 };
+/// Downloaded head of a streamed source before it is opened: the container header (and
+/// usually the seek index) must be there, because symphonia's mkv reader treats a failed read
+/// during its header scan as the end of the header.
+const OPEN_BYTES: u64 = if cfg!(test) { 4096 } else { 64 * 1024 };
 
 /// Opus needs ~80 ms of decoded audio after a reset before its output converges.
 const OPUS_PREROLL_MS: u64 = 80;
@@ -109,12 +123,41 @@ pub(crate) struct Decoder {
     drained: bool,
     /// A seek went past the last packet.
     past_end: bool,
+    /// A streamed source waits for the download at this presentation frame: it is reopened and
+    /// sought there once the bytes are in.
+    resume: Option<u64>,
     opener: SourceOpener,
     hint: Option<String>,
 }
 
+/// Whether a streamed source can be opened without running into a hole: its head is there, and
+/// so is whatever an earlier attempt stopped at. A missing head is asked for.
+pub(crate) fn can_open(file: &SparseCacheFile) -> bool {
+    if !file.ready_at(0, OPEN_BYTES) {
+        file.want(0);
+        return false;
+    }
+    file.ready(READ_AHEAD)
+}
+
+/// Maps "the bytes are not downloaded yet" (a non-blocking read's `WouldBlock`, wherever
+/// symphonia wrapped it) to [`Error::Buffering`].
+fn pending(e: Error) -> Error {
+    let would_block = match &e {
+        Error::Io(io) | Error::Decode(SymError::IoError(io)) => io.kind() == ErrorKind::WouldBlock,
+        _ => false,
+    };
+    if would_block { Error::Buffering } else { e }
+}
+
 impl Decoder {
+    /// Opens the source. A streamed one whose header is not downloaded yet fails with
+    /// [`Error::Buffering`] (see [`can_open`]).
     pub fn open(opener: SourceOpener, hint_ext: Option<&str>) -> Result<Self> {
+        Self::try_open(opener, hint_ext).map_err(pending)
+    }
+
+    fn try_open(opener: SourceOpener, hint_ext: Option<&str>) -> Result<Self> {
         let mut src = opener.clone().open()?;
         let edit = mp4_edit(&mut src)?;
         let mss = MediaSourceStream::new(src, Default::default());
@@ -211,6 +254,7 @@ impl Decoder {
             scratch: Vec::new(),
             drained: false,
             past_end: false,
+            resume: None,
             opener,
             hint: hint_ext.map(str::to_string),
         })
@@ -230,8 +274,13 @@ impl Decoder {
     }
 
     /// Decodes the next packet and appends its stereo frames to `out` (possibly none while
-    /// skipping to a seek target). Returns `false` once the stream has ended.
+    /// skipping to a seek target). Returns `false` once the stream has ended, and
+    /// [`Error::Buffering`] (nothing consumed) while a streamed source waits for its bytes.
     pub fn next_chunk(&mut self, out: &mut Vec<f32>) -> Result<bool> {
+        self.resume()?;
+        if !self.ready() {
+            return Err(Error::Buffering);
+        }
         loop {
             let capped = self
                 .cap
@@ -239,8 +288,16 @@ impl Decoder {
             if self.past_end || capped {
                 return Ok(false);
             }
-            let Some(packet) = self.next_packet()? else {
-                return Ok(false);
+            let packet = match self.next_packet() {
+                Ok(Some(p)) => p,
+                Ok(None) => return Ok(false),
+                Err(e) => {
+                    let e = pending(e);
+                    if matches!(e, Error::Buffering) {
+                        self.wait_at(self.position());
+                    }
+                    return Err(e);
+                }
             };
             let last = self.lookahead.is_none();
             let buf = match self.decoder.decode(&packet) {
@@ -301,13 +358,72 @@ impl Decoder {
         }
     }
 
-    /// Moves to `ms` exactly; the next emitted frame is the one at `ms`.
+    /// Moves to `ms` exactly; the next emitted frame is the one at `ms`. On a streamed source
+    /// whose bytes there are missing the seek completes in a later [`Decoder::next_chunk`].
     pub fn seek(&mut self, ms: u64) -> Result<()> {
-        let rate = self.rate as u64;
-        let mut target = ms * rate / 1000;
+        let mut target = ms * self.rate as u64 / 1000;
         if let Some(d) = self.duration {
             target = target.min(d);
         }
+        let res = match self.resume {
+            // Parked after a failed read: the reader's state is undefined.
+            Some(_) => self.reopen().and_then(|()| self.seek_frame(target)),
+            None => self.seek_frame(target),
+        };
+        match res.map_err(pending) {
+            Err(Error::Buffering) => {
+                self.wait_at(target);
+                Ok(())
+            }
+            res => res,
+        }
+    }
+
+    /// Whether the next packet can be read without running into a hole of a streamed source.
+    fn ready(&self) -> bool {
+        match &self.opener {
+            SourceOpener::Sparse(file) => file.ready(READ_AHEAD),
+            _ => true,
+        }
+    }
+
+    /// Parks a streamed source at presentation frame `at` until its bytes are downloaded.
+    fn wait_at(&mut self, at: u64) {
+        self.resume = Some(at);
+        self.target = Some(at);
+        self.pos = at;
+        self.lookahead = None;
+        self.past_end = false;
+    }
+
+    /// Picks a parked stream up again: reopens it (the reader may be anywhere after a failed
+    /// read) and seeks exactly where it stopped.
+    fn resume(&mut self) -> Result<()> {
+        let Some(at) = self.resume else {
+            return Ok(());
+        };
+        if !self.ready() {
+            return Err(Error::Buffering);
+        }
+        match self
+            .reopen()
+            .and_then(|()| self.seek_frame(at))
+            .map_err(pending)
+        {
+            Err(Error::Buffering) => {
+                self.wait_at(at);
+                Err(Error::Buffering)
+            }
+            Err(e) => Err(e),
+            Ok(()) => {
+                self.resume = None;
+                Ok(())
+            }
+        }
+    }
+
+    fn seek_frame(&mut self, target: u64) -> Result<()> {
+        let rate = self.rate as u64;
         let preroll = match self.codec {
             Codec::Opus => OPUS_PREROLL_MS * rate / 1000,
             Codec::Aac => AAC_PREROLL_FRAMES,
@@ -480,9 +596,18 @@ impl Mp4Edit {
 }
 
 /// Reads the head of `src` and looks for an edit list when it is an MP4. Leaves `src` at 0.
+/// A stream still downloading may stop short of [`MP4_HEAD_BYTES`]: that is enough once the
+/// `moov` box is complete.
 fn mp4_edit(src: &mut Box<dyn MediaSource>) -> Result<Option<Mp4Edit>> {
     let mut head = Vec::new();
-    src.by_ref().take(MP4_HEAD_BYTES).read_to_end(&mut head)?;
+    if let Err(e) = src.by_ref().take(MP4_HEAD_BYTES).read_to_end(&mut head) {
+        let enough = e.kind() == ErrorKind::WouldBlock
+            && head.len() >= 8
+            && (head[4..8] != *b"ftyp" || child(&head, b"moov").is_some());
+        if !enough {
+            return Err(e.into());
+        }
+    }
     src.seek(SeekFrom::Start(0))?;
     if head.get(4..8) != Some(b"ftyp") {
         return Ok(None);
