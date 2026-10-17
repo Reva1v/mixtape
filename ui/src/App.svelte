@@ -157,9 +157,9 @@
           </div>
         {/if}
 
-        <main bind:this={layout.scrollEl} class="relative h-full overflow-y-auto">
+        <main bind:this={layout.scrollEl} class="relative h-full overflow-x-hidden overflow-y-auto">
           {#key screenKey}
-          <div in:enter={{ y: router.restoreScroll === null ? 8 : 0, instant: router.restoreScroll !== null }}>
+          <div in:enter={router.direction === "new" ? { y: 8 } : { y: 0, x: router.direction === "back" ? -24 : 24 }}>
           {#if route.name === "home"}
             <Home />
           {:else if route.name === "library"}

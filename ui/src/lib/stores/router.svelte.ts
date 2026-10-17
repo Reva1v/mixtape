@@ -22,6 +22,8 @@ class Router {
   current = $state<Route>({ name: "home" });
   /** Scroll offset to restore after `back`/`forward`; `null` for a new page (top). */
   restoreScroll: number | null = null;
+  /** How the current page was reached; picks the page transition. */
+  direction: "new" | "back" | "forward" = "new";
   /** Reads the main scroll offset; set by the app shell. */
   scrollSource: () => number = () => 0;
 
@@ -44,6 +46,7 @@ class Router {
     if (this.#back.length > 50) this.#back.shift();
     this.#forward = [];
     this.restoreScroll = null;
+    this.direction = "new";
     this.current = route;
   }
 
@@ -57,6 +60,7 @@ class Router {
     if (!prev) return;
     this.#forward.push(this.#here());
     this.restoreScroll = prev.scroll;
+    this.direction = "back";
     this.current = prev.route;
   }
 
@@ -65,6 +69,7 @@ class Router {
     if (!next) return;
     this.#back.push(this.#here());
     this.restoreScroll = next.scroll;
+    this.direction = "forward";
     this.current = next.route;
   }
 }

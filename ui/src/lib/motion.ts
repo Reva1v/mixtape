@@ -71,12 +71,17 @@ export function rise(_node: Element, opts: { y?: number } = {}, ctx?: { directio
 }
 
 /** Entrance for whole screens: content rises a few pixels and fades in. */
-export function enter(_node: Element, opts: { y?: number; instant?: boolean } = {}): TransitionConfig {
-  // Back/forward show the page where it was, without a fade or slide.
-  if (reduced() || opts.instant) return { duration: 0 };
+export function enter(_node: Element, opts: { y?: number; x?: number } = {}): TransitionConfig {
+  if (reduced()) return { duration: 0 };
   const { duration, easing } = curve(springs.smooth);
   const y = opts.y ?? 8;
-  return { duration, easing, css: (t, u) => `opacity:${Math.min(1, t * 1.4)};transform:translateY(${u * y}px)` };
+  const x = opts.x ?? 0;
+  // Back/forward slide sideways only, so the restored scroll position never moves.
+  return {
+    duration,
+    easing,
+    css: (t, u) => `opacity:${Math.min(1, t * 1.4)};transform:translate(${Math.round(u * x)}px,${Math.round(u * y)}px)`,
+  };
 }
 
 /** Plain opacity on a spring, for backdrops. */
