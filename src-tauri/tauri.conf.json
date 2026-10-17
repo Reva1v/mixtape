@@ -47,14 +47,16 @@
       "binaries/deno"
     ],
     "publisher": "Reva1v",
-    "shortDescription": "Плеер для YouTube Music",
-    "longDescription": "Mixtape — плеер для YouTube Music для Windows: библиотека на диске, миксы, тексты.",
+    "shortDescription": "YouTube Music player",
+    "longDescription": "Mixtape is a YouTube Music player for Windows: an offline library, mixes and lyrics.",
     "copyright": "© 2026 Reva1v",
     "category": "Music",
     "windows": {
       "nsis": {
         "installMode": "currentUser",
         "languages": [
+          "English",
+          "Ukrainian",
           "Russian"
         ],
         "displayLanguageSelector": false,
