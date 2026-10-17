@@ -10,6 +10,7 @@
   import { openAlbum } from "$lib/stores/actions";
   import { prompt, toasts } from "$lib/stores/overlay.svelte";
   import { t, tracks } from "$lib/i18n/ru";
+  import { dragScroll } from "$lib/motion";
   import Card from "$lib/ui/Card.svelte";
   import Cover from "$lib/ui/Cover.svelte";
   import TrackList from "$lib/ui/TrackList.svelte";
@@ -75,13 +76,13 @@
 {/snippet}
 
 {#snippet carousel(albums: Album[])}
-  <div class="no-scrollbar -mt-2 flex snap-x gap-7 overflow-x-auto scroll-px-8 px-8 pt-2 pb-2">
+  <div class="no-scrollbar -mt-2 flex snap-x gap-7 overflow-x-auto scroll-px-8 px-8 pt-2 pb-2" {@attach dragScroll()}>
     {#each albums as a (a.id)}
       <div class="w-44 shrink-0 snap-start">
         <Card
           coverKey={a.coverKey}
           title={a.title}
-          subtitle={albumSub(a)}
+          artists={a.artists}
           onopen={() => openAlbum(a)}
           onplay={() => player.play({ kind: "album", id: a.id })}
                 current={!!a && player.track?.album?.id === a.id}

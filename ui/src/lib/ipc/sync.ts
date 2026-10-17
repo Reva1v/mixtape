@@ -30,6 +30,8 @@ export type DownloadsProgress = {
   failed: number;
   current?: { trackId: TrackId; title: string; bytesDone: number; bytesTotal?: number };
   bytesPerSec: number;
+  /** Reading sources from YouTube Music before downloads start; `total` 0 = unknown. */
+  sync?: { label: string; done: number; total: number };
 };
 
 /** A download that gave up; `error` is a Russian, human-readable reason. */

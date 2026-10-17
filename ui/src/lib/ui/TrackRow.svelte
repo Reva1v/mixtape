@@ -3,6 +3,7 @@
   import { formatTime, player } from "$lib/stores/player.svelte";
   import { menu } from "$lib/stores/overlay.svelte";
   import { router } from "$lib/stores/router.svelte";
+  import ArtistLinks from "./ArtistLinks.svelte";
   import { trackMenu, setLiked } from "./trackMenu";
   import Cover from "./Cover.svelte";
   import Equalizer from "./Equalizer.svelte";
@@ -76,12 +77,7 @@
           {/if}
         </div>
         <div class="truncate text-[12.5px] text-ink-3">
-          {#each track.artists as a, i (i)}
-            {#if i > 0},&nbsp;{/if}
-            {#if a.id}
-              <button type="button" class="hover:text-ink hover:underline" onclick={() => router.go({ name: "artist", id: a.id! })}>{a.name}</button>
-            {:else}{a.name}{/if}
-          {/each}
+          <ArtistLinks artists={track.artists} />
         </div>
       </div>
     </div>

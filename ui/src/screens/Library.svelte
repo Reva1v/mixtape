@@ -175,7 +175,8 @@
               <Card
                 coverKey={a?.coverKey}
                 title={a?.title}
-                subtitle={a ? [a.artists.map((x) => x.name).join(", "), a.year].filter(Boolean).join(" • ") : undefined}
+                artists={a?.artists}
+                meta={a?.year}
                 onopen={() => a && openAlbum(a)}
                 onplay={() => a && player.play({ kind: "album", id: a.id })}
                 current={!!a && player.track?.album?.id === a.id}

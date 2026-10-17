@@ -13,9 +13,11 @@ import {
   downloadsPause,
   downloadsResume,
   downloadsSubscribe,
+  syncPreview,
   type AccountStatus,
   type DownloadsProgress,
   type FailedJob,
+  type SyncPreview,
 } from "$lib/ipc/sync";
 import { toasts } from "./overlay.svelte";
 
@@ -31,11 +33,19 @@ class Downloads {
   connectOpen = $state(false);
   importUrl = $state<string | null>(null);
 
+  /** What the account has to sync. Kept between visits to the Downloads screen and
+   * refreshed in the background, so the list does not reload and jump every time. */
+  preview = $state.raw<SyncPreview | null>(null);
+  previewError = $state("");
+  /** The user's picks on the Downloads screen. */
+  pick = $state({ liked: true, albums: false, artists: false, playlistIds: [] as string[] });
+
   #started = false;
+  #previewLoading = false;
 
   /** Downloads are moving right now (not paused). */
   get active() {
-    return this.progress.running && !this.progress.paused;
+    return !!this.progress.sync || (this.progress.running && !this.progress.paused);
   }
 
   async init() {
@@ -87,6 +97,21 @@ class Downloads {
     }
   }
 
+  async loadPreview() {
+    if (this.#previewLoading) return;
+    this.#previewLoading = true;
+    try {
+      const next = await syncPreview();
+      // Replace only on change, so the rendered list stays put.
+      if (JSON.stringify(next) !== JSON.stringify(this.preview)) this.preview = next;
+      this.previewError = "";
+    } catch (e) {
+      if (!this.preview) this.previewError = e instanceof Error && e.message ? e.message : "Не удалось получить список из YouTube Music";
+    } finally {
+      this.#previewLoading = false;
+    }
+  }
+
   /** Throws `IpcError` with a readable message when the cookies are rejected. */
   async connect(cookiesTxt: string) {
     this.account = await accountConnectCookies(cookiesTxt);
@@ -102,6 +127,7 @@ class Downloads {
   async disconnect() {
     await accountDisconnect();
     this.account = { connected: false };
+    this.preview = null;
   }
 
   async refreshFailed() {

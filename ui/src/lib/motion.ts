@@ -169,6 +169,107 @@ export function sheet(_node: Element, _opts?: unknown, ctx?: { direction: "in" |
   return { duration, easing, css: (t, u) => `transform:translateY(${u * 100}%)` };
 }
 
+/**
+ * Drag-to-scroll for horizontal shelves: hold the left mouse button and pull. The shelf
+ * follows the pointer, keeps gliding with the release speed, then snapping resumes.
+ * A drag never ends in a click on the card under the pointer.
+ */
+export function dragScroll(): Attachment<HTMLElement> {
+  return (el) => {
+    const THRESHOLD = 5;
+    let startX = 0;
+    let startLeft = 0;
+    let dragging = false;
+    let pressed = false;
+    let lastX = 0;
+    let lastT = 0;
+    let velocity = 0; // px per ms
+    let raf = 0;
+    let snap = "";
+
+    const stopGlide = () => {
+      cancelAnimationFrame(raf);
+      raf = 0;
+    };
+    const restoreSnap = () => {
+      el.style.scrollSnapType = snap;
+      el.style.cursor = "";
+    };
+
+    function down(e: PointerEvent) {
+      if (e.button !== 0 || e.pointerType !== "mouse") return;
+      stopGlide();
+      pressed = true;
+      dragging = false;
+      startX = lastX = e.clientX;
+      startLeft = el.scrollLeft;
+      lastT = e.timeStamp;
+      velocity = 0;
+    }
+
+    function move(e: PointerEvent) {
+      if (!pressed) return;
+      const dx = e.clientX - startX;
+      if (!dragging) {
+        if (Math.abs(dx) < THRESHOLD) return;
+        dragging = true;
+        snap = el.style.scrollSnapType;
+        el.style.scrollSnapType = "none";
+        el.style.cursor = "grabbing";
+        el.setPointerCapture(e.pointerId);
+      }
+      const dt = Math.max(1, e.timeStamp - lastT);
+      velocity = 0.8 * ((lastX - e.clientX) / dt) + 0.2 * velocity;
+      lastX = e.clientX;
+      lastT = e.timeStamp;
+      el.scrollLeft = startLeft - dx;
+    }
+
+    function up(e: PointerEvent) {
+      if (!pressed) return;
+      pressed = false;
+      if (!dragging) return;
+      if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+      // Swallow the click that follows the drag.
+      el.addEventListener("click", (c) => (c.preventDefault(), c.stopPropagation()), { capture: true, once: true });
+      setTimeout(() => (dragging = false));
+      // Glide with exponential decay, then hand back to CSS snapping.
+      let prev = performance.now();
+      const glide = (now: number) => {
+        const dt = now - prev;
+        prev = now;
+        velocity *= Math.pow(0.995, dt);
+        if (Math.abs(velocity) < 0.02) {
+          raf = 0;
+          restoreSnap();
+          return;
+        }
+        el.scrollLeft += velocity * dt;
+        raf = requestAnimationFrame(glide);
+      };
+      if (reduced() || Math.abs(velocity) < 0.05) restoreSnap();
+      else raf = requestAnimationFrame(glide);
+    }
+
+    // Native image dragging would hijack the gesture.
+    const noNativeDrag = (e: DragEvent) => e.preventDefault();
+
+    el.addEventListener("pointerdown", down);
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+    el.addEventListener("dragstart", noNativeDrag);
+    return () => {
+      stopGlide();
+      el.removeEventListener("pointerdown", down);
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+      el.removeEventListener("dragstart", noNativeDrag);
+    };
+  };
+}
+
 /** Non-passive wheel listener, so the handler can stop the page from scrolling. */
 export function onWheel(handler: (e: WheelEvent) => void): Attachment<HTMLElement> {
   return (el) => {

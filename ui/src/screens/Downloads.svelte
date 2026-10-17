@@ -1,7 +1,7 @@
 <script lang="ts">
   // Sync and downloads (T066): what to fetch from YouTube Music, overall progress, the
   // track being downloaded, and downloads that failed with their reasons.
-  import { syncPreview, syncStart, type SyncPreview } from "$lib/ipc/sync";
+  import { syncStart } from "$lib/ipc/sync";
   import { downloads } from "$lib/stores/downloads.svelte";
   import { toasts } from "$lib/stores/overlay.svelte";
   import { pressable } from "$lib/motion";
@@ -22,41 +22,28 @@
   const account = $derived(downloads.account);
   const progress = $derived(downloads.progress);
 
-  let preview = $state.raw<SyncPreview | null>(null);
-  let previewError = $state("");
-  let liked = $state(true);
-  let albums = $state(false);
-  let artists = $state(false);
-  let playlistIds = $state<string[]>([]);
+  // The list and the picks live in the store: no reload and no jump on every visit.
+  const preview = $derived(downloads.preview);
+  const previewError = $derived(downloads.previewError);
+  const pick = downloads.pick;
   let starting = $state(false);
 
-  async function loadPreview() {
-    previewError = "";
-    try {
-      preview = await syncPreview();
-    } catch (e) {
-      preview = null;
-      previewError = e instanceof Error && e.message ? e.message : "Не удалось получить список из YouTube Music";
-    }
-  }
-
   $effect(() => {
-    if (account.connected) void loadPreview();
-    else preview = null;
+    if (account.connected) void downloads.loadPreview();
   });
 
-  const allPlaylists = $derived(!!preview && preview.playlists.length > 0 && playlistIds.length === preview.playlists.length);
-  const nothingChosen = $derived(!liked && !albums && !artists && playlistIds.length === 0);
+  const allPlaylists = $derived(!!preview && preview.playlists.length > 0 && pick.playlistIds.length === preview.playlists.length);
+  const nothingChosen = $derived(!pick.liked && !pick.albums && !pick.artists && pick.playlistIds.length === 0);
 
   function togglePlaylist(id: string, on: boolean) {
-    playlistIds = on ? [...playlistIds, id] : playlistIds.filter((x) => x !== id);
+    pick.playlistIds = on ? [...pick.playlistIds, id] : pick.playlistIds.filter((x) => x !== id);
   }
 
   async function start() {
     if (nothingChosen || starting) return;
     starting = true;
     try {
-      await syncStart({ liked, playlistIds, albums, artists });
+      await syncStart({ ...pick, playlistIds: [...pick.playlistIds] });
       toasts.push("Синхронизация запущена — скачиваются только новые треки");
     } catch (e) {
       toasts.push(e instanceof Error && e.message ? e.message : "Не удалось запустить синхронизацию", "error");
@@ -84,6 +71,8 @@
     progress.paused ? "На паузе" : progress.running ? "Скачивается" : finished ? "Готово" : "Остановлено",
   );
   const showProgress = $derived(progress.running || progress.total > 0);
+  const sync = $derived(progress.sync);
+  const syncPercent = $derived(sync && sync.total > 0 ? Math.min(100, (sync.done / sync.total) * 100) : 0);
   const empty = $derived(!account.connected && !showProgress && downloads.failed.length === 0);
 </script>
 
@@ -145,6 +134,22 @@
     </EmptyState>
     </div>
   {:else}
+    {#if sync}
+      <section class="mb-4 rounded-lg bg-white/[0.04] px-5 py-4" aria-live="polite">
+        <div class="flex items-baseline gap-2">
+          <span class="text-[14.5px] font-medium">Синхронизация</span>
+          <span class="text-[13px] text-ink-3 tnum">{sync.label}{#if sync.total > 0}&nbsp;· {sync.done} из {sync.total}{/if}…</span>
+        </div>
+        <div class="mt-0.5 text-[13px] text-ink-3">Читаю YouTube Music — загрузка начнётся сразу после этого</div>
+        <div class="mt-3 h-[3px] overflow-hidden rounded-full bg-fill-2" role="progressbar" aria-label="Синхронизация">
+          {#if sync.total > 0}
+            <div class="h-full rounded-full bg-ink transition-[width] duration-(--spring-smooth-ms)" style:width="{syncPercent}%"></div>
+          {:else}
+            <div class="indeterminate h-full w-1/3 rounded-full bg-ink"></div>
+          {/if}
+        </div>
+      </section>
+    {/if}
     {#if showProgress}
       <section class="mb-8 rounded-lg bg-white/[0.04] px-5 py-4">
         <div class="flex items-center gap-4">
@@ -190,7 +195,7 @@
             <button
               type="button"
               class="text-[12.5px] text-ink-3 transition-colors hover:text-ink"
-              onclick={() => (playlistIds = allPlaylists ? [] : preview!.playlists.map((p) => p.id))}
+              onclick={() => (pick.playlistIds = allPlaylists ? [] : preview!.playlists.map((p) => p.id))}
             >
               {allPlaylists ? "Снять все плейлисты" : "Выбрать все плейлисты"}
             </button>
@@ -199,24 +204,24 @@
 
         <div class="divide-y divide-line overflow-hidden rounded-lg bg-white/[0.04]">
           {#if preview}
-            {@render sourceRow(liked, t.library.liked, tracks(preview.liked), IconHeart, (v) => (liked = v))}
+            {@render sourceRow(pick.liked, t.library.liked, tracks(preview.liked), IconHeart, (v) => (pick.liked = v))}
             {@render sourceRow(
-              albums,
+              pick.albums,
               "Сохранённые альбомы",
               `${preview.albums} ${plural(preview.albums, "альбом", "альбома", "альбомов")}`,
               IconAlbum,
-              (v) => (albums = v),
+              (v) => (pick.albums = v),
             )}
             {@render sourceRow(
-              artists,
+              pick.artists,
               "Исполнители из библиотеки",
               `${preview.artists} ${plural(preview.artists, "исполнитель", "исполнителя", "исполнителей")} · вся дискография`,
               IconArtist,
-              (v) => (artists = v),
+              (v) => (pick.artists = v),
             )}
             {#each preview.playlists as pl (pl.id)}
               <label class="flex h-[60px] items-center gap-4 px-5 transition-colors hover:bg-fill-1">
-                {@render checkbox(playlistIds.includes(pl.id), pl.title, (v) => togglePlaylist(pl.id, v))}
+                {@render checkbox(pick.playlistIds.includes(pl.id), pl.title, (v) => togglePlaylist(pl.id, v))}
                 <Cover coverKey={pl.coverKey} size={40} rounded="sm" />
                 <div class="min-w-0 flex-1">
                   <div class="truncate text-[14px]">{pl.title}</div>
@@ -230,7 +235,7 @@
               <button
                 type="button"
                 class="h-9 shrink-0 rounded-full bg-fill-2 px-4 text-[13px] font-medium text-ink transition-colors hover:bg-fill-3"
-                onclick={loadPreview}
+                onclick={() => downloads.loadPreview()}
               >
                 {t.common.retry}
               </button>
@@ -249,13 +254,13 @@
         <div class="mt-4 flex items-center gap-4">
           <button
             type="button"
-            disabled={!preview || nothingChosen || starting}
+            disabled={!preview || nothingChosen || starting || !!sync}
             class="flex h-9 items-center gap-2 rounded-full bg-ink px-5 text-[13px] font-semibold text-black transition-[background-color,opacity]
               hover:bg-[#dcdcdc] disabled:opacity-40 disabled:hover:bg-ink"
             {@attach pressable(0.95)}
             onclick={start}
           >
-            <IconDownload class="size-4" />Синхронизировать
+            <IconDownload class="size-4" />{sync ? "Идёт синхронизация…" : "Синхронизировать"}
           </button>
           <span class="text-[12.5px] leading-snug text-ink-3">Скачиваются только новые треки, состав плейлистов обновляется.</span>
         </div>
@@ -313,3 +318,18 @@
     {/if}
   {/if}
 </div>
+
+<style>
+  /* A sliding segment for work of unknown length. */
+  .indeterminate {
+    animation: slide 1.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+  @keyframes slide {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(300%);
+    }
+  }
+</style>

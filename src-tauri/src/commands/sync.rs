@@ -7,8 +7,8 @@ use crate::state::AppState;
 use mixtape_core::{AppError, ErrorKind, Playlist, PlaylistId, PlaylistOrigin};
 use mixtape_library::jobs::{self, FailedJob};
 use mixtape_library::views::ViewKind;
-use mixtape_sync::downloader::DownloadsProgress;
-use mixtape_sync::sources::{self, ImportResult, SyncPlan};
+use mixtape_sync::downloader::{DownloadsProgress, SyncStatus};
+use mixtape_sync::sources::{self, ImportResult, SyncPlan, SyncStage};
 use mixtape_sync::url_import;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -101,6 +101,18 @@ pub async fn sync_preview(state: State<'_, Arc<AppState>>) -> CmdResult<SyncPrev
     Ok(SyncPreview { liked: p.liked as u32, playlists, albums: p.albums as u32, artists: p.artists as u32 })
 }
 
+fn sync_status(stage: &SyncStage) -> SyncStatus {
+    let (label, done, total) = match stage {
+        SyncStage::Liked => ("Читаю лайки", 0, 0),
+        SyncStage::Playlist(_) => ("Читаю плейлисты", 0, 0),
+        SyncStage::Albums { done, total } => ("Читаю альбомы", *done, *total),
+        SyncStage::Artists { done, total } => ("Читаю исполнителей", *done, *total),
+        SyncStage::Covers { done, total } => ("Скачиваю обложки", *done, *total),
+        SyncStage::Saving => ("Сохраняю в библиотеку", 0, 0),
+    };
+    SyncStatus { label: label.into(), done: done as u32, total: total as u32 }
+}
+
 /// Runs the sync in the background; progress shows up through the downloads channel.
 #[tauri::command]
 pub async fn sync_start(
@@ -118,9 +130,13 @@ pub async fn sync_start(
     let plan = SyncPlan { liked, playlist_ids, albums, artists };
     tauri::async_runtime::spawn(async move {
         let _ = st.db.write(|t| jobs::clear_done(t));
-        let result =
-            sources::run(&*st.yt, st.yt.http(), &st.db, &st.covers, &plan, |stage| tracing::debug!(?stage, "sync")).await;
+        st.downloads.set_sync(Some(sync_status(&SyncStage::Liked)));
+        let result = sources::run(&*st.yt, st.yt.http(), &st.db, &st.covers, &plan, |stage| {
+            st.downloads.set_sync(Some(sync_status(&stage)));
+        })
+        .await;
         st.syncing.store(false, Ordering::SeqCst);
+        st.downloads.set_sync(None);
         match result {
             Ok(report) => {
                 tracing::info!(tracks = report.tracks, queued = report.queued, errors = report.errors.len(), "sync done");

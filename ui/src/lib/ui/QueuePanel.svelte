@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { dragScroll } from "$lib/motion";
   import { invoke } from "$lib/ipc";
   import type { QueueView } from "$lib/ipc/bindings/QueueView";
   import type { QueueEntry } from "$lib/ipc/bindings/QueueEntry";
@@ -250,7 +251,7 @@
   </div>
 
   {#if view?.chips?.length}
-    <div class="flex shrink-0 gap-1.5 overflow-x-auto px-5 pb-3 [scrollbar-width:none]">
+    <div class="flex shrink-0 gap-1.5 overflow-x-auto px-5 pb-3 [scrollbar-width:none]" {@attach dragScroll()}>
       <span class="mr-1 grid shrink-0 place-items-center text-ink-3"><IconRadio class="size-4" /></span>
       {#each view.chips as c (c.id)}
         <button

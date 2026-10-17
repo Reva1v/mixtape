@@ -106,7 +106,7 @@
               <Card
                 coverKey={a.coverKey}
                 title={a.title}
-                subtitle={a.artists.map((x) => x.name).join(", ")}
+                artists={a.artists}
                 onopen={() => openAlbum(a)}
                 onplay={() => player.play({ kind: "album", id: a.id })}
                 current={!!a && player.track?.album?.id === a.id}

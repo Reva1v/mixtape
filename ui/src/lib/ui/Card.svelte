@@ -6,11 +6,17 @@
   import { player } from "$lib/stores/player.svelte";
   import { liftable, pressable } from "$lib/motion";
   import IconMusic from "~icons/solar/music-note-2-linear";
+  import ArtistLinks from "./ArtistLinks.svelte";
+  import type { ArtistRef } from "$lib/ipc/bindings/ArtistRef";
 
   interface Props {
     coverKey?: string | null;
     title?: string;
     subtitle?: string;
+    /** Shown as links in the subtitle, after `subtitle` and before `meta`. */
+    artists?: ArtistRef[];
+    /** Trailing subtitle part, e.g. the year. */
+    meta?: string | number;
     round?: boolean;
     onopen?: () => void;
     onplay?: () => void;
@@ -19,7 +25,7 @@
     oncontextmenu?: (e: MouseEvent) => void;
   }
 
-  let { coverKey, title, subtitle, round = false, onopen, onplay, oncontextmenu, current = false }: Props = $props();
+  let { coverKey, title, subtitle, artists, meta, round = false, onopen, onplay, oncontextmenu, current = false }: Props = $props();
   const showPause = $derived(current && player.playing);
   let failed = $state(false);
   const shape = $derived(round ? "rounded-full" : "rounded-md");
@@ -71,8 +77,12 @@
       <button type="button" class="block w-full truncate text-[14.5px] font-medium text-ink hover:underline {round ? 'text-center' : 'text-left'}" onclick={onopen}>
         {title}
       </button>
-      {#if subtitle}
-        <div class="mt-0.5 truncate text-[13px] text-ink-3">{subtitle}</div>
+      {#if subtitle || artists?.length || meta}
+        <div class="mt-0.5 truncate text-[13px] text-ink-3">
+          {#if subtitle}{subtitle}{/if}{#if subtitle && artists?.length}&nbsp;•&nbsp;{/if}{#if artists?.length}<ArtistLinks
+              {artists}
+            />{/if}{#if meta && (subtitle || artists?.length)}&nbsp;•&nbsp;{/if}{#if meta}{meta}{/if}
+        </div>
       {/if}
     </div>
   </div>

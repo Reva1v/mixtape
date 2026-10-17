@@ -31,7 +31,15 @@ const progress: DownloadsProgress = { running: true, paused: false, done: 57, to
 let channel: Channel<DownloadsProgress> | null = null;
 let bytes = 0;
 
+/** Fake source sync: a few seconds of reading, then covers with a counter. */
+let syncTicks = 0;
+
 setInterval(() => {
+  if (syncTicks > 0) {
+    syncTicks--;
+    progress.sync = syncTicks > 20 ? { label: "Читаю лайки", done: 0, total: 0 } : syncTicks > 0 ? { label: "Скачиваю обложки", done: 20 - syncTicks, total: 20 } : undefined;
+    channel?.onmessage({ ...progress, failed: failed.length });
+  }
   if (!progress.running || progress.paused) return;
   const total = 5_400_000;
   bytes += 260_000 + Math.random() * 120_000;
@@ -63,6 +71,8 @@ mockIPC(
       case "sync_preview":
         return new Promise((r) => setTimeout(() => r(preview), 600));
       case "sync_start":
+        syncTicks = 32;
+        return null;
       case "downloads_resume":
         progress.running = true;
         progress.paused = false;

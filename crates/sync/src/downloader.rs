@@ -38,6 +38,20 @@ pub struct DownloadsProgress {
     pub current: Option<CurrentDownload>,
     #[ts(type = "number")]
     pub bytes_per_sec: u64,
+    /// Reading sources from YouTube Music before downloads start.
+    #[ts(optional)]
+    pub sync: Option<SyncStatus>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SyncStatus {
+    /// What is being read, in Russian: «Читаю лайки», «Скачиваю обложки»…
+    pub label: String,
+    pub done: u32,
+    /// 0 when the amount is not known yet.
+    pub total: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -91,6 +105,7 @@ struct Inner {
     active: Mutex<HashMap<i64, Active>>,
     speed: Mutex<Speed>,
     last_emit: Mutex<Instant>,
+    sync: Mutex<Option<SyncStatus>>,
 }
 
 struct Active {
@@ -145,6 +160,7 @@ impl Downloader {
             active: Mutex::new(HashMap::new()),
             speed: Mutex::new(Speed::default()),
             last_emit: Mutex::new(Instant::now() - EMIT_EVERY),
+            sync: Mutex::new(None),
         });
         for _ in 0..WORKERS {
             rt.spawn(worker(inner.clone()));
@@ -184,6 +200,18 @@ impl Downloader {
     pub fn snapshot(&self) -> DownloadsProgress {
         self.inner.snapshot()
     }
+
+    /// Shows a source sync in the progress; `None` when it ends. A new label is sent at
+    /// once, counter updates are throttled like download progress.
+    pub fn set_sync(&self, status: Option<SyncStatus>) {
+        let force = {
+            let mut cur = self.inner.sync.lock().unwrap_or_else(|e| e.into_inner());
+            let changed = cur.as_ref().map(|s| &s.label) != status.as_ref().map(|s| &s.label);
+            *cur = status;
+            changed
+        };
+        self.inner.emit(force);
+    }
 }
 
 impl Inner {
@@ -213,6 +241,7 @@ impl Inner {
             failed: s.failed,
             current,
             bytes_per_sec: self.speed.lock().unwrap_or_else(|e| e.into_inner()).rate(),
+            sync: self.sync.lock().unwrap_or_else(|e| e.into_inner()).clone(),
         }
     }
 
