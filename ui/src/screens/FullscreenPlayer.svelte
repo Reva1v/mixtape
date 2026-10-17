@@ -147,28 +147,20 @@
     {/if}
   </div>
 
-  <!-- Queue as a bottom sheet over the player. -->
+  <!-- Queue as a bottom sheet over the player, which blurs out behind it. Clicking any
+       empty space (outside rows and controls) closes it. -->
   {#if queueOpen}
-    <button
-      type="button"
-      aria-label="Закрыть очередь"
-      class="absolute inset-0 z-20 cursor-default bg-black/40"
-      transition:fadeSpring
-      onclick={() => (queueOpen = false)}
-    ></button>
+    <div class="absolute inset-0 z-20 bg-black/55 backdrop-blur-[40px]" transition:fadeSpring></div>
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
     <div
-      class="absolute inset-x-0 bottom-0 z-30 mx-auto flex h-[78%] max-w-[720px] flex-col"
-      transition:sheet
+      class="absolute inset-0 z-30 flex justify-center"
+      onclick={(e) => {
+        if (!(e.target as HTMLElement).closest("[role=listitem], button, [role=slider], input")) queueOpen = false;
+      }}
     >
-      <button
-        type="button"
-        aria-label="Закрыть очередь"
-        class="mx-auto mt-2.5 mb-1 flex h-5 w-full shrink-0 items-start justify-center"
-        onclick={() => (queueOpen = false)}
-      >
-        <span class="h-1 w-10 rounded-full bg-white/25"></span>
-      </button>
-      <div class="min-h-0 flex-1"><QueuePanel variant="cards" /></div>
+      <div class="flex h-[80%] w-full max-w-[720px] flex-col self-end" transition:sheet>
+        <div class="min-h-0 flex-1"><QueuePanel variant="cards" /></div>
+      </div>
     </div>
   {/if}
 </div>
