@@ -7,6 +7,7 @@
   import Cover from "./Cover.svelte";
   import Equalizer from "./Equalizer.svelte";
   import IconPlay from "~icons/solar/play-bold";
+  import IconPause from "~icons/solar/pause-bold";
   import IconHeart from "~icons/solar/heart-bold";
   import IconMore from "~icons/solar/menu-dots-bold";
   import IconCloud from "~icons/solar/cloud-linear";
@@ -40,7 +41,7 @@
     class="group grid h-[52px] grid-cols-[36px_minmax(0,1.6fr)_minmax(0,1fr)_32px_56px_32px] items-center gap-3 rounded-md px-3
       transition-colors duration-100 hover:bg-fill-2 {current ? 'bg-fill-1' : ''}"
     class:no-album={!showAlbum}
-    ondblclick={onplay}
+    ondblclick={() => (current ? player.toggle() : onplay())}
     oncontextmenu={openMenu}
   >
     <div class="grid place-items-center text-[13px] text-ink-3 tnum">
@@ -49,8 +50,14 @@
       {:else}
         <span class="group-hover:hidden">{number ?? index + 1}</span>
       {/if}
-      <button type="button" aria-label="Играть" class="hidden text-ink group-hover:block" onclick={onplay}>
-        <IconPlay class="size-4" />
+      <!-- On the current track the button pauses/resumes instead of restarting it. -->
+      <button
+        type="button"
+        aria-label={current && player.playing ? "Пауза" : "Играть"}
+        class="hidden text-ink group-hover:block"
+        onclick={() => (current ? player.toggle() : onplay())}
+      >
+        {#if current && player.playing}<IconPause class="size-4" />{:else}<IconPlay class="size-4" />{/if}
       </button>
     </div>
 
