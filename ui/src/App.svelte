@@ -4,6 +4,7 @@
   import { layout } from "$lib/stores/layout.svelte";
   import { player } from "$lib/stores/player.svelte";
   import { handleHotkey } from "$lib/stores/hotkeys";
+  import { enter, springWidth } from "$lib/motion";
   import { toasts } from "$lib/stores/overlay.svelte";
   import { on } from "$lib/ipc";
   import { t } from "$lib/i18n/ru";
@@ -43,11 +44,23 @@
   }
 
   const route = $derived(router.current);
+  // Screens animate in when they change, but not while typing a search or switching tabs.
+  const screenKey = $derived(
+    route.name === "search" || route.name === "library" ? route.name : JSON.stringify(route),
+  );
 
   // Panel content shown in the drawer; lags behind `layout.drawer` while closing.
   let shownDrawer = $state<"queue" | "lyrics" | null>(null);
+  let drawerCol = $state<HTMLDivElement>();
   $effect(() => {
-    if (layout.drawer) shownDrawer = layout.drawer;
+    const open = layout.drawer;
+    if (open) shownDrawer = open;
+    if (!drawerCol) return;
+    const css = getComputedStyle(document.documentElement);
+    const width = parseFloat(css.getPropertyValue("--drawer-w")) + parseFloat(css.getPropertyValue("--gap"));
+    void springWidth(drawerCol, open ? width : 0).then(() => {
+      if (!layout.drawer) shownDrawer = null;
+    });
   });
 </script>
 
@@ -72,6 +85,8 @@
         <div class="absolute top-0 right-[150px] left-0 z-10 h-7" data-tauri-drag-region></div>
 
         <main bind:this={layout.scrollEl} class="relative h-full overflow-y-auto">
+          {#key screenKey}
+          <div in:enter>
           {#if route.name === "home"}
             <Home />
           {:else if route.name === "library"}
@@ -87,19 +102,16 @@
           {:else}
             <EmptyState icon={IconSoon} title={t.common.soon} />
           {/if}
+          </div>
+          {/key}
         </main>
       </div>
 
       <!-- Side panel: the column width animates, so the content area narrows smoothly;
            the panel stays mounted until the closing animation ends. -->
-      <div
-        class="shrink-0 overflow-hidden transition-[width] duration-300 ease-out-soft"
-        style:width={layout.drawer ? "calc(var(--drawer-w) + var(--gap))" : "0px"}
-        style:margin-left="calc(-1 * var(--gap))"
-        ontransitionend={(e) => e.target === e.currentTarget && !layout.drawer && (shownDrawer = null)}
-      >
+      <div bind:this={drawerCol} class="w-0 shrink-0 overflow-hidden" style:margin-left="calc(-1 * var(--gap))">
         <aside
-          class="ml-(--gap) h-full w-(--drawer-w) overflow-hidden rounded-xl bg-panel pt-10 transition-opacity duration-300
+          class="ml-(--gap) h-full w-(--drawer-w) overflow-hidden rounded-xl bg-panel pt-10 transition-opacity duration-(--spring-smooth-ms)
             {layout.drawer ? 'opacity-100' : 'opacity-0'}"
         >
           {#if shownDrawer === "queue"}

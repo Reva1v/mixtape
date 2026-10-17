@@ -12,6 +12,7 @@
   import { menu } from "$lib/stores/overlay.svelte";
   import { t } from "$lib/i18n/ru";
   import { fade } from "svelte/transition";
+  import { fadeSpring, pop, springs } from "$lib/motion";
   import { trackMenu } from "$lib/ui/trackMenu";
   import Cover from "$lib/ui/Cover.svelte";
   import Transport from "$lib/ui/Transport.svelte";
@@ -47,9 +48,9 @@
 
 <svelte:window onkeydown={onKey} bind:innerHeight={height} />
 
-<div class="fixed inset-0 z-40 overflow-hidden bg-[#070709]" transition:fade={{ duration: 220 }}>
+<div class="fixed inset-0 z-40 overflow-hidden bg-[#070709]" transition:fadeSpring data-tauri-drag-region>
   {#key bg}
-    <div class="absolute inset-0" transition:fade={{ duration: 1200 }}>
+    <div class="pointer-events-none absolute inset-0" transition:fade={{ duration: 1200 }}>
       {#if bg}
         <img src={bg} alt="" class="layer layer-a" />
         <img src={bg} alt="" class="layer layer-b" />
@@ -57,13 +58,12 @@
     </div>
   {/key}
   <!-- Darken heavily and keep only a soft glow behind the content. -->
-  <div class="absolute inset-0 bg-black/70"></div>
+  <div class="pointer-events-none absolute inset-0 bg-black/70"></div>
   <div
-    class="absolute inset-0 transition-[background] duration-700"
+    class="pointer-events-none absolute inset-0 transition-[background] duration-700"
     style:background="radial-gradient(60% 75% at {lyrics ? '30%' : '50%'} 50%, transparent 0%, rgb(0 0 0 / 0.55) 70%, rgb(0 0 0 / 0.85) 100%)"
   ></div>
 
-  <div class="absolute inset-x-0 top-0 h-(--titlebar-h)" data-tauri-drag-region></div>
 
   <button
     type="button"
@@ -76,10 +76,10 @@
     <IconCollapse class="size-[18px]" />
   </button>
 
-  <div class="relative grid h-full transition-[grid-template-columns] duration-500 ease-out-soft {lyrics ? 'grid-cols-2' : 'grid-cols-1'}">
+  <div data-tauri-drag-region class="relative grid h-full transition-[grid-template-columns] duration-500 ease-out-soft {lyrics ? 'grid-cols-2' : 'grid-cols-1'}">
     {#if track}
       <!-- Player column -->
-      <section class="flex flex-col items-center justify-center px-8" style:width="100%">
+      <section data-tauri-drag-region class="flex flex-col items-center justify-center px-8" style:width="100%" in:pop={{ scale: 0.97, y: 18, spring: springs.gentle }}>
         <div class="relative" style:width="{coverSize}px">
           <Cover coverKey={track.coverKey} size={coverSize} rounded="lg" class="shadow-[0_30px_80px_-24px_rgb(0_0_0/0.95)]" />
           <button
@@ -124,7 +124,7 @@
 
       {#if lyrics}
         <!-- Lyrics column (US5). -->
-        <section class="flex min-w-0 items-center pr-16 pl-4" transition:fade={{ duration: 250 }}>
+        <section data-tauri-drag-region class="flex min-w-0 items-center pr-16 pl-4" transition:fade={{ duration: 250 }}>
           <p class="text-[30px] leading-snug font-bold text-ink-3">Тексты песен появятся позже</p>
         </section>
       {/if}

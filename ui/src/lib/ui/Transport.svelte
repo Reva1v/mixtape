@@ -3,6 +3,7 @@
   // bare glyphs of the full-screen player.
   import { player } from "$lib/stores/player.svelte";
   import { t } from "$lib/i18n/ru";
+  import { pressable } from "$lib/motion";
   import IconPlay from "~icons/solar/play-bold";
   import IconPause from "~icons/solar/pause-bold";
   import IconPrev from "~icons/solar/skip-previous-bold";
@@ -24,37 +25,45 @@
 
 {#if variant === "full"}
   <div class="flex items-center gap-8 text-ink">
-    <button type="button" aria-label={t.player.shuffle} class="flex flex-col items-center gap-1 pt-2 transition-opacity hover:opacity-100 {player.state.shuffle ? 'opacity-100' : 'opacity-45'}" onclick={() => player.toggleShuffle()}>
+    <button {@attach pressable()}
+    type="button" aria-label={t.player.shuffle} class="flex flex-col items-center gap-1 pt-2 transition-opacity hover:opacity-100 {player.state.shuffle ? 'opacity-100' : 'opacity-45'}" onclick={() => player.toggleShuffle()}>
       <IconShuffle class="size-[18px]" />{@render dot(player.state.shuffle)}
     </button>
-    <button type="button" aria-label={t.player.prev} class="opacity-90 transition-transform hover:opacity-100 active:scale-90" onclick={() => player.prev()}>
+    <button {@attach pressable()}
+    type="button" aria-label={t.player.prev} class="opacity-90 transition-opacity hover:opacity-100" onclick={() => player.prev()}>
       <IconPrev class="size-6" />
     </button>
-    <button type="button" aria-label={player.playing ? t.player.pause : t.player.play} class="transition-[opacity,transform] duration-100 hover:opacity-80 active:scale-[0.93]" onclick={() => player.toggle()}>
+    <button {@attach pressable()}
+    type="button" aria-label={player.playing ? t.player.pause : t.player.play} class="transition-opacity hover:opacity-80" onclick={() => player.toggle()}>
       {#if busy}<IconLoader class="size-8 animate-spin" />{:else if player.playing}<IconPause class="size-8" />{:else}<IconPlay class="size-8" />{/if}
     </button>
-    <button type="button" aria-label={t.player.next} class="opacity-90 transition-transform hover:opacity-100 active:scale-90" onclick={() => player.next()}>
+    <button {@attach pressable()}
+    type="button" aria-label={t.player.next} class="opacity-90 transition-opacity hover:opacity-100" onclick={() => player.next()}>
       <IconNext class="size-6" />
     </button>
-    <button type="button" aria-label={repeatLabel} class="flex flex-col items-center gap-1 pt-2 transition-opacity hover:opacity-100 {player.state.repeat !== 'off' ? 'opacity-100' : 'opacity-45'}" onclick={() => player.cycleRepeat()}>
+    <button {@attach pressable()}
+    type="button" aria-label={repeatLabel} class="flex flex-col items-center gap-1 pt-2 transition-opacity hover:opacity-100 {player.state.repeat !== 'off' ? 'opacity-100' : 'opacity-45'}" onclick={() => player.cycleRepeat()}>
       {#if player.state.repeat === "one"}<IconRepeatOne class="size-[18px]" />{:else}<IconRepeat class="size-[18px]" />{/if}
       {@render dot(player.state.repeat !== "off")}
     </button>
   </div>
 {:else}
   <div class="flex items-center gap-5">
-    <button type="button" aria-label={t.player.prev} class="text-ink-2 transition-[color,transform] hover:text-ink active:scale-90" onclick={() => player.prev()}>
+    <button {@attach pressable()}
+    type="button" aria-label={t.player.prev} class="text-ink-2 transition-colors hover:text-ink" onclick={() => player.prev()}>
       <IconPrev class="size-[22px]" />
     </button>
     <button
+      {@attach pressable()}
       type="button"
       aria-label={player.playing ? t.player.pause : t.player.play}
-      class="grid size-10 place-items-center rounded-full bg-ink text-black transition-[background-color,transform] duration-100 hover:bg-[#dcdcdc] active:scale-[0.93]"
+      class="grid size-10 place-items-center rounded-full bg-ink text-black transition-[background-color] hover:bg-[#dcdcdc]"
       onclick={() => player.toggle()}
     >
       {#if busy}<IconLoader class="size-5 animate-spin" />{:else if player.playing}<IconPause class="size-5" />{:else}<IconPlay class="size-5 translate-x-px" />{/if}
     </button>
-    <button type="button" aria-label={t.player.next} class="text-ink-2 transition-[color,transform] hover:text-ink active:scale-90" onclick={() => player.next()}>
+    <button {@attach pressable()}
+    type="button" aria-label={t.player.next} class="text-ink-2 transition-colors hover:text-ink" onclick={() => player.next()}>
       <IconNext class="size-[22px]" />
     </button>
   </div>

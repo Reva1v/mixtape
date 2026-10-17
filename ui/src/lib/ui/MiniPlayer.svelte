@@ -8,6 +8,7 @@
   import { router } from "$lib/stores/router.svelte";
   import { menu } from "$lib/stores/overlay.svelte";
   import { t } from "$lib/i18n/ru";
+  import { pressable } from "$lib/motion";
   import { setLiked, trackMenu } from "./trackMenu";
   import Cover from "./Cover.svelte";
   import Transport from "./Transport.svelte";
@@ -56,6 +57,7 @@
     aria-label={label}
     title={label}
     {disabled}
+    {@attach pressable(0.86)}
     class="grid size-8 place-items-center rounded-md transition-colors disabled:opacity-30
       {active ? 'text-ink' : 'text-[#8a8a8e] hover:text-ink'}"
     {onclick}
@@ -98,7 +100,8 @@
       ></div>
       <button
         type="button"
-        class="relative shrink-0 transition-transform active:scale-95"
+        {@attach pressable(0.94)}
+        class="relative shrink-0"
         aria-label={t.player.fullscreen}
         onclick={() => (layout.fullscreen = true)}
         oncontextmenu={(e) => {
@@ -128,7 +131,8 @@
       <button
         type="button"
         aria-label={track.liked ? t.track.unlike : t.track.like}
-        class="relative ml-auto grid size-8 shrink-0 place-items-center transition-[color,transform] active:scale-90
+        {@attach pressable(0.8)}
+        class="relative ml-auto grid size-8 shrink-0 place-items-center transition-colors
           {track.liked ? 'text-ink' : 'text-[#8a8a8e] hover:text-ink'}"
         onclick={() => setLiked(track, !track.liked)}
       >

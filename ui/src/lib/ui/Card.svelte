@@ -2,6 +2,7 @@
   // Album / artist / playlist card: square cover, title, subtitle, hover play button.
   import { coverUrl } from "$lib/ipc";
   import IconPlay from "~icons/solar/play-bold";
+  import { liftable, pressable } from "$lib/motion";
   import IconMusic from "~icons/solar/music-note-2-linear";
 
   interface Props {
@@ -26,7 +27,7 @@
   </div>
 {:else}
   <div class="group min-w-0" role="group" {oncontextmenu}>
-    <div class="relative transition-transform duration-300 ease-out-soft group-hover:-translate-y-0.5">
+    <div class="relative" {@attach liftable()}>
       <button
         type="button"
         class="block aspect-square w-full overflow-hidden bg-fill-2 shadow-[0_8px_24px_-12px_rgb(0_0_0/0.6)] {shape}"
@@ -50,9 +51,10 @@
         <button
           type="button"
           aria-label="Играть"
-          class="absolute right-2.5 bottom-2.5 grid size-11 translate-y-1.5 place-items-center rounded-full bg-ink text-black
-            opacity-0 shadow-[0_6px_20px_-4px_rgb(0_0_0/0.7)] transition-all duration-200 ease-out-soft
-            group-hover:translate-y-0 group-hover:opacity-100 hover:bg-[#dcdcdc] active:scale-[0.93]"
+          class="absolute right-2.5 bottom-2.5 grid size-11 translate-y-2 place-items-center rounded-full bg-ink text-black
+            opacity-0 shadow-[0_6px_20px_-4px_rgb(0_0_0/0.7)] transition-[opacity,translate,background-color] duration-(--spring-smooth-ms) ease-out-soft
+            group-hover:translate-y-0 group-hover:opacity-100 hover:bg-[#dcdcdc]"
+          {@attach pressable(0.9)}
           onclick={onplay}
         >
           <IconPlay class="size-5" />

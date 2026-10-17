@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { fade, scale } from "svelte/transition";
+  import { fadeSpring, pop } from "$lib/motion";
 
   interface Props {
     open: boolean;
@@ -26,7 +26,7 @@
   <div
     class="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm"
     role="presentation"
-    transition:fade={{ duration: 150 }}
+    transition:fadeSpring
     onpointerdown={(e) => e.target === e.currentTarget && onclose()}
   >
     <div
@@ -35,7 +35,7 @@
       aria-label={title}
       class="max-h-[85vh] overflow-auto rounded-xl bg-raised p-6 shadow-pop"
       style:width="{width}px"
-      transition:scale={{ start: 0.96, duration: 180 }}
+      transition:pop={{ scale: 0.94, y: 8 }}
     >
       {#if title}
         <h2 class="mb-4 text-lg font-semibold">{title}</h2>

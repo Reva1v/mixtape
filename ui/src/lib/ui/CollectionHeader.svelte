@@ -6,6 +6,7 @@
   import IconShuffle from "~icons/solar/shuffle-linear";
   import IconMix from "~icons/solar/radio-minimalistic-linear";
   import { t } from "$lib/i18n/ru";
+  import { pressable } from "$lib/motion";
 
   interface Props {
     kind: string;
@@ -45,7 +46,8 @@
             type="button"
             aria-label={t.player.play}
             class="grid size-12 place-items-center rounded-full bg-ink text-black
-              transition-[background-color,transform] duration-100 hover:bg-[#dcdcdc] active:scale-[0.93]"
+              transition-[background-color] hover:bg-[#dcdcdc]"
+            {@attach pressable(0.9)}
             onclick={onplay}
           >
             <IconPlay class="size-5" />

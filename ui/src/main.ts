@@ -2,6 +2,9 @@ import { mount } from "svelte";
 import { invoke } from "@tauri-apps/api/core";
 import "./app.css";
 import App from "./App.svelte";
+import { installSpringCss } from "$lib/motion";
+
+installSpringCss();
 
 const app = mount(App, { target: document.getElementById("app")! });
 

@@ -9,6 +9,7 @@
   import type { Artist } from "$lib/ipc/bindings/Artist";
   import type { Playlist } from "$lib/ipc/bindings/Playlist";
   import { Paged } from "$lib/stores/paged.svelte";
+  import { pressable } from "$lib/motion";
   import { router, type LibraryTab } from "$lib/stores/router.svelte";
   import { player } from "$lib/stores/player.svelte";
   import { prompt, toasts } from "$lib/stores/overlay.svelte";
@@ -105,7 +106,8 @@
         <div class="flex items-center gap-2">
           <button
             type="button"
-            class="flex h-9 items-center gap-2 rounded-full bg-ink px-4 text-[13px] font-semibold text-black transition-[background-color,transform] duration-100 hover:bg-[#dcdcdc] active:scale-[0.96]"
+            class="flex h-9 items-center gap-2 rounded-full bg-ink px-4 text-[13px] font-semibold text-black transition-[background-color] hover:bg-[#dcdcdc]"
+            {@attach pressable(0.95)}
             onclick={() => playAll(0, false)}
           >
             <IconPlay class="size-4" />{t.player.play}

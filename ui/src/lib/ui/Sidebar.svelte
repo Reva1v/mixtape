@@ -8,6 +8,7 @@
   import IconDownloads from "~icons/solar/download-minimalistic-bold";
   import IconSettings from "~icons/solar/settings-bold";
   import Logo from "../../assets/logo.svg?raw";
+  import { pressable, springs } from "$lib/motion";
 
   type Item = { label: string; icon: Component; route: Route; match: Route["name"][] };
 
@@ -32,8 +33,9 @@
     title={item.label}
     aria-label={item.label}
     aria-current={active ? "page" : undefined}
-    class="grid size-9 place-items-center transition-[color,transform] duration-150
-      {active ? 'cursor-default text-ink' : 'text-[#8a8a8e] hover:text-ink active:scale-90'}"
+    class="grid size-9 place-items-center transition-colors
+      {active ? 'cursor-default text-ink' : 'text-[#8a8a8e] hover:text-ink'}"
+    {@attach pressable(0.92, springs.soft)}
     onclick={() => !active && router.go(item.route)}
   >
     <item.icon class="size-[26px]" />

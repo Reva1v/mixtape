@@ -1,6 +1,6 @@
 <script lang="ts">
   import { menu } from "$lib/stores/overlay.svelte";
-  import { fly } from "svelte/transition";
+  import { pop } from "$lib/motion";
 
   let el = $state<HTMLDivElement>();
   let pos = $state({ x: 0, y: 0 });
@@ -42,7 +42,7 @@
     class="fixed z-50 min-w-56 rounded-lg bg-raised/95 p-1.5 shadow-pop backdrop-blur-xl"
     style:left="{pos.x}px"
     style:top="{pos.y}px"
-    transition:fly={{ y: -4, duration: 120 }}
+    transition:pop={{ y: -6, scale: 0.95, origin: "top left" }}
   >
     {#each menu.items as item, i (i)}
       {#if item === "separator"}
