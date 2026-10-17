@@ -38,7 +38,7 @@
 - [x] T019 [P] Базовые компоненты: Button, IconButton, Menu (контекстное), Slider, Modal, Toast, Cover (img с размером), Skeleton в `ui/src/lib/ui/`
 - [x] T020 [P] Строки интерфейса на русском в `ui/src/lib/i18n/ru.ts`
 - [x] T021 IPC-обёртки и подписка на события в `ui/src/lib/ipc/index.ts`
-- [ ] T022 Замер: релизная сборка пустого каркаса — RAM (Private WS mixtape + msedgewebview2) и время до `app_ready`; записать в `specs/001-mixtape-mvp/research.md` (spike S2)
+- [x] T022 Замер: релизная сборка пустого каркаса — RAM (Private WS mixtape + msedgewebview2) и время до `app_ready`; записать в `specs/001-mixtape-mvp/research.md` (spike S2)
 
 **Checkpoint**: окно открывается за ≤ 1,5 с, каркас рисуется, БД создаётся.
 
@@ -168,7 +168,7 @@
 - [x] T092 [P] Тосты и обработка ошибок сети/YouTube (локальное воспроизведение никогда не падает), событие `net:status` в `src-tauri/src/net.rs`, `ui/src/lib/ui/Toast.svelte`
 - [ ] T093 [P] Канал спектра (16 полос, ≤ 30 Гц, только при открытом полноэкранном плеере) и его визуализация в фоне в `crates/audio/src/spectrum.rs`, `ui/src/screens/FullscreenPlayer.svelte`
 - [ ] T094 Микро-анимации и переходы экранов (только transform/opacity), проверка 60 fps в `ui/src/app.css` и экранах
-- [ ] T095 Замер всех бюджетов по quickstart.md на релизной сборке с синтетической библиотекой 20k треков; результаты в `specs/001-mixtape-mvp/quickstart.md`
+- [x] T095 Замер всех бюджетов по quickstart.md на релизной сборке с синтетической библиотекой 20k треков; результаты в `specs/001-mixtape-mvp/quickstart.md`
 - [x] T096 Сборка NSIS-инсталлятора с sidecar'ами, иконка приложения в `src-tauri/icons/`
 
 ## Dependencies & Execution Order

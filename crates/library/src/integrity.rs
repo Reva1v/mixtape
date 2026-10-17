@@ -4,7 +4,9 @@
 use crate::repo::set_state;
 use crate::{Db, Result};
 use mixtape_core::{TrackId, TrackState};
-use std::path::Path;
+use std::collections::{HashMap, HashSet};
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct IntegrityReport {
@@ -18,9 +20,23 @@ pub fn check(db: &Db, data_root: &Path) -> Result<IntegrityReport> {
         let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     })?;
+    // One directory listing per folder instead of a `stat` per file: with 20k tracks that is
+    // the difference between ~1.3 s and a few ms of startup.
+    let mut listed: HashMap<PathBuf, HashSet<OsString>> = HashMap::new();
+    let mut exists = |full: &Path| -> bool {
+        let (Some(dir), Some(name)) = (full.parent(), full.file_name()) else { return false };
+        listed
+            .entry(dir.to_path_buf())
+            .or_insert_with(|| {
+                std::fs::read_dir(dir)
+                    .map(|rd| rd.filter_map(|e| e.ok()).filter(|e| e.file_type().is_ok_and(|t| t.is_file())).map(|e| e.file_name()).collect())
+                    .unwrap_or_default()
+            })
+            .contains(name)
+    };
     let missing: Vec<(String, String)> = files
         .into_iter()
-        .filter(|(_, path, _)| !data_root.join(path).is_file())
+        .filter(|(_, path, _)| !exists(&data_root.join(path)))
         .map(|(id, _, loc)| (id, loc))
         .collect();
     if missing.is_empty() {

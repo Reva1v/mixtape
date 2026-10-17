@@ -55,8 +55,10 @@ impl AppState {
         let started = Instant::now();
         let paths = DataPaths::default_location()?;
         let db = Db::open(&paths.db)?;
+        tracing::debug!(ms = started.elapsed().as_millis() as u64, "db open");
         let covers = CoverStore::new(&paths.covers);
         let report = mixtape_library::integrity::check(&db, &paths.root)?;
+        tracing::debug!(ms = started.elapsed().as_millis() as u64, "integrity checked");
         let merged = db.write(|t| {
             let merged = mixtape_library::ytm::merge_local_twins(t)?;
             mixtape_library::ytm::link_artists_by_name(t)?;
