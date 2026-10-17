@@ -103,7 +103,9 @@
         <!-- Drag strip along the top edge, clear of the caption buttons. -->
         <div class="absolute top-0 right-[150px] left-0 z-10 h-7" data-tauri-drag-region></div>
         {#if router.canBack || router.canForward}
-          <div class="absolute top-2 left-3 z-20 flex gap-1" transition:fadeSpring>
+          <!-- History arrows sit in the caption row, just left of the window buttons
+               (~136 px wide), styled like them, so they never crowd page headers. -->
+          <div class="absolute top-0 right-[140px] z-20 flex h-10 items-center gap-0.5" transition:fadeSpring>
             {#each [{ label: "Назад", tip: "Назад · Alt + ←", ok: router.canBack, go: () => router.back(), Icon: IconBack }, { label: "Вперёд", tip: "Вперёд · Alt + →", ok: router.canForward, go: () => router.forward(), Icon: IconForward }] as b (b.label)}
               <button
                 type="button"
@@ -111,11 +113,12 @@
                 data-tip={b.tip}
                 data-tip-pos="bottom"
                 disabled={!b.ok}
-                class="grid size-7 place-items-center rounded-full bg-black/35 text-ink transition-[background-color,opacity] hover:bg-black/60 disabled:opacity-30 disabled:hover:bg-black/35"
+                class="grid h-8 w-8 place-items-center rounded-md text-ink-2 transition-[background-color,color,opacity] hover:bg-white/[0.08] hover:text-ink
+                  disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-ink-2"
                 {@attach pressable(0.88)}
                 onclick={b.go}
               >
-                <b.Icon class="size-4" />
+                <b.Icon class="size-[18px]" />
               </button>
             {/each}
           </div>
