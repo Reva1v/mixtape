@@ -158,7 +158,7 @@
         if (!(e.target as HTMLElement).closest("[role=listitem], button, [role=slider], input")) queueOpen = false;
       }}
     >
-      <div class="flex h-[80%] w-full max-w-[720px] flex-col self-end" transition:sheet>
+      <div class="flex h-full w-full max-w-[720px] flex-col pt-[88px]" transition:sheet>
         <div class="min-h-0 flex-1"><QueuePanel variant="cards" /></div>
       </div>
     </div>

@@ -28,16 +28,126 @@
   const current = $derived(view && view.current != null ? view.items[view.current] : null);
   const upcoming = $derived(view && view.current != null ? view.items.slice(view.current + 1) : (view?.items ?? []));
 
-  // Drag to reorder upcoming items.
-  let dragUid = $state<number | null>(null);
-  let overIndex = $state<number | null>(null);
+  // Drag to reorder upcoming items: the grabbed row follows the pointer, the others
+  // slide aside, and on release it settles into its slot before the move is sent.
+  type Drag = {
+    uid: number;
+    from: number;
+    to: number;
+    startY: number;
+    startScroll: number;
+    y: number;
+    dy: number;
+    step: number;
+    active: boolean;
+    settling: boolean;
+  };
+  let drag = $state<Drag | null>(null);
+  let instant = $state(false);
+  let listEl = $state<HTMLDivElement>();
+  let upEl = $state<HTMLDivElement>();
+  let raf = 0;
 
-  function drop(toUpcomingIndex: number) {
-    if (dragUid == null || !view) return;
-    const base = (view.current ?? -1) + 1;
-    void invoke("queue_move", { uid: dragUid, toIndex: base + toUpcomingIndex });
-    dragUid = null;
-    overIndex = null;
+  function rowStep(): number {
+    const rows = upEl?.querySelectorAll<HTMLElement>("[data-row]");
+    if (!rows?.length) return 56;
+    if (rows.length > 1) return rows[1].offsetTop - rows[0].offsetTop;
+    const cs = getComputedStyle(rows[0]);
+    return rows[0].offsetHeight + parseFloat(cs.marginBottom);
+  }
+
+  function down(ev: PointerEvent, i: number, uid: number) {
+    if (ev.button !== 0 || (ev.target as HTMLElement).closest("button")) return;
+    drag = {
+      uid,
+      from: i,
+      to: i,
+      startY: ev.clientY,
+      startScroll: listEl?.scrollTop ?? 0,
+      y: ev.clientY,
+      dy: 0,
+      step: rowStep(),
+      active: false,
+      settling: false,
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up, { once: true });
+  }
+
+  function update() {
+    if (!drag || !listEl) return;
+    drag.dy = drag.y - drag.startY + (listEl.scrollTop - drag.startScroll);
+    drag.to = Math.max(0, Math.min(upcoming.length - 1, drag.from + Math.round(drag.dy / drag.step)));
+  }
+
+  function move(ev: PointerEvent) {
+    if (!drag || drag.settling) return;
+    drag.y = ev.clientY;
+    if (!drag.active) {
+      if (Math.abs(ev.clientY - drag.startY) < 4) return;
+      drag.active = true;
+      autoscroll();
+    }
+    update();
+  }
+
+  // Scroll while the pointer is held near the top or bottom edge of the list.
+  function autoscroll() {
+    cancelAnimationFrame(raf);
+    const tick = () => {
+      if (!drag?.active || drag.settling || !listEl) return;
+      const r = listEl.getBoundingClientRect();
+      const edge = 56;
+      const speed =
+        drag.y < r.top + edge ? -((r.top + edge - drag.y) / edge) * 14 : drag.y > r.bottom - edge ? ((drag.y - r.bottom + edge) / edge) * 14 : 0;
+      if (speed) {
+        listEl.scrollTop += speed;
+        update();
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+  }
+
+  function up() {
+    window.removeEventListener("pointermove", move);
+    cancelAnimationFrame(raf);
+    const d = drag;
+    if (!d) return;
+    if (!d.active || d.to === d.from) {
+      if (d.active) {
+        d.settling = true;
+        d.dy = 0;
+        setTimeout(() => (drag = null), 220);
+      } else drag = null;
+      return;
+    }
+    // Glide into the target slot, then commit without animating the reflow.
+    d.settling = true;
+    d.dy = (d.to - d.from) * d.step;
+    setTimeout(() => {
+      if (!view) return;
+      const base = (view.current ?? -1) + 1;
+      const items = [...view.items];
+      const [moved] = items.splice(base + d.from, 1);
+      items.splice(base + d.to, 0, moved);
+      instant = true;
+      view = { ...view, items };
+      drag = null;
+      void invoke("queue_move", { uid: d.uid, toIndex: base + d.to });
+      requestAnimationFrame(() => requestAnimationFrame(() => (instant = false)));
+    }, 220);
+  }
+
+  function rowStyle(i: number): string {
+    const d = drag;
+    if (!d?.active) return "";
+    if (i === d.from) {
+      const t = d.settling ? "transition: transform 220ms var(--ease-out-soft);" : "transition: none;";
+      return `${t}transform: translateY(${d.dy}px) scale(${d.settling ? 1 : 1.02}); z-index: 10; position: relative;`;
+    }
+    const shift = d.from < i && i <= d.to ? -d.step : d.to <= i && i < d.from ? d.step : 0;
+    return `transform: translateY(${shift}px);`;
   }
 
   function selectChip(id: string) {
@@ -48,18 +158,13 @@
 {#snippet row(e: QueueEntry, i: number, isCurrent: boolean)}
   <div
     role="listitem"
-    class="group flex h-14 items-center gap-3 rounded-md px-2 transition-colors hover:bg-fill-2
+    data-row={isCurrent ? undefined : ""}
+    class="group flex h-14 items-center gap-3 rounded-md px-2 hover:bg-fill-2
+      {instant ? '' : 'transition-[background-color,transform,box-shadow] duration-200 ease-out-soft'}
       {cards ? 'mb-2 h-16 rounded-xl bg-[#0c0c0d]/65 px-3 ring-1 ring-white/[0.06] backdrop-blur-xl hover:bg-[#161618]/75' : ''}
-      {overIndex === i && !isCurrent ? 'shadow-[inset_0_2px_0_white]' : ''}"
-    draggable={!isCurrent}
-    ondragstart={() => (dragUid = e.uid)}
-    ondragover={(ev) => {
-      if (isCurrent) return;
-      ev.preventDefault();
-      overIndex = i;
-    }}
-    ondragleave={() => (overIndex = null)}
-    ondrop={() => drop(i)}
+      {!isCurrent ? (drag?.active && drag.from === i ? 'cursor-grabbing bg-[#1a1a1c]/90 shadow-[0_16px_40px_-10px_rgb(0_0_0/0.8)]' : 'cursor-grab') : ''}"
+    style={isCurrent ? undefined : rowStyle(i)}
+    onpointerdown={(ev) => !isCurrent && down(ev, i, e.uid)}
     ondblclick={() => !isCurrent && invoke("queue_jump", { uid: e.uid })}
     oncontextmenu={(ev) => {
       ev.preventDefault();
@@ -112,7 +217,7 @@
     </div>
   {/if}
 
-  <div class="min-h-0 flex-1 overflow-y-auto px-3 pb-4" role="list">
+  <div bind:this={listEl} class="min-h-0 flex-1 overflow-y-auto px-3 pb-4 {drag?.active ? 'select-none' : ''}" role="list">
     {#if !view || view.items.length === 0}
       <p class="px-2 pt-6 text-center text-[13px] text-ink-3">{t.queue.empty}</p>
     {:else}
@@ -122,9 +227,11 @@
       {/if}
       {#if upcoming.length}
         <div class="px-2 pt-5 pb-2 text-[12px] font-semibold tracking-wide text-ink-3 uppercase">{t.queue.upNext}</div>
-        {#each upcoming as e, i (e.uid)}
-          {@render row(e, i, false)}
-        {/each}
+        <div bind:this={upEl}>
+          {#each upcoming as e, i (e.uid)}
+            {@render row(e, i, false)}
+          {/each}
+        </div>
       {/if}
     {/if}
   </div>
