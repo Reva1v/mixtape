@@ -21,7 +21,7 @@
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
-  --radius-xl: 16px;
+  --radius-xl: 10px;
 
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
   --shadow-pop: 0 16px 48px -12px rgb(0 0 0 / 0.75), 0 0 0 1px rgb(255 255 255 / 0.07);
@@ -78,7 +78,7 @@ textarea {
   left: auto !important;
   top: var(--gap) !important;
   right: var(--gap) !important;
-  border-top-right-radius: var(--radius-lg);
+  border-top-right-radius: var(--radius-xl);
   overflow: hidden;
 }
 [data-tauri-frame-tb] > [data-tauri-drag-region] {
