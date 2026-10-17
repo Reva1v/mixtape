@@ -37,6 +37,38 @@
   }
 
   let queueOpen = $state(false);
+  let openedAt = 0;
+  $effect(() => {
+    if (queueOpen) openedAt = performance.now();
+  });
+
+  // Guarded "click outside to close": only a short, still click that starts and ends
+  // on truly empty space closes the queue. Gaps between cards, the header and the
+  // strip just under the last card do not count, nor does the end of a drag.
+  let press: { x: number; y: number; t: number } | null = null;
+
+  function isEmpty(e: PointerEvent): boolean {
+    const el = e.target as HTMLElement;
+    if (el.closest("[role=listitem], button, [role=slider], input, [data-queue-header]")) return false;
+    const list = el.closest<HTMLElement>("[role=list]");
+    if (!list) return true;
+    const rows = list.querySelectorAll<HTMLElement>("[data-row]");
+    const last = rows[rows.length - 1];
+    return !!last && e.clientY > last.getBoundingClientRect().bottom + 24;
+  }
+
+  function queueDown(e: PointerEvent) {
+    press = e.button === 0 && isEmpty(e) ? { x: e.clientX, y: e.clientY, t: performance.now() } : null;
+  }
+
+  function queueUp(e: PointerEvent) {
+    const p = press;
+    press = null;
+    if (!p || !isEmpty(e)) return;
+    const now = performance.now();
+    const still = Math.hypot(e.clientX - p.x, e.clientY - p.y) < 6;
+    if (still && now - p.t < 500 && now - openedAt > 400) queueOpen = false;
+  }
 
   function onKey(e: KeyboardEvent) {
     if (e.key === "Escape") {
@@ -159,9 +191,8 @@
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
     <div
       class="absolute inset-0 z-30 flex justify-center"
-      onclick={(e) => {
-        if (!(e.target as HTMLElement).closest("[role=listitem], button, [role=slider], input")) queueOpen = false;
-      }}
+      onpointerdown={queueDown}
+      onpointerup={queueUp}
     >
       <div class="flex h-full w-full max-w-[720px] flex-col pt-[88px]" transition:sheet>
         <div class="min-h-0 flex-1"><QueuePanel variant="cards" /></div>

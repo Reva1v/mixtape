@@ -239,7 +239,7 @@
 {/snippet}
 
 <div class="flex h-full flex-col">
-  <div class="flex h-14 shrink-0 items-center justify-between px-5">
+  <div class="flex h-14 shrink-0 items-center justify-between px-5" data-queue-header>
     <h2 class="text-[16px] font-semibold">{t.queue.title}</h2>
     {#if hasUpcoming}
       <button type="button" class="text-[12.5px] text-ink-3 hover:text-ink" onclick={() => invoke("queue_clear")}>{t.queue.clear}</button>
