@@ -9,7 +9,7 @@ use mixtape_library::repo::{self, FileLocation, MediaFile};
 use mixtape_library::{Db, jobs};
 use mixtape_yt::YtError;
 use mixtape_yt::limits::{Outcome, Pacer};
-use mixtape_yt::resolver::{ResolvedStream, StreamResolver};
+use mixtape_yt::resolver::{BATCH_SIZE, ResolvedStream, StreamResolver};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -22,8 +22,13 @@ use ts_rs::TS;
 const WORKERS: usize = 2;
 /// Progress updates to the UI are capped at 4 per second.
 const EMIT_EVERY: Duration = Duration::from_millis(250);
-/// Idle workers re-check the queue this often even without a wake-up.
-const IDLE_POLL: Duration = Duration::from_secs(30);
+/// Idle workers re-check the queue this often even without a wake-up (a safety net: every
+/// change to the queue wakes them).
+const IDLE_POLL: Duration = Duration::from_secs(15 * 60);
+/// A running job's byte count goes to the database at most this often.
+const DB_PROGRESS_EVERY: Duration = Duration::from_secs(2);
+/// Window of the download speed shown in the progress.
+const SPEED_WINDOW: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -93,6 +98,7 @@ pub struct Downloader {
 }
 
 struct Inner {
+    rt: tokio::runtime::Handle,
     db: Db,
     resolver: Arc<StreamResolver>,
     http: reqwest::Client,
@@ -105,6 +111,10 @@ struct Inner {
     active: Mutex<HashMap<i64, Active>>,
     speed: Mutex<Speed>,
     last_emit: Mutex<Instant>,
+    /// What the UI got last; an equal snapshot is not sent again.
+    last_sent: Mutex<Option<DownloadsProgress>>,
+    /// A send is scheduled and will read the latest state.
+    emit_queued: AtomicBool,
     sync: Mutex<Option<SyncStatus>>,
 }
 
@@ -126,13 +136,16 @@ impl Speed {
     fn add(&mut self, bytes: u64) {
         let now = Instant::now();
         self.samples.push((now, bytes));
-        self.samples.retain(|(t, _)| now.duration_since(*t) < Duration::from_secs(2));
+        self.samples.retain(|(t, _)| now.duration_since(*t) < SPEED_WINDOW);
     }
 
+    /// 0 once nothing arrived for a while, so an idle snapshot stays the same.
     fn rate(&self) -> u64 {
-        let Some((first, _)) = self.samples.first() else { return 0 };
-        let span = first.elapsed().as_secs_f64().max(0.5);
-        (self.samples.iter().map(|(_, b)| b).sum::<u64>() as f64 / span) as u64
+        let now = Instant::now();
+        let mut recent = self.samples.iter().filter(|(t, _)| now.duration_since(*t) < SPEED_WINDOW).peekable();
+        let Some((first, _)) = recent.peek() else { return 0 };
+        let span = now.duration_since(*first).as_secs_f64().max(0.5);
+        (recent.map(|(_, b)| b).sum::<u64>() as f64 / span) as u64
     }
 }
 
@@ -149,6 +162,7 @@ impl Downloader {
         let _ = db.write(|t| jobs::requeue_running(t));
         let paused = db.read(jobs::summary).map(|s| s.paused > 0 && s.queued == 0).unwrap_or(false);
         let inner = Arc::new(Inner {
+            rt: rt.clone(),
             db,
             resolver,
             http,
@@ -160,6 +174,8 @@ impl Downloader {
             active: Mutex::new(HashMap::new()),
             speed: Mutex::new(Speed::default()),
             last_emit: Mutex::new(Instant::now() - EMIT_EVERY),
+            last_sent: Mutex::new(None),
+            emit_queued: AtomicBool::new(false),
             sync: Mutex::new(None),
         });
         for _ in 0..WORKERS {
@@ -215,7 +231,7 @@ impl Downloader {
 }
 
 impl Inner {
-    fn pause(&self) {
+    fn pause(self: &Arc<Self>) {
         self.paused.store(true, Ordering::SeqCst);
         let _ = self.db.write(|t| jobs::pause_all(t));
         for a in self.active.lock().unwrap_or_else(|e| e.into_inner()).values() {
@@ -245,7 +261,9 @@ impl Inner {
         }
     }
 
-    fn emit(&self, force: bool) {
+    /// Sends the progress to the UI from a blocking thread (the snapshot reads the
+    /// database). Calls while a send is pending fold into it; non-forced ones are throttled.
+    fn emit(self: &Arc<Self>, force: bool) {
         {
             let mut last = self.last_emit.lock().unwrap_or_else(|e| e.into_inner());
             if !force && last.elapsed() < EMIT_EVERY {
@@ -253,7 +271,36 @@ impl Inner {
             }
             *last = Instant::now();
         }
-        self.hooks.progress(&self.snapshot());
+        if self.emit_queued.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let me = self.clone();
+        self.rt.spawn_blocking(move || {
+            me.emit_queued.store(false, Ordering::SeqCst);
+            me.send_progress();
+        });
+    }
+
+    /// Sends the current snapshot unless the UI has exactly that one already. The lock is
+    /// held across snapshot and send, so a later send never carries an older state.
+    fn send_progress(&self) {
+        let mut last = self.last_sent.lock().unwrap_or_else(|e| e.into_inner());
+        let snap = self.snapshot();
+        if last.as_ref() == Some(&snap) {
+            return;
+        }
+        self.hooks.progress(&snap);
+        *last = Some(snap);
+    }
+
+    async fn db_read<R: Send + 'static>(
+        &self,
+        f: impl FnOnce(&rusqlite::Connection) -> mixtape_library::Result<R> + Send + 'static,
+    ) -> mixtape_library::Result<R> {
+        let db = self.db.clone();
+        tokio::task::spawn_blocking(move || db.read(f))
+            .await
+            .unwrap_or_else(|e| Err(mixtape_library::Error::Other(e.to_string())))
     }
 
     async fn db_write<R: Send + 'static>(
@@ -269,11 +316,12 @@ impl Inner {
 
 async fn worker(inner: Arc<Inner>) {
     loop {
+        // Created before the checks: `notify_waiters` reaches it from here on.
+        let notified = inner.wake.notified();
         if inner.paused.load(Ordering::SeqCst) {
-            let _ = tokio::time::timeout(IDLE_POLL, inner.wake.notified()).await;
+            let _ = tokio::time::timeout(IDLE_POLL, notified).await;
             continue;
         }
-        let notified = inner.wake.notified();
         let job = inner
             .db_write(|t| {
                 let job = jobs::next_queued(t)?;
@@ -285,8 +333,8 @@ async fn worker(inner: Arc<Inner>) {
             .await;
         let job = match job {
             Ok(Some(job)) => job,
+            // Nothing to do: whoever queues work wakes us (and emits), so no emit here.
             Ok(None) | Err(_) => {
-                inner.emit(true);
                 let _ = tokio::time::timeout(IDLE_POLL, notified).await;
                 continue;
             }
@@ -321,7 +369,7 @@ async fn download(inner: &Arc<Inner>, job: i64, id: TrackId) -> Outcome {
     }
     let title = {
         let id = id.clone();
-        inner.db.read(move |c| repo::track(c, &id)).ok().flatten().map(|t| t.title).unwrap_or_default()
+        inner.db_read(move |c| repo::track(c, &id)).await.ok().flatten().map(|t| t.title).unwrap_or_default()
     };
     let cancel = Cancel::new();
     inner.active.lock().unwrap_or_else(|e| e.into_inner()).insert(
@@ -333,7 +381,7 @@ async fn download(inner: &Arc<Inner>, job: i64, id: TrackId) -> Outcome {
     let fail = |reason: String| async move {
         let _ = inner.db_write(move |t| jobs::mark_failed(t, job, &reason)).await;
     };
-    let mut stream = match inner.resolver.resolve_one(&id).await {
+    let mut stream = match resolve_with_lookahead(inner, &id).await {
         Ok(s) => s,
         Err(YtError::RateLimited) => {
             let _ = inner.db_write(move |t| jobs::requeue(t, job)).await;
@@ -415,6 +463,26 @@ async fn download(inner: &Arc<Inner>, job: i64, id: TrackId) -> Outcome {
     }
 }
 
+/// The URL for `id`. On a cache miss the next queued tracks are resolved in the same
+/// yt-dlp run (one process per [`BATCH_SIZE`] tracks instead of one per track), so their
+/// jobs find the URL cached. Runs inside the caller's pacer slot.
+async fn resolve_with_lookahead(inner: &Arc<Inner>, id: &TrackId) -> Result<ResolvedStream, YtError> {
+    if let Some(s) = inner.resolver.cached(id) {
+        return Ok(s);
+    }
+    let ahead = inner.db_read(|c| jobs::next_queued_tracks(c, BATCH_SIZE)).await.unwrap_or_default();
+    let mut ids = vec![id.clone()];
+    ids.extend(ahead.into_iter().filter(|t| t != id && inner.resolver.cached(t).is_none()).take(BATCH_SIZE - 1));
+    inner
+        .resolver
+        .resolve(&ids)
+        .await
+        .into_iter()
+        .next()
+        .map(|(_, r)| r)
+        .unwrap_or_else(|| Err(YtError::Tool("yt-dlp не вернул данные о видео".into())))
+}
+
 async fn fetch_with_progress(
     inner: &Arc<Inner>,
     job: i64,
@@ -423,6 +491,7 @@ async fn fetch_with_progress(
     cancel: &Cancel,
 ) -> Result<u64, FetchError> {
     let mut last_db = Instant::now();
+    let db_busy = Arc::new(());
     let mut last_bytes = std::fs::metadata(part).map(|m| m.len()).unwrap_or(0);
     let inner2 = inner.clone();
     fetch::fetch(&inner.http, &stream.url, part, stream.size, cancel, move |done, total| {
@@ -432,11 +501,99 @@ async fn fetch_with_progress(
             a.bytes_done = done;
             a.bytes_total = total;
         }
-        if last_db.elapsed() > Duration::from_secs(2) {
+        // Off the async runtime, and never more than one write in flight.
+        if last_db.elapsed() > DB_PROGRESS_EVERY && Arc::strong_count(&db_busy) == 1 {
             last_db = Instant::now();
-            let _ = inner2.db.write(move |t| jobs::progress(t, job, done, total));
+            let (db, busy) = (inner2.db.clone(), db_busy.clone());
+            inner2.rt.spawn_blocking(move || {
+                let _ = db.write(move |t| jobs::progress(t, job, done, total));
+                drop(busy);
+            });
         }
         inner2.emit(false);
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct Recorder(Mutex<Vec<DownloadsProgress>>);
+
+    impl Hooks for Recorder {
+        fn analyze(&self, _: &Path) -> Analysis {
+            Analysis::default()
+        }
+        fn progress(&self, p: &DownloadsProgress) {
+            self.0.lock().unwrap().push(p.clone());
+        }
+        fn finished(&self, _: &TrackId) {}
+        fn auth_expired(&self) {}
+        fn low_space(&self) {}
+    }
+
+    impl Recorder {
+        fn count(&self) -> usize {
+            self.0.lock().unwrap().len()
+        }
+
+        fn sent(&self, i: usize) -> DownloadsProgress {
+            self.0.lock().unwrap()[i].clone()
+        }
+
+        /// Waits until `n` sends arrived (or a while), plus room for a stray extra one.
+        async fn settle(&self, n: usize) {
+            let t = Instant::now();
+            while self.count() < n && t.elapsed() < Duration::from_secs(5) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn idle_and_repeated_progress_is_not_sent_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Db::open(&dir.path().join("t.db")).unwrap();
+        let resolver = Arc::new(StreamResolver::new(
+            "Z:/nope/yt-dlp.exe".into(),
+            "deno.exe".into(),
+            dir.path().join("tmp"),
+        ));
+        let hooks = Arc::new(Recorder::default());
+        let dl = Downloader::start(
+            &tokio::runtime::Handle::current(),
+            db,
+            resolver,
+            reqwest::Client::new(),
+            dir.path().to_path_buf(),
+            hooks.clone(),
+        );
+        hooks.settle(1).await;
+        assert_eq!(hooks.count(), 0, "idle workers on an empty queue send nothing");
+
+        dl.wake();
+        hooks.settle(1).await;
+        assert_eq!(hooks.count(), 1);
+
+        // Nothing changed: nothing new is sent.
+        dl.wake();
+        dl.wake();
+        dl.set_sync(None);
+        dl.retry(None);
+        hooks.settle(2).await;
+        assert_eq!(hooks.count(), 1);
+
+        let status = SyncStatus { label: "Читаю лайки".into(), done: 0, total: 0 };
+        dl.set_sync(Some(status.clone()));
+        hooks.settle(2).await;
+        assert_eq!(hooks.count(), 2);
+        assert_eq!(hooks.sent(1).sync, Some(status));
+        dl.set_sync(None);
+        hooks.settle(3).await;
+        assert_eq!(hooks.count(), 3);
+        assert_eq!(hooks.sent(2), hooks.sent(0));
+    }
 }

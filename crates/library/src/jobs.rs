@@ -169,6 +169,17 @@ pub fn next_queued(conn: &Connection) -> Result<Option<Job>> {
         .optional()?)
 }
 
+/// Tracks of the next `limit` queued jobs, in the order they start.
+pub fn next_queued_tracks(conn: &Connection, limit: usize) -> Result<Vec<TrackId>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT track_id FROM download_jobs WHERE status = 'queued' ORDER BY id LIMIT ?1",
+    )?;
+    let rows = stmt
+        .query_map([limit as i64], |r| Ok(TrackId(r.get(0)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 /// Jobs currently downloading (for the progress line).
 pub fn running(conn: &Connection) -> Result<Vec<Job>> {
     let mut stmt = conn.prepare_cached(&format!(
@@ -461,8 +472,10 @@ mod tests {
             })
             .unwrap();
         assert_eq!(db.read(next_queued).unwrap().unwrap().id, a);
+        assert_eq!(db.read(|c| next_queued_tracks(c, 5)).unwrap(), [tid("a"), tid("b")]);
         db.write(move |t| mark_running(t, a)).unwrap();
         assert_eq!(db.read(next_queued).unwrap().unwrap().id, b);
+        assert_eq!(db.read(|c| next_queued_tracks(c, 1)).unwrap(), [tid("b")]);
     }
 
     #[test]

@@ -23,17 +23,7 @@ pub struct AppHooks {
 
 impl AppHooks {
     pub fn new(app: &AppHandle) -> Arc<Self> {
-        let dirty = Arc::new(AtomicBool::new(false));
-        let (flag, handle) = (dirty.clone(), app.clone());
-        tauri::async_runtime::spawn(async move {
-            loop {
-                tokio::time::sleep(LIBRARY_EVENT_EVERY).await;
-                if flag.swap(false, Ordering::SeqCst) {
-                    emit_changed(&handle, &[ViewKind::Tracks, ViewKind::Liked, ViewKind::Albums, ViewKind::Artists]);
-                }
-            }
-        });
-        Arc::new(Self { app: app.clone(), dirty })
+        Arc::new(Self { app: app.clone(), dirty: Arc::new(AtomicBool::new(false)) })
     }
 }
 
@@ -52,8 +42,17 @@ impl Hooks for AppHooks {
         }
     }
 
+    /// The first track of a burst schedules one event; the rest join it. No timer runs idle.
     fn finished(&self, _track: &TrackId) {
-        self.dirty.store(true, Ordering::SeqCst);
+        if self.dirty.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let (flag, handle) = (self.dirty.clone(), self.app.clone());
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(LIBRARY_EVENT_EVERY).await;
+            flag.store(false, Ordering::SeqCst);
+            emit_changed(&handle, &[ViewKind::Tracks, ViewKind::Liked, ViewKind::Albums, ViewKind::Artists]);
+        });
     }
 
     fn auth_expired(&self) {

@@ -4,7 +4,8 @@
 //! JSON object per video (`null` for a failed one) and `ERROR: [youtube] <id>: …` lines
 //! on stderr, which become Russian reasons. URLs live about six hours and are cached in
 //! memory. yt-dlp rewrites its cookie file on exit, so every call gets a fresh temporary
-//! copy of the cookies that is deleted right after the call.
+//! copy of the cookies that is deleted right after the call. An id that is being resolved
+//! already is not passed to a second yt-dlp: later callers wait for the first one's answer.
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -19,6 +20,7 @@ use mixtape_core::TrackId;
 use serde_json::Value;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, Command};
+use tokio::sync::watch;
 
 use crate::{Result, YtError};
 
@@ -94,8 +96,13 @@ pub struct StreamResolver {
     timeout: Duration,
     cookies: Mutex<Option<String>>,
     cache: Mutex<HashMap<TrackId, ResolvedStream>>,
+    /// Ids a yt-dlp process is resolving right now; the answer arrives through the channel.
+    inflight: Mutex<HashMap<TrackId, Pending>>,
     seq: AtomicU64,
 }
+
+/// The answer for one id in flight: `None` until its yt-dlp process ends.
+type Pending = watch::Receiver<Option<Result<ResolvedStream>>>;
 
 impl fmt::Debug for StreamResolver {
     // Hand-written so cookie values never end up in logs.
@@ -121,6 +128,7 @@ impl StreamResolver {
             timeout: CALL_TIMEOUT,
             cookies: Mutex::new(None),
             cache: Mutex::new(HashMap::new()),
+            inflight: Mutex::new(HashMap::new()),
             seq: AtomicU64::new(0),
         }
     }
@@ -136,36 +144,68 @@ impl StreamResolver {
         *lock(&self.cookies) = netscape;
     }
 
-    /// Resolves every id, at most [`BATCH_SIZE`] per yt-dlp process, cache first.
+    /// Resolves every id, at most [`BATCH_SIZE`] per yt-dlp process, cache first. Ids
+    /// another call is resolving already are awaited instead of resolved twice.
     /// The result has one entry per input id, in input order.
     pub async fn resolve(&self, ids: &[TrackId]) -> Vec<(TrackId, Result<ResolvedStream>)> {
-        let now = now_unix();
         let mut done: HashMap<TrackId, Result<ResolvedStream>> = HashMap::new();
-        let mut misses: Vec<TrackId> = Vec::new();
+        let mut todo: Vec<TrackId> = Vec::new();
         for id in ids {
-            if done.contains_key(id) || misses.contains(id) {
-                continue;
-            }
-            match self.cache_get(id, now) {
-                Some(s) => {
-                    done.insert(id.clone(), Ok(s));
-                }
-                None => misses.push(id.clone()),
+            if !todo.contains(id) {
+                todo.push(id.clone());
             }
         }
-        for chunk in misses.chunks(BATCH_SIZE) {
-            for (id, res) in self.run_batch(chunk).await {
-                if let Ok(s) = &res {
-                    self.cache_put(id.clone(), s.clone());
+        while !todo.is_empty() {
+            let now = now_unix();
+            let mut claim = Claim {
+                resolver: self,
+                ids: Vec::new(),
+            };
+            let mut waits: Vec<(TrackId, Pending)> = Vec::new();
+            {
+                let mut inflight = lock(&self.inflight);
+                for id in todo.drain(..) {
+                    if let Some(s) = self.cache_get(&id, now) {
+                        done.insert(id, Ok(s));
+                    } else if let Some(rx) = inflight.get(&id) {
+                        waits.push((id, rx.clone()));
+                    } else {
+                        let (tx, rx) = watch::channel(None);
+                        inflight.insert(id.clone(), rx);
+                        claim.ids.push((id, tx));
+                    }
                 }
-                done.insert(id, res);
+            }
+            let mine: Vec<TrackId> = claim.ids.iter().map(|(id, _)| id.clone()).collect();
+            for chunk in mine.chunks(BATCH_SIZE) {
+                for (id, res) in self.run_batch(chunk).await {
+                    if let Ok(s) = &res {
+                        self.cache_put(id.clone(), s.clone());
+                    }
+                    claim.publish(&id, &res);
+                    done.insert(id, res);
+                }
+            }
+            drop(claim);
+            for (id, mut rx) in waits {
+                let answer = rx
+                    .wait_for(Option::is_some)
+                    .await
+                    .ok()
+                    .and_then(|v| v.as_ref().map(clone_result));
+                match answer {
+                    Some(res) => {
+                        done.insert(id, res);
+                    }
+                    // The call resolving it was dropped before the answer: try again.
+                    None => todo.push(id),
+                }
             }
         }
         ids.iter()
             .map(|id| {
                 let res = match done.get(id) {
-                    Some(Ok(s)) => Ok(s.clone()),
-                    Some(Err(e)) => Err(clone_err(e)),
+                    Some(r) => clone_result(r),
                     None => Err(YtError::Tool("yt-dlp не вернул данные о видео".into())),
                 };
                 (id.clone(), res)
@@ -207,8 +247,12 @@ impl StreamResolver {
         }
     }
 
+    /// Stores a URL and drops the entries that went stale meanwhile.
     fn cache_put(&self, id: TrackId, stream: ResolvedStream) {
-        lock(&self.cache).insert(id, stream);
+        let now = now_unix();
+        let mut cache = lock(&self.cache);
+        cache.retain(|_, s| s.is_fresh(now));
+        cache.insert(id, stream);
     }
 
     async fn run_batch(&self, ids: &[TrackId]) -> Vec<(TrackId, Result<ResolvedStream>)> {
@@ -322,6 +366,34 @@ impl StreamResolver {
             stdout: String::from_utf8_lossy(&out).into_owned(),
             stderr: String::from_utf8_lossy(&err).into_owned(),
             failure,
+        }
+    }
+}
+
+/// Ids one `resolve` call took on. Whatever it did not answer leaves the in-flight map when
+/// the call ends or is dropped, so the waiters retry instead of hanging.
+struct Claim<'a> {
+    resolver: &'a StreamResolver,
+    ids: Vec<(TrackId, watch::Sender<Option<Result<ResolvedStream>>>)>,
+}
+
+impl Claim<'_> {
+    /// Hands the answer for `id` to everyone waiting for it.
+    fn publish(&mut self, id: &TrackId, res: &Result<ResolvedStream>) {
+        let Some(i) = self.ids.iter().position(|(c, _)| c == id) else {
+            return;
+        };
+        let (id, tx) = self.ids.swap_remove(i);
+        lock(&self.resolver.inflight).remove(&id);
+        tx.send_replace(Some(clone_result(res)));
+    }
+}
+
+impl Drop for Claim<'_> {
+    fn drop(&mut self) {
+        let mut inflight = lock(&self.resolver.inflight);
+        for (id, _) in &self.ids {
+            inflight.remove(id);
         }
     }
 }
@@ -617,6 +689,13 @@ pub fn classify(message: &str) -> YtError {
         } else {
             short
         })
+    }
+}
+
+fn clone_result(r: &Result<ResolvedStream>) -> Result<ResolvedStream> {
+    match r {
+        Ok(s) => Ok(s.clone()),
+        Err(e) => Err(clone_err(e)),
     }
 }
 
@@ -930,6 +1009,65 @@ mod tests {
         let fresh = res[0].1.as_ref().unwrap().expires_at > now_unix() + EXPIRY_MARGIN_SECS;
         assert_eq!(r.cached(&TrackId::new("dQw4w9WgXcQ")).is_some(), fresh);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Logs its arguments, then answers after about a second so concurrent calls overlap.
+    #[cfg(windows)]
+    const SLOW_LOGGING: &str = "echo %* >> \"%~dp0calls.txt\"\r\n\
+                                ping -n 2 127.0.0.1 >nul\r\n\
+                                type \"%~dp0batch.jsonl\"";
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn concurrent_calls_share_one_process_per_id() {
+        let (dir, script) = fake_ytdlp(SLOW_LOGGING);
+        let r = StreamResolver::new(script, "deno.exe".into(), dir.join("tmp"));
+        let id = TrackId::new("dQw4w9WgXcQ");
+        let batch = ids(&["aaaaaaaaaaa", "dQw4w9WgXcQ"]);
+        let (a, b, c) = tokio::join!(r.resolve_one(&id), r.resolve_one(&id), r.resolve(&batch));
+        assert_eq!(a.unwrap().itag, 251);
+        assert_eq!(b.unwrap().itag, 251);
+        assert_eq!(c[0].1.as_ref().unwrap().itag, 140);
+        assert_eq!(c[1].1.as_ref().unwrap().itag, 251);
+
+        let calls = std::fs::read_to_string(dir.join("calls.txt")).unwrap();
+        assert_eq!(calls.lines().count(), 2, "one process per new id: {calls}");
+        assert_eq!(calls.matches("dQw4w9WgXcQ").count(), 1, "{calls}");
+        assert_eq!(calls.matches("aaaaaaaaaaa").count(), 1, "{calls}");
+        assert!(lock(&r.inflight).is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn dropped_call_lets_waiters_retry() {
+        let (dir, script) = fake_ytdlp(SLOW_LOGGING);
+        let r = StreamResolver::new(script, "deno.exe".into(), dir.join("tmp"));
+        let id = TrackId::new("dQw4w9WgXcQ");
+        let first = tokio::time::timeout(Duration::from_millis(300), r.resolve_one(&id));
+        let waiter = async {
+            // Joins once the first call has claimed the id.
+            tokio::task::yield_now().await;
+            assert!(lock(&r.inflight).contains_key(&id));
+            r.resolve_one(&id).await
+        };
+        let (first, waited) = tokio::join!(first, waiter);
+        assert!(first.is_err(), "the first call is cut off");
+        assert_eq!(waited.unwrap().itag, 251);
+        assert!(lock(&r.inflight).is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn cache_put_prunes_stale_entries() {
+        let r = scratch_resolver();
+        let now = now_unix();
+        r.cache_put(TrackId::new("aaaaaaaaaaa"), stream(now + 60));
+        r.cache_put(TrackId::new("bbbbbbbbbbb"), stream(now + 3600));
+        r.cache_put(TrackId::new("ccccccccccc"), stream(now + 7200));
+        let cache = lock(&r.cache);
+        assert_eq!(cache.len(), 2);
+        assert!(!cache.contains_key(&TrackId::new("aaaaaaaaaaa")));
     }
 
     #[cfg(windows)]

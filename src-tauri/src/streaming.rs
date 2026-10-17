@@ -2,21 +2,25 @@
 //! cache file from the network while the engine plays it, moves the finished file into
 //! `cache/`, measures its loudness and keeps the cache under its limit. This is the
 //! player's [`StreamProvider`].
+//!
+//! Network use is kept low: URLs of the upcoming tracks are resolved in one yt-dlp run once
+//! fewer than [`RESOLVE_LOW_WATER`] are left, and the next track is downloaded only after
+//! the current one's download has ended (or right away when the current track is on disk).
 
 use mixtape_audio::{SparseCacheFile, Source};
 use mixtape_core::{AppError, TrackId};
 use mixtape_library::{Db, cache_lru, repo};
-use mixtape_player::prefetch::CACHE_AHEAD;
+use mixtape_player::prefetch::{CACHE_AHEAD, RESOLVE_LOW_WATER};
 use mixtape_player::{Opened, StreamProvider};
 use mixtape_sync::fetch;
 use mixtape_sync::stream::StreamFill;
 use mixtape_yt::resolver::{Container, StreamResolver};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
-use std::time::Duration;
 use tauri::{AppHandle, Emitter};
-use tokio::sync::OnceCell;
+use tokio::sync::{Notify, OnceCell};
 
 /// A download in progress (or just finished) for one track.
 struct Active {
@@ -39,8 +43,12 @@ pub struct AppStreams {
     active: Mutex<HashMap<TrackId, Slot>>,
     /// The current track and the ones after it: kept from eviction and cancellation.
     wanted: Mutex<Vec<TrackId>>,
-    /// Ids yt-dlp is resolving ahead right now.
-    resolving: Mutex<HashSet<TrackId>>,
+    /// The track playing now, as of the last prefetch.
+    current: Mutex<Option<TrackId>>,
+    /// Bumped by every prefetch: work started by an older one stops waiting.
+    generation: AtomicU64,
+    /// Woken when the wanted tracks change or a download ends.
+    changed: Notify,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -66,7 +74,9 @@ impl AppStreams {
             http,
             active: Mutex::new(HashMap::new()),
             wanted: Mutex::new(Vec::new()),
-            resolving: Mutex::new(HashSet::new()),
+            current: Mutex::new(None),
+            generation: AtomicU64::new(0),
+            changed: Notify::new(),
         })
     }
 
@@ -76,6 +86,42 @@ impl AppStreams {
 
     fn rel_final(id: &TrackId, c: Container) -> String {
         format!("cache/{}.{}", id.as_str(), c.as_str())
+    }
+
+    fn has_audio(&self, id: &TrackId) -> bool {
+        self.db.read(|c| repo::media_file(c, id)).ok().flatten().is_some()
+    }
+
+    /// Whether a download of `id` may start now: it is the current track, or the current
+    /// track no longer needs the network (it is on disk, or its download has ended).
+    fn may_download(&self, id: &TrackId) -> bool {
+        let Some(current) = lock(&self.current).clone() else { return true };
+        if &current == id {
+            return true;
+        }
+        let slot = lock(&self.active).get(&current).cloned();
+        match slot {
+            // Still resolving, or downloading.
+            Some(slot) => slot.get().is_some_and(|a| a.fill.done() || a.file.is_complete()),
+            // Not started yet, or finished and moved into the cache.
+            None => self.has_audio(&current),
+        }
+    }
+
+    /// Waits until `id` may download. Gives up (`false`) once a newer prefetch came — with
+    /// `strict` at once, else only when it no longer wants `id`.
+    async fn wait_turn(&self, id: &TrackId, generation: u64, strict: bool) -> bool {
+        loop {
+            let notified = self.changed.notified();
+            let moved_on = self.generation.load(Ordering::SeqCst) != generation;
+            if moved_on && (strict || !lock(&self.wanted).contains(id)) {
+                return false;
+            }
+            if self.may_download(id) {
+                return true;
+            }
+            notified.await;
+        }
     }
 
     /// The download for `id`, started on first use; concurrent callers share it.
@@ -120,25 +166,37 @@ impl AppStreams {
         Ok(active)
     }
 
-    /// googlevideo answered 403: resolve a fresh URL and point the download at it.
+    /// googlevideo answered 403: resolve a fresh URL and point the download at it. When no
+    /// URL comes, the download ends with the reason instead of waiting forever.
     fn refresh_url(&self, id: TrackId) {
         let Some(s) = self.me.upgrade() else { return };
         self.rt.spawn(async move {
             s.resolver.invalidate(&id);
-            let Ok(stream) = s.resolver.resolve_one(&id).await else { return };
-            let active = lock(&s.active).get(&id).and_then(|slot| slot.get().cloned());
-            if let Some(a) = active {
-                a.fill.retarget(stream.url);
+            let res = s.resolver.resolve_one(&id).await;
+            let Some(a) = lock(&s.active).get(&id).and_then(|slot| slot.get().cloned()) else { return };
+            match res {
+                Ok(stream) => a.fill.retarget(stream.url),
+                Err(e) => {
+                    a.file.fail(AppError::from(e).message);
+                    a.fill.cancel();
+                }
             }
         });
     }
 
     /// Waits for the download to end; a complete file moves into `cache/` and gets its loudness.
     async fn finish(self: Arc<Self>, id: TrackId, a: Arc<Active>) {
-        while !a.fill.done() && !a.file.is_complete() && !a.file.is_cancelled() {
-            tokio::time::sleep(Duration::from_millis(500)).await;
-        }
+        let end = a.fill.ended().await;
+        // The next track may start downloading now.
+        self.changed.notify_waiters();
         if !a.file.is_complete() {
+            // Failed, or stopped without a fresh URL: forget it so the next request starts
+            // afresh. (A download dropped as unwanted is gone from the map already.)
+            tracing::debug!(%id, ?end, "stream download ended incomplete");
+            let mut active = lock(&self.active);
+            if active.get(&id).and_then(|s| s.get()).is_some_and(|x| Arc::ptr_eq(x, &a)) {
+                active.remove(&id);
+            }
             return;
         }
         let rel = Self::rel_final(&id, a.container);
@@ -200,13 +258,23 @@ impl AppStreams {
             }
         }
     }
+
+    /// Whether `id` has a URL or a download already.
+    fn ready(&self, id: &TrackId) -> bool {
+        lock(&self.active).contains_key(id) || self.resolver.cached(id).is_some()
+    }
 }
 
 impl StreamProvider for AppStreams {
     fn open(&self, id: &TrackId, done: Opened) {
         let Some(s) = self.me.upgrade() else { return };
         let id = id.clone();
+        let generation = self.generation.load(Ordering::SeqCst);
         self.rt.spawn(async move {
+            if !s.wait_turn(&id, generation, false).await {
+                done(Err("Трек больше не в очереди".into()));
+                return;
+            }
             match s.start(&id).await {
                 Ok(a) => {
                     let _ = s.db.write({
@@ -222,29 +290,31 @@ impl StreamProvider for AppStreams {
 
     fn prefetch(&self, current: Option<&TrackId>, upcoming: &[TrackId]) {
         *lock(&self.wanted) = current.into_iter().chain(upcoming).cloned().collect();
-        let keep: HashSet<&TrackId> = current.into_iter().chain(upcoming.iter().take(CACHE_AHEAD)).collect();
+        *lock(&self.current) = current.cloned();
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        // Partial downloads anywhere in the window survive a mere re-order.
+        let keep: HashSet<&TrackId> = current.into_iter().chain(upcoming).collect();
         self.drop_unwanted(&keep);
+        self.changed.notify_waiters();
         let Some(s) = self.me.upgrade() else { return };
-        let to_resolve: Vec<TrackId> = {
-            let mut resolving = lock(&self.resolving);
-            upcoming
-                .iter()
-                .filter(|id| self.resolver.cached(id).is_none() && resolving.insert((*id).clone()))
-                .cloned()
-                .collect()
-        };
         let cache: Vec<TrackId> = upcoming.iter().take(CACHE_AHEAD).cloned().collect();
+        // Low-water mark: one yt-dlp run for the whole window once few URLs are left (or the
+        // track to cache next lacks one), instead of a run per track change.
+        let ready = upcoming.iter().filter(|id| self.ready(id)).count();
+        let low = ready < RESOLVE_LOW_WATER.min(upcoming.len()) || cache.iter().any(|id| !self.ready(id));
+        let to_resolve: Vec<TrackId> = match low {
+            true => upcoming.iter().filter(|id| !self.ready(id)).cloned().collect(),
+            false => Vec::new(),
+        };
         self.rt.spawn(async move {
             if !to_resolve.is_empty() {
                 let _ = s.resolver.resolve(&to_resolve).await;
-                let mut resolving = lock(&s.resolving);
-                for id in &to_resolve {
-                    resolving.remove(id);
-                }
             }
             for id in cache {
-                let still = lock(&s.wanted).contains(&id);
-                if still && let Err(e) = s.start(&id).await {
+                if !s.wait_turn(&id, generation, true).await {
+                    return;
+                }
+                if let Err(e) = s.start(&id).await {
                     tracing::debug!(%id, error = %e, "prefetch failed");
                 }
             }

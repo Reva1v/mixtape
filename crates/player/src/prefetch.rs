@@ -11,16 +11,21 @@ pub type Opened = Box<dyn FnOnce(Result<Source, String>) + Send>;
 
 /// URLs are resolved this many tracks ahead (yt-dlp takes seconds, batching helps).
 pub const RESOLVE_AHEAD: usize = 5;
-/// This many upcoming tracks are downloaded into the cache ahead of time.
-pub const CACHE_AHEAD: usize = 2;
+/// The window is resolved again (in one yt-dlp run) only once fewer than this many
+/// upcoming tracks have a URL, so a run covers several tracks instead of one per change.
+pub const RESOLVE_LOW_WATER: usize = 2;
+/// This many upcoming tracks are downloaded into the cache ahead of time, once the current
+/// track no longer needs the network.
+pub const CACHE_AHEAD: usize = 1;
 
 pub trait StreamProvider: Send + Sync {
     /// Starts streaming `id` and calls `done` once its source can be opened. Asking twice
-    /// for the same track shares one download.
+    /// for the same track shares one download. A track other than the current one may wait
+    /// until the current track's download has ended.
     fn open(&self, id: &TrackId, done: Opened);
     /// The remote tracks after the current one, nearest first (at most [`RESOLVE_AHEAD`]):
-    /// resolve their URLs, cache the first [`CACHE_AHEAD`], and drop work for anything else
-    /// except `current`.
+    /// resolve their URLs, cache the first [`CACHE_AHEAD`] after the current track's
+    /// download, and drop work for anything outside `current` and `upcoming`.
     fn prefetch(&self, current: Option<&TrackId>, upcoming: &[TrackId]);
 }
 

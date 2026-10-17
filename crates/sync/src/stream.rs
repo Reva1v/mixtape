@@ -23,11 +23,22 @@ pub const PIECE: u64 = 1024 * 1024;
 /// Network errors in a row that are retried before giving up.
 const RETRIES: u32 = 3;
 
+/// How a stream download ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FillEnd {
+    Complete,
+    /// Gave up on an error; the readers got it through [`SparseCacheFile::fail`].
+    Failed,
+    Cancelled,
+}
+
 /// A running stream download; dropping it cancels the download.
 pub struct StreamFill {
     cancel: Cancel,
     url: watch::Sender<String>,
     task: Option<JoinHandle<Result<(), FetchError>>>,
+    /// `None` while running.
+    ended: watch::Receiver<Option<FillEnd>>,
 }
 
 impl StreamFill {
@@ -60,10 +71,21 @@ impl StreamFill {
             cancel: cancel.clone(),
             piece,
         };
+        let (end_tx, ended) = watch::channel(None);
+        let task = tokio::spawn(async move {
+            let res = job.run(on_expired).await;
+            end_tx.send_replace(Some(match &res {
+                Ok(()) => FillEnd::Complete,
+                Err(FetchError::Cancelled) => FillEnd::Cancelled,
+                Err(_) => FillEnd::Failed,
+            }));
+            res
+        });
         Self {
             cancel,
             url: tx,
-            task: Some(tokio::spawn(job.run(on_expired))),
+            task: Some(task),
+            ended,
         }
     }
 
@@ -79,7 +101,18 @@ impl StreamFill {
 
     /// Whether the download has ended (complete, failed or cancelled).
     pub fn done(&self) -> bool {
-        self.task.as_ref().is_none_or(JoinHandle::is_finished)
+        self.ended.borrow().is_some() || self.task.as_ref().is_none_or(JoinHandle::is_finished)
+    }
+
+    /// Waits for the end without taking the download, without polling.
+    pub async fn ended(&self) -> FillEnd {
+        let mut rx = self.ended.clone();
+        rx.wait_for(Option::is_some)
+            .await
+            .ok()
+            .and_then(|v| *v)
+            // The task is gone without a word (it panicked or the runtime shut down).
+            .unwrap_or(FillEnd::Failed)
     }
 
     /// Waits for the end: `Ok` once the file is complete.
@@ -314,6 +347,7 @@ mod tests {
         assert!(!job.done(), "waits instead of failing");
         assert_eq!(f.filled_bytes(), 0);
         job.retarget(s.base.clone());
+        assert_eq!(job.ended().await, FillEnd::Complete);
         finish(job).await.unwrap();
         assert_eq!(std::fs::read(f.path()).unwrap(), *body);
     }
@@ -329,6 +363,9 @@ mod tests {
         }
         assert!(!job.done());
         job.cancel();
+        let end = tokio::time::timeout(Duration::from_secs(5), job.ended()).await;
+        assert_eq!(end.expect("cancel ends the download"), FillEnd::Cancelled);
+        assert!(job.done());
         assert!(matches!(finish(job).await, Err(FetchError::Cancelled)));
         assert_eq!((f.filled_bytes(), f.available(0)), (5000, 5000));
     }
@@ -340,7 +377,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         // The file claims more bytes than the server has: the request past its end gets 416.
         let f = file(&dir, 2000);
-        let err = finish(fill(&s.base, &f, 1000)).await.unwrap_err();
+        let job = fill(&s.base, &f, 1000);
+        assert_eq!(job.ended().await, FillEnd::Failed);
+        let err = finish(job).await.unwrap_err();
         assert!(matches!(err, FetchError::Http(416)), "{err:?}");
         let mut r = f.reader();
         r.seek(SeekFrom::Start(1500)).unwrap();
