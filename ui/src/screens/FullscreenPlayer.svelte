@@ -209,7 +209,9 @@
     width: 130vmax;
     height: 130vmax;
     object-fit: cover;
-    filter: saturate(1.6);
+    /* Softens the edges between the 64 px thumbnail's upscaled pixels without
+       changing the look; the filtered layer is rasterised once. */
+    filter: blur(12px) saturate(1.6);
     will-change: transform;
   }
   .layer-a {
