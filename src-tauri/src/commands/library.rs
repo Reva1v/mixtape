@@ -159,7 +159,16 @@ pub async fn album_get(state: State<'_, Arc<AppState>>, id: AlbumId) -> CmdResul
 #[tauri::command]
 pub async fn artist_get(state: State<'_, Arc<AppState>>, id: ArtistId) -> CmdResult<ArtistPage> {
     let st = state.inner().clone();
-    let page = artist_page(st.clone(), id.clone()).await?;
+    let mut page = artist_page(st.clone(), id.clone()).await?;
+    // Pictures fetched before palettes were stored: compute it once from the thumbnail.
+    if let Some(key) = page.artist.image_key.clone()
+        && page.artist.palette.is_empty()
+        && let Ok(palette) = st.covers.palette(&key)
+    {
+        let (aid, k, p) = (id.clone(), key.clone(), palette.clone());
+        let _ = st.db.write(move |t| mixtape_library::ytm::set_artist_image(t, &aid, &k, &p));
+        page.artist.palette = palette;
+    }
     // No picture yet: fetch it in the background; the page reloads on `library:changed`.
     if page.artist.image_key.is_none() && id.as_str().starts_with("UC") && st.yt.is_authenticated() {
         tauri::async_runtime::spawn(async move {

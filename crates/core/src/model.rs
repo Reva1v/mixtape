@@ -142,6 +142,9 @@ pub struct Artist {
     #[ts(optional)]
     pub image_key: Option<String>,
     pub in_library: bool,
+    /// Colours of the picture, most prominent first; empty until it has one.
+    #[serde(default)]
+    pub palette: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]

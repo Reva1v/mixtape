@@ -8,6 +8,8 @@ class Layout {
   /** Bumped to ask the search screen to focus its input. */
   searchFocus = $state(0);
   shortcutsOpen = $state(false);
+  /** Header tint of the current page (an artist's picture); `null` follows the track. */
+  pageGlow = $state<string | null>(null);
 
   toggleDrawer(panel: "queue" | "lyrics") {
     this.drawer = this.drawer === panel ? null : panel;

@@ -3,7 +3,8 @@
   import type { ArtistPage } from "$lib/ipc/bindings/ArtistPage";
   import type { Track } from "$lib/ipc/bindings/Track";
   import { Fixed } from "$lib/stores/paged.svelte";
-  import { player } from "$lib/stores/player.svelte";
+  import { glowOf, player } from "$lib/stores/player.svelte";
+  import { layout } from "$lib/stores/layout.svelte";
   import { router } from "$lib/stores/router.svelte";
   import { openAlbum } from "$lib/stores/actions";
   import { tracks } from "$lib/i18n/ru";
@@ -39,6 +40,14 @@
   $effect(() => {
     if (page) rows.items = showAll ? page.tracks : page.tracks.slice(0, 5);
   });
+
+  // It's the artist's page: the header takes the colours of their picture, and goes
+  // back to the track's colours on leaving.
+  $effect(() => {
+    const palette = page?.artist.palette ?? [];
+    layout.pageGlow = palette.length ? glowOf(palette) : null;
+  });
+  $effect(() => () => (layout.pageGlow = null));
 
   function play(i = 0, shuffle = false) {
     if (shuffle !== player.state.shuffle) void player.toggleShuffle();

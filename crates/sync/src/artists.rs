@@ -17,12 +17,10 @@ pub async fn fetch_image<Y: YtMusic>(yt: &Y, http: &reqwest::Client, db: &Db, co
     let Some(url) = artist.card.thumbnail else { return false };
     let Ok(bytes) = thumbs::download(http, &url).await else { return false };
     let (covers, key) = (covers.clone(), id.to_string());
-    let stored = tokio::task::spawn_blocking(move || covers.process(&key, &bytes).is_ok()).await.unwrap_or(false);
-    if !stored {
-        return false;
-    }
+    let processed = tokio::task::spawn_blocking(move || covers.process(&key, &bytes).ok()).await.ok().flatten();
+    let Some(processed) = processed else { return false };
     let (id, key) = (id.clone(), id.to_string());
-    db.write(move |t| ytm::set_artist_image(t, &id, &key)).is_ok()
+    db.write(move |t| ytm::set_artist_image(t, &id, &key, &processed.palette)).is_ok()
 }
 
 /// Fetches pictures for every credited artist that lacks one; returns how many arrived.

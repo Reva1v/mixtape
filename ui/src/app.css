@@ -40,8 +40,18 @@
   initial-value: #2a2a2e;
 }
 
+/* The header tint: the track's glow, or a page's own colour (an artist page). */
+@property --page-glow {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #2a2a2e;
+}
+
 :root {
   transition: --glow 1.1s cubic-bezier(0.4, 0, 0.2, 1);
+}
+[data-page-glow] {
+  transition: --page-glow 0.9s cubic-bezier(0.4, 0, 0.2, 1);
 }
 :root.instant-bg {
   transition: none;

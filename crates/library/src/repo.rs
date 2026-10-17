@@ -406,11 +406,18 @@ pub fn artists_by_ids(conn: &Connection, ids: &[ArtistId]) -> Result<Vec<Artist>
     let mut out: HashMap<String, Artist> = HashMap::new();
     for chunk in ids.chunks(500) {
         let mut stmt = conn.prepare_cached(&format!(
-            "SELECT id, name, image_key, in_library FROM artists WHERE id IN ({})",
+            "SELECT id, name, image_key, in_library, palette FROM artists WHERE id IN ({})",
             placeholders(chunk.len())
         ))?;
         let rows = stmt.query_map(params_from_iter(chunk.iter().map(|i| i.as_str())), |r| {
-            Ok(Artist { id: ArtistId(r.get(0)?), name: r.get(1)?, image_key: r.get(2)?, in_library: r.get(3)? })
+            let palette: Option<String> = r.get(4)?;
+            Ok(Artist {
+                id: ArtistId(r.get(0)?),
+                name: r.get(1)?,
+                image_key: r.get(2)?,
+                in_library: r.get(3)?,
+                palette: palette.and_then(|p| serde_json::from_str(&p).ok()).unwrap_or_default(),
+            })
         })?;
         for a in rows {
             let a = a?;

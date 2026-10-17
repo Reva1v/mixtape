@@ -97,8 +97,10 @@
       <div class="relative min-w-0 flex-1 overflow-hidden rounded-xl bg-panel">
         <!-- Artwork glow, fixed behind the scrolling content. -->
         <div
+          data-page-glow
           class="pointer-events-none absolute inset-x-0 top-0 h-[300px]"
-          style:background="linear-gradient(180deg, color-mix(in srgb, var(--glow) 55%, transparent) 0%, transparent 100%)"
+          style:--page-glow={layout.pageGlow ?? "var(--glow)"}
+          style:background="linear-gradient(180deg, color-mix(in srgb, var(--page-glow) 55%, transparent) 0%, transparent 100%)"
         ></div>
         <!-- Drag strip along the top edge, clear of the caption buttons. -->
         <div class="absolute top-0 right-[150px] left-0 z-10 h-7" data-tauri-drag-region></div>

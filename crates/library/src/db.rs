@@ -6,7 +6,10 @@ use rusqlite_migration::{M, Migrations};
 use std::path::Path;
 use std::time::Duration;
 
-const MIGRATIONS_SLICE: &[M<'static>] = &[M::up(include_str!("../migrations/001_init.sql"))];
+const MIGRATIONS_SLICE: &[M<'static>] = &[
+    M::up(include_str!("../migrations/001_init.sql")),
+    M::up(include_str!("../migrations/002_artist_palette.sql")),
+];
 
 fn migrations() -> Migrations<'static> {
     Migrations::from_slice(MIGRATIONS_SLICE)

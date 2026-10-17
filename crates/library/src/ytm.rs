@@ -117,6 +117,68 @@ pub fn link_artists_by_name(conn: &Connection) -> Result<usize> {
     Ok(n)
 }
 
+/// Folds tracks from a local folder import (`local…` ids) into the YouTube Music track
+/// they duplicate — same title, length within 3 s, already downloaded. Plays, likes,
+/// playlist slots and the saved queue move to the YouTube track; the local row, and
+/// albums or artists left without tracks, are removed. Audio files are not touched.
+/// Returns the number of tracks merged.
+pub fn merge_local_twins(conn: &Connection) -> Result<usize> {
+    let pairs: Vec<(String, String)> = conn
+        .prepare(
+            "SELECT l.id, (SELECT y.id FROM tracks y
+                 WHERE y.title = l.title AND y.id NOT LIKE 'local%' AND y.state = 'downloaded'
+                   AND abs(y.duration_ms - l.duration_ms) < 3000 LIMIT 1)
+             FROM tracks l WHERE l.id LIKE 'local%'",
+        )?
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?)))?
+        .filter_map(|r| match r {
+            Ok((l, Some(y))) => Some(Ok((l, y))),
+            Ok(_) => None,
+            Err(e) => Some(Err(e)),
+        })
+        .collect::<rusqlite::Result<_>>()?;
+    if pairs.is_empty() {
+        return Ok(0);
+    }
+    let mut snapshot: Option<String> =
+        conn.query_row("SELECT value FROM settings WHERE key = 'queue_snapshot'", [], |r| r.get(0)).optional()?;
+    for (local, yt) in &pairs {
+        conn.execute(
+            "INSERT INTO play_stats(track_id, play_count, full_play_count, last_played_at)
+             SELECT ?2, play_count, full_play_count, last_played_at FROM play_stats WHERE track_id = ?1
+             ON CONFLICT(track_id) DO UPDATE SET
+                play_count = play_stats.play_count + excluded.play_count,
+                full_play_count = play_stats.full_play_count + excluded.full_play_count,
+                last_played_at = MAX(COALESCE(play_stats.last_played_at, 0), COALESCE(excluded.last_played_at, 0))",
+            params![local, yt],
+        )?;
+        conn.execute(
+            "UPDATE tracks SET liked = 1, liked_at = COALESCE(liked_at, (SELECT liked_at FROM tracks WHERE id = ?1))
+             WHERE id = ?2 AND (SELECT liked FROM tracks WHERE id = ?1) = 1",
+            params![local, yt],
+        )?;
+        conn.execute("UPDATE playlist_items SET track_id = ?2 WHERE track_id = ?1", params![local, yt])?;
+        if let Some(s) = &mut snapshot {
+            *s = s.replace(&format!("\"{local}\""), &format!("\"{yt}\""));
+        }
+        conn.execute("DELETE FROM tracks WHERE id = ?1", [local])?;
+    }
+    if let Some(s) = snapshot {
+        conn.execute("UPDATE settings SET value = ?1 WHERE key = 'queue_snapshot'", [s])?;
+    }
+    conn.execute(
+        "DELETE FROM albums WHERE id LIKE 'localalb%' AND NOT EXISTS (SELECT 1 FROM tracks WHERE album_id = albums.id)",
+        [],
+    )?;
+    conn.execute(
+        "DELETE FROM artists WHERE id LIKE 'localart%'
+           AND NOT EXISTS (SELECT 1 FROM track_artists WHERE artist_id = artists.id)
+           AND NOT EXISTS (SELECT 1 FROM album_artists WHERE artist_id = artists.id)",
+        [],
+    )?;
+    Ok(pairs.len())
+}
+
 /// Artists credited on any track or album that have no picture yet.
 pub fn artists_without_image(conn: &Connection) -> Result<Vec<mixtape_core::ArtistId>> {
     let mut stmt = conn.prepare_cached(
@@ -128,8 +190,12 @@ pub fn artists_without_image(conn: &Connection) -> Result<Vec<mixtape_core::Arti
     Ok(ids.into_iter().map(mixtape_core::ArtistId).collect())
 }
 
-pub fn set_artist_image(conn: &Connection, id: &mixtape_core::ArtistId, key: &str) -> Result<()> {
-    conn.execute("UPDATE artists SET image_key = ?2 WHERE id = ?1", params![id.as_str(), key])?;
+pub fn set_artist_image(conn: &Connection, id: &mixtape_core::ArtistId, key: &str, palette: &[String]) -> Result<()> {
+    let palette = (!palette.is_empty()).then(|| serde_json::to_string(palette)).transpose()?;
+    conn.execute(
+        "UPDATE artists SET image_key = ?2, palette = COALESCE(?3, palette) WHERE id = ?1",
+        params![id.as_str(), key, palette],
+    )?;
     Ok(())
 }
 
@@ -158,6 +224,36 @@ mod tests {
             .read(|c| Ok(c.query_row("SELECT count(*) FROM track_artists WHERE artist_id = 'UCx'", [], |r| r.get(0))?))
             .unwrap();
         assert_eq!(linked, 2);
+    }
+
+    #[test]
+    fn local_import_folds_into_its_twin() {
+        let (_dir, db) = test_util::db();
+        let merged = db
+            .write(|t| {
+                repo::upsert_track(t, &test_util::meta("localabc", "Song", ("UCx", "X"), None))?;
+                repo::upsert_track(t, &test_util::meta("yyyyyyyyyyy", "Song", ("UCx", "X"), None))?;
+                repo::set_state(t, &TrackId::new("yyyyyyyyyyy"), mixtape_core::TrackState::Downloaded)?;
+                repo::record_play(t, &TrackId::new("localabc"), true)?;
+                repo::set_liked(t, &TrackId::new("localabc"), true)?;
+                t.execute("INSERT INTO settings(key, value) VALUES ('queue_snapshot', '{\"ids\":[\"localabc\"]}')", [])?;
+                merge_local_twins(t)
+            })
+            .unwrap();
+        assert_eq!(merged, 1);
+        let (gone, liked, plays, snap) = db
+            .read(|c| {
+                Ok((
+                    repo::track(c, &TrackId::new("localabc"))?.is_none(),
+                    repo::track(c, &TrackId::new("yyyyyyyyyyy"))?.unwrap().liked,
+                    c.query_row("SELECT play_count FROM play_stats WHERE track_id = 'yyyyyyyyyyy'", [], |r| r.get::<_, i64>(0))?,
+                    c.query_row("SELECT value FROM settings WHERE key = 'queue_snapshot'", [], |r| r.get::<_, String>(0))?,
+                ))
+            })
+            .unwrap();
+        assert!(gone && liked);
+        assert_eq!(plays, 1);
+        assert!(snap.contains("yyyyyyyyyyy"));
     }
 
     #[test]

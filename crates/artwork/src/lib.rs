@@ -94,6 +94,14 @@ impl CoverStore {
     }
 }
 
+impl CoverStore {
+    /// Palette of a cover already in the store, from its smallest thumbnail.
+    pub fn palette(&self, key: &str) -> Result<Vec<String>> {
+        let img = image::open(self.path(key, SIZES[0])?)?.to_rgb8();
+        Ok(palette_of(&img))
+    }
+}
+
 fn square(img: RgbImage) -> RgbImage {
     let (w, h) = img.dimensions();
     if w == h {
