@@ -11,6 +11,7 @@ pub mod lastfm;
 pub mod likes;
 pub mod lyrics;
 pub mod sources;
+pub mod spotify;
 pub mod stream;
 pub mod url_import;
 

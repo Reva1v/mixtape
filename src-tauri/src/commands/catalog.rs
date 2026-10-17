@@ -90,7 +90,7 @@ pub(crate) fn can_reach(st: &AppState) -> bool {
     st.yt.is_authenticated() && st.online.load(Ordering::SeqCst)
 }
 
-fn need_catalog(st: &AppState) -> CmdResult<()> {
+pub(crate) fn need_catalog(st: &AppState) -> CmdResult<()> {
     if !st.yt.is_authenticated() {
         return Err(AppError::new(
             ErrorKind::Auth,
@@ -110,7 +110,7 @@ fn need_catalog(st: &AppState) -> CmdResult<()> {
     Ok(())
 }
 
-fn yt_error(st: &AppState, e: YtError) -> AppError {
+pub(crate) fn yt_error(st: &AppState, e: YtError) -> AppError {
     if matches!(e, YtError::Auth) {
         let _ = st.app.emit("account:expired", ());
     }

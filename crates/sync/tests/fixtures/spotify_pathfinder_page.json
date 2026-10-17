@@ -1,0 +1,92 @@
+{
+ "data": {
+  "playlistV2": {
+   "__typename": "Playlist",
+   "content": {
+    "__typename": "PlaylistItemsPage",
+    "items": [
+     {
+      "itemV2": {
+       "__typename": "TrackResponseWrapper",
+       "data": {
+        "__typename": "Track",
+        "uri": "spotify:track:05RgAMGypEvqhNs5hPCbMS",
+        "name": "Panama - 2015 Remaster",
+        "artists": {
+         "items": [
+          {
+           "profile": {
+            "name": "Van Halen"
+           }
+          }
+         ]
+        },
+        "trackDuration": {
+         "totalMilliseconds": 210226
+        }
+       }
+      }
+     },
+     {
+      "itemV2": {
+       "__typename": "TrackResponseWrapper",
+       "data": {
+        "__typename": "Track",
+        "uri": "spotify:track:43btz2xjMKpcmjkuRsvxyg",
+        "name": "Jack & Diane",
+        "artists": {
+         "items": [
+          {
+           "profile": {
+            "name": "John Mellencamp"
+           }
+          }
+         ]
+        },
+        "trackDuration": {
+         "totalMilliseconds": 254493
+        }
+       }
+      }
+     },
+     {
+      "itemV2": {
+       "__typename": "TrackResponseWrapper",
+       "data": {
+        "__typename": "Track",
+        "uri": "spotify:track:0cGG2EouYCEEC3xfa0tDFV",
+        "name": "Tainted Love",
+        "artists": {
+         "items": [
+          {
+           "profile": {
+            "name": "Soft Cell"
+           }
+          }
+         ]
+        },
+        "trackDuration": {
+         "totalMilliseconds": 153800
+        }
+       }
+      }
+     },
+     {
+      "itemV2": {
+       "__typename": "EpisodeResponseWrapper",
+       "data": {
+        "__typename": "Episode",
+        "name": "Some episode"
+       }
+      }
+     }
+    ],
+    "pagingInfo": {
+     "limit": 100,
+     "offset": 100
+    },
+    "totalCount": 150
+   }
+  }
+ }
+}

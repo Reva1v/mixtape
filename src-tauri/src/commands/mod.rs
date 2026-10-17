@@ -6,6 +6,7 @@ pub mod mix;
 pub mod lyrics;
 pub mod player;
 pub mod settings;
+pub mod spotify;
 pub mod stats;
 pub mod sync;
 
