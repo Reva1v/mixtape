@@ -7,6 +7,7 @@ pub mod auth;
 pub mod innertube;
 pub mod limits;
 pub mod parse;
+pub mod radio;
 pub mod resolver;
 pub mod thumbs;
 
