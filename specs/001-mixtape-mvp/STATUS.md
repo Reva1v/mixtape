@@ -31,7 +31,7 @@
     Сквозная проверка во временной папке: `cargo run -p mixtape-sync --example e2e --
     .secrets/cookies.txt src-tauri/binaries <ссылка>`.
   - `crates/library`: `jobs` (download_jobs), `ytm` (зеркала плейлистов, лайки из YTM).
-  - `crates/win::dpapi`: cookies хранятся в `%LOCALAPPDATA%\Mixtapeccount.bin` под DPAPI.
+  - `crates/win::dpapi`: cookies хранятся в `%LOCALAPPDATA%\Mixtape\account.bin` под DPAPI.
   - Вход: окно Google внутри приложения (инкогнито WebView2, `login_window.rs`) — cookies
     забираются сами; запасной путь — вставка cookies.
   - UI: экран «Загрузки», модалка подключения, «Добавить по ссылке» (Ctrl+L / Ctrl+V со
@@ -41,7 +41,7 @@
   - При старте: тестовые локальные импорты (`local…`) сливаются с YTM-двойниками
     (`ytm::merge_local_twins`), имена без id привязываются к исполнителям
     (`ytm::link_artists_by_name`, иначе создаётся `localart…`). Бэкап базы до слияния —
-    `%LOCALAPPDATA%\Mixtapeackup-2026-10-17-before-merge`.
+    `%LOCALAPPDATA%\Mixtape\backup-2026-10-17-before-merge`.
   - Не сделано: замена клипа на аудио-версию (T060, 35 из 288 лайков — клипы без альбома),
     ссылки на исполнителей в «Добавить по ссылке».
 
