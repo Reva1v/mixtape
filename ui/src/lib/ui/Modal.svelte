@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { fadeSpring, rise } from "$lib/motion";
+  import { blurIn, fadeSpring, rise } from "$lib/motion";
 
   interface Props {
     open: boolean;
@@ -24,16 +24,18 @@
 
 {#if open}
   <div
-    class="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm"
+    class="fixed inset-0 z-50 grid place-items-center"
     role="presentation"
-    transition:fadeSpring
-    onpointerdown={(e) => e.target === e.currentTarget && onclose()}
+    onpointerdown={(e) => (e.target as HTMLElement).hasAttribute("data-backdrop") && onclose()}
   >
+    <!-- Blur and dimming are separate layers; see `blurIn`. -->
+    <div data-backdrop class="absolute inset-0 backdrop-blur-[8px]" transition:blurIn></div>
+    <div data-backdrop class="absolute inset-0 bg-black/50" transition:fadeSpring></div>
     <div
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      class="max-h-[85vh] overflow-auto rounded-xl bg-raised p-6 shadow-pop"
+      class="relative max-h-[85vh] overflow-auto rounded-xl bg-raised p-6 shadow-pop"
       style:width="{width}px"
       transition:rise
     >

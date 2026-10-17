@@ -85,6 +85,18 @@ export function fadeSpring(_node: Element, _opts?: unknown, ctx?: { direction: "
 }
 
 /**
+ * Backdrop blur that grows from 0 to `px`. The blurred layer must never have its
+ * opacity animated: WebView2 re-rasterises it when the transition ends and the backdrop
+ * blinks. Animating the radius keeps the layer fully opaque throughout.
+ */
+export function blurIn(_node: Element, opts: { px?: number } = {}, ctx?: { direction: "in" | "out" | "both" }): TransitionConfig {
+  const px = opts.px ?? 8;
+  if (reduced()) return { duration: 0 };
+  const { duration, easing } = ctx?.direction === "out" ? { duration: 160, easing: exitEase } : curve(springs.smooth);
+  return { duration, easing: (t) => Math.min(1, easing(t)), css: (t) => `backdrop-filter:blur(${(t * px).toFixed(2)}px)` };
+}
+
+/**
  * Press feedback: shrinks while held and springs back on release. Replaces CSS
  * `active:scale-*`, which snaps linearly.
  */
