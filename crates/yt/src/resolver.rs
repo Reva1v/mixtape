@@ -1,6 +1,6 @@
 //! Direct audio URLs through the yt-dlp sidecar.
 //!
-//! yt-dlp runs once per batch of up to five videos with `-f 251/140 -J`. It prints one
+//! yt-dlp runs once per batch of up to five videos with `-f 251/140/… -J` (see `FORMATS`). It prints one
 //! JSON object per video (`null` for a failed one) and `ERROR: [youtube] <id>: …` lines
 //! on stderr, which become Russian reasons. URLs live about six hours and are cached in
 //! memory. yt-dlp rewrites its cookie file on exit, so every call gets a fresh temporary
@@ -61,6 +61,10 @@ impl Container {
         }
     }
 }
+
+/// Opus 160k, then AAC 128k, then the smaller Opus/AAC streams and any audio in a
+/// container the library accepts — some videos lack 251/140.
+const FORMATS: &str = "251/140/250/249/139/bestaudio[ext=webm]/bestaudio[ext=m4a]";
 
 /// A direct, time-limited audio URL for one video.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -270,7 +274,7 @@ impl StreamResolver {
             .arg(runtime)
             .args([
                 "-f",
-                "251/140",
+                FORMATS,
                 "-J",
                 "--no-warnings",
                 "--no-playlist",
@@ -575,7 +579,7 @@ pub fn classify(message: &str) -> YtError {
     } else if has(&["in your country", "geo restricted", "geo-restricted"]) {
         unavailable("Недоступно в вашей стране")
     } else if has(&["requested format is not available"]) {
-        unavailable("Нет аудиодорожки 251/140")
+        unavailable("Нет подходящей аудиодорожки")
     } else if has(&["private video"]) {
         unavailable("Приватное видео")
     } else if has(&["members-only", "join this channel"]) {
@@ -768,7 +772,7 @@ mod tests {
             ),
             (
                 "Requested format is not available. Use --list-formats",
-                Some("Нет аудиодорожки 251/140"),
+                Some("Нет подходящей аудиодорожки"),
             ),
             (
                 "Private video. Sign in if you've been granted access to this video",
