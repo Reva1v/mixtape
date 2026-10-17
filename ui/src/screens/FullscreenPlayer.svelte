@@ -157,8 +157,7 @@
       onclick={() => (queueOpen = false)}
     ></button>
     <div
-      class="absolute inset-x-0 bottom-0 z-30 mx-auto flex h-[78%] max-w-[720px] flex-col overflow-hidden rounded-t-2xl
-        bg-[#0c0c0d]/85 shadow-[0_-20px_60px_-20px_rgb(0_0_0/0.8)] ring-1 ring-white/[0.06] backdrop-blur-2xl"
+      class="absolute inset-x-0 bottom-0 z-30 mx-auto flex h-[78%] max-w-[720px] flex-col"
       transition:sheet
     >
       <button
@@ -169,7 +168,7 @@
       >
         <span class="h-1 w-10 rounded-full bg-white/25"></span>
       </button>
-      <div class="min-h-0 flex-1"><QueuePanel /></div>
+      <div class="min-h-0 flex-1"><QueuePanel variant="cards" /></div>
     </div>
   {/if}
 </div>

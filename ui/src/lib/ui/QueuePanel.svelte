@@ -13,6 +13,10 @@
   import IconGrip from "~icons/lucide/grip-vertical";
   import IconRadio from "~icons/solar/radio-minimalistic-linear";
 
+  /** `cards`: every row is its own translucent card (full-screen player). */
+  let { variant = "panel" }: { variant?: "panel" | "cards" } = $props();
+  const cards = $derived(variant === "cards");
+
   let view = $state.raw<QueueView | null>(null);
 
   $effect(() => {
@@ -45,6 +49,7 @@
   <div
     role="listitem"
     class="group flex h-14 items-center gap-3 rounded-md px-2 transition-colors hover:bg-fill-2
+      {cards ? 'mb-2 h-16 rounded-xl bg-[#0c0c0d]/65 px-3 ring-1 ring-white/[0.06] backdrop-blur-xl hover:bg-[#161618]/75' : ''}
       {overIndex === i && !isCurrent ? 'shadow-[inset_0_2px_0_white]' : ''}"
     draggable={!isCurrent}
     ondragstart={() => (dragUid = e.uid)}
