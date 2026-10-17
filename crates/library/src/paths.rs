@@ -30,8 +30,12 @@ impl DataPaths {
         Ok(paths)
     }
 
-    /// The default location, `%LOCALAPPDATA%\Mixtape`.
+    /// `%LOCALAPPDATA%\Mixtape`, or `MIXTAPE_DATA_DIR` when set (budget runs on a
+    /// synthetic library, never touching the real one).
     pub fn default_location() -> std::io::Result<Self> {
+        if let Some(dir) = std::env::var_os("MIXTAPE_DATA_DIR") {
+            return Self::at(PathBuf::from(dir));
+        }
         let base = dirs::data_local_dir().ok_or_else(|| {
             std::io::Error::new(std::io::ErrorKind::NotFound, "LOCALAPPDATA is not set")
         })?;
