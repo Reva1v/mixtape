@@ -62,7 +62,7 @@
 </script>
 
 <div class="pb-10">
-  <div class="sticky top-0 z-10 bg-panel/80 px-7 pt-10 pb-4 backdrop-blur-xl">
+  <div class="px-8 pt-10 pb-4">
     <label class="flex h-12 items-center gap-3 rounded-xl bg-fill-1 px-4 ring-1 ring-line transition-colors focus-within:bg-fill-2 focus-within:ring-white/15">
       <IconSearch class="size-5 shrink-0 text-ink-3" />
       <input

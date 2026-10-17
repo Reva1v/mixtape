@@ -74,7 +74,7 @@
 {/snippet}
 
 {#snippet carousel(albums: Album[])}
-  <div class="no-scrollbar flex snap-x gap-5 overflow-x-auto scroll-px-8 px-8 pb-2">
+  <div class="no-scrollbar flex snap-x gap-7 overflow-x-auto scroll-px-8 px-8 pb-2">
     {#each albums as a (a.id)}
       <div class="w-44 shrink-0 snap-start">
         <Card
@@ -89,10 +89,10 @@
   </div>
 {/snippet}
 
-<div class="pt-10 pb-12">
-  <header class="mb-6 flex items-center gap-3 px-8">
-    <div class="grid size-10 place-items-center rounded-full bg-fill-2"><greeting.icon class="size-5" /></div>
-    <h1 class="text-[28px] font-bold tracking-tight">{greeting.text}</h1>
+<div class="pt-9 pb-12">
+  <header class="mb-5 flex items-center gap-3.5 px-8">
+    <div class="grid size-9 place-items-center rounded-full bg-white/[0.08]"><greeting.icon class="size-5" /></div>
+    <h1 class="text-[26px] font-bold tracking-tight">{greeting.text}</h1>
   </header>
 
   {#if empty}
@@ -102,13 +102,13 @@
       </button>
     </EmptyState>
   {:else if page}
-    <div class="mb-10 grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-2 px-8">
+    <div class="mb-12 grid grid-cols-3 gap-x-3 gap-y-2.5 px-8">
       <button
         type="button"
-        class="group flex h-14 items-center gap-3 overflow-hidden rounded-md bg-fill-1 pr-3 text-left transition-colors hover:bg-fill-2"
+        class="group flex h-14 min-w-0 items-center gap-3.5 overflow-hidden rounded-[5px] bg-white/[0.055] pr-3 text-left transition-colors hover:bg-white/[0.09]"
         onclick={() => router.go({ name: "library", tab: "liked" })}
       >
-        <div class="grid size-14 shrink-0 place-items-center bg-fill-2"><IconHeart class="size-6" /></div>
+        <div class="grid size-14 shrink-0 place-items-center bg-white/[0.06]"><IconHeart class="size-6" /></div>
         <div class="min-w-0">
           <div class="truncate text-[14px] font-medium">{t.library.liked}</div>
           <div class="text-[12.5px] text-ink-3">{page.likedCount} треков</div>
@@ -117,7 +117,7 @@
       {#each tiles as a (a.id)}
         <button
           type="button"
-          class="flex h-14 items-center gap-3 overflow-hidden rounded-md bg-fill-1 pr-3 text-left transition-colors hover:bg-fill-2"
+          class="flex h-14 min-w-0 items-center gap-3.5 overflow-hidden rounded-[5px] bg-white/[0.055] pr-3 text-left transition-colors hover:bg-white/[0.09]"
           onclick={() => router.go({ name: "album", id: a.id })}
         >
           <Cover coverKey={a.coverKey} size={56} rounded="sm" class="rounded-none" />

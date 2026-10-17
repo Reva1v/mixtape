@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { fly } from "svelte/transition";
   import { router } from "$lib/stores/router.svelte";
   import { layout } from "$lib/stores/layout.svelte";
   import { player } from "$lib/stores/player.svelte";
@@ -44,6 +43,12 @@
   }
 
   const route = $derived(router.current);
+
+  // Panel content shown in the drawer; lags behind `layout.drawer` while closing.
+  let shownDrawer = $state<"queue" | "lyrics" | null>(null);
+  $effect(() => {
+    if (layout.drawer) shownDrawer = layout.drawer;
+  });
 </script>
 
 <svelte:window
@@ -51,21 +56,21 @@
   onmouseup={(e) => (e.button === 3 ? router.back() : e.button === 4 && router.forward())}
 />
 
-<div class="flex h-screen flex-col" data-tauri-drag-region>
-  <div class="flex min-h-0 flex-1" data-tauri-drag-region>
-    <Sidebar />
+<div class="flex h-screen" data-tauri-drag-region>
+  <Sidebar />
 
-    <div class="flex min-w-0 flex-1 gap-(--gap) pt-(--gap) pr-(--gap)" data-tauri-drag-region>
+  <div class="flex min-w-0 flex-1 flex-col" data-tauri-drag-region>
+    <div class="flex min-h-0 flex-1 gap-(--gap) pt-(--gap) pr-(--gap)" data-tauri-drag-region>
       <div class="relative min-w-0 flex-1 overflow-hidden rounded-xl bg-panel">
         <!-- Artwork glow, fixed behind the scrolling content. -->
         <div
-          class="pointer-events-none absolute inset-x-0 top-0 h-[360px] transition-[background] duration-1000"
-          style:background="radial-gradient(90% 100% at 15% 0%, color-mix(in srgb, var(--glow) 55%, transparent) 0%, transparent 70%)"
+          class="pointer-events-none absolute inset-x-0 top-0 h-[300px] transition-[background] duration-1000"
+          style:background="linear-gradient(180deg, color-mix(in srgb, var(--glow) 55%, transparent) 0%, transparent 100%)"
         ></div>
         <!-- Drag strip along the top edge, clear of the caption buttons. -->
         <div class="absolute top-0 right-[150px] left-0 z-10 h-7" data-tauri-drag-region></div>
 
-        <main bind:this={layout.scrollEl} class="relative h-full overflow-y-auto" style:scrollbar-gutter="stable">
+        <main bind:this={layout.scrollEl} class="relative h-full overflow-y-auto">
           {#if route.name === "home"}
             <Home />
           {:else if route.name === "library"}
@@ -84,19 +89,29 @@
         </main>
       </div>
 
-      {#if layout.drawer}
-        <aside class="w-(--drawer-w) shrink-0 overflow-hidden rounded-xl bg-panel pt-10" transition:fly={{ x: 40, duration: 220 }}>
-          {#if layout.drawer === "queue"}
+      <!-- Side panel: the column width animates, so the content area narrows smoothly;
+           the panel stays mounted until the closing animation ends. -->
+      <div
+        class="shrink-0 overflow-hidden transition-[width] duration-300 ease-out-soft"
+        style:width={layout.drawer ? "calc(var(--drawer-w) + var(--gap))" : "0px"}
+        style:margin-left="calc(-1 * var(--gap))"
+        ontransitionend={(e) => e.target === e.currentTarget && !layout.drawer && (shownDrawer = null)}
+      >
+        <aside
+          class="ml-(--gap) h-full w-(--drawer-w) overflow-hidden rounded-xl bg-panel pt-10 transition-opacity duration-300
+            {layout.drawer ? 'opacity-100' : 'opacity-0'}"
+        >
+          {#if shownDrawer === "queue"}
             <QueuePanel />
-          {:else}
+          {:else if shownDrawer === "lyrics"}
             <EmptyState icon={IconLyrics} title="Тексты песен" hint="Появятся позже" />
           {/if}
         </aside>
-      {/if}
+      </div>
     </div>
-  </div>
 
-  <MiniPlayer />
+    <MiniPlayer />
+  </div>
 </div>
 
 {#if layout.fullscreen && player.track}

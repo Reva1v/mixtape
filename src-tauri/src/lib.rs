@@ -32,6 +32,17 @@ pub fn run() {
             app.manage(state.clone());
             // `setup` runs on the main (UI) thread, which the thumbnail toolbar needs.
             state.media.install(app.handle());
+            #[cfg(debug_assertions)]
+            if let Ok(dir) = std::env::var("MIXTAPE_DEV_IMPORT") {
+                let st = state.clone();
+                std::thread::spawn(move || match commands::dev::import_dir(&st, &dir) {
+                    Ok(n) => {
+                        tracing::info!(n, "dev import done");
+                        commands::library::emit_changed(&st.app, &[mixtape_library::views::ViewKind::Tracks]);
+                    }
+                    Err(e) => tracing::warn!(error = %e, "dev import failed"),
+                });
+            }
             Ok(())
         })
         .on_window_event(|window, event| {

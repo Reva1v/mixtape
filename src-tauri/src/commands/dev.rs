@@ -4,8 +4,8 @@
 use super::{CmdResult, blocking};
 use crate::commands::library::emit_changed;
 use crate::state::AppState;
-use mixtape_core::{AlbumId, AlbumRef, AppError, ArtistRef, ErrorKind, TrackId};
-use mixtape_library::repo::{self, FileLocation, MediaFile, TrackMeta};
+use mixtape_core::{AlbumId, AlbumRef, AlbumType, AppError, ArtistRef, ErrorKind, TrackId};
+use mixtape_library::repo::{self, AlbumMeta, FileLocation, MediaFile, TrackMeta};
 use mixtape_library::views::ViewKind;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -18,6 +18,11 @@ fn short_hash(s: &str) -> String {
     let mut h = DefaultHasher::new();
     s.hash(&mut h);
     format!("{:011x}", h.finish() & 0xfff_ffff_ffff)
+}
+
+/// A cover image next to the audio file: same name, .jpg / .png / .webp.
+fn sibling_cover(file: &Path) -> Option<Vec<u8>> {
+    ["jpg", "png", "webp"].iter().find_map(|ext| std::fs::read(file.with_extension(ext)).ok())
 }
 
 /// "Artist - Title" file names become artist and title; anything else is a title.
@@ -49,7 +54,15 @@ fn audio_files(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
 #[tauri::command]
 pub async fn dev_import_folder(app: AppHandle, state: State<'_, Arc<AppState>>, path: String) -> CmdResult<u32> {
     let st = state.inner().clone();
-    let n = blocking(move || {
+    let n = blocking(move || import_dir(&st, &path)).await?;
+    emit_changed(&app, &[ViewKind::Tracks, ViewKind::Albums, ViewKind::Artists]);
+    Ok(n)
+}
+
+/// Imports every audio file under `path`. Also run at startup in debug builds when
+/// `MIXTAPE_DEV_IMPORT` is set, for screenshots and manual testing.
+pub fn import_dir(st: &AppState, path: &str) -> CmdResult<u32> {
+    {
         let dir = PathBuf::from(path.trim().trim_matches('"'));
         let files = audio_files(&dir)
             .map_err(|e| AppError::new(ErrorKind::Invalid, format!("Не удалось прочитать папку: {e}")))?;
@@ -59,16 +72,30 @@ pub async fn dev_import_folder(app: AppHandle, state: State<'_, Arc<AppState>>, 
             let full = file.to_string_lossy().into_owned();
             let stem = file.file_stem().and_then(|s| s.to_str()).unwrap_or("Без названия");
             let (artist, title) = split_name(stem);
-            let folder = file.parent().and_then(|p| p.file_name()).and_then(|s| s.to_str()).unwrap_or("Папка");
-            let parent = file.parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+            let id = TrackId(format!("local{}", short_hash(&full)));
+            let artists = vec![ArtistRef { id: None, name: artist.unwrap_or_else(|| "Неизвестный исполнитель".into()) }];
+            // Each file becomes a single with its own cover, which is what YouTube Music
+            // gives for loose tracks too.
+            let processed = sibling_cover(&file).and_then(|b| st.covers.process(id.as_str(), &b).ok());
+            let cover_key = processed.as_ref().map(|_| id.0.clone());
+            let album = AlbumMeta {
+                id: AlbumId(format!("localalb{}", short_hash(&full))),
+                title: title.clone(),
+                artists: artists.clone(),
+                year: None,
+                album_type: AlbumType::Single,
+                cover_key: cover_key.clone(),
+                palette: processed.map(|p| p.palette).unwrap_or_default(),
+                track_count: Some(1),
+            };
             let meta = TrackMeta {
-                id: TrackId(format!("local{}", short_hash(&full))),
+                id,
                 title,
-                artists: vec![ArtistRef { id: None, name: artist.unwrap_or_else(|| "Неизвестный исполнитель".into()) }],
-                album: Some(AlbumRef { id: AlbumId(format!("localalb{}", short_hash(&parent))), title: folder.into() }),
-                track_no: None,
+                artists,
+                album: Some(AlbumRef { id: album.id.clone(), title: album.title.clone() }),
+                track_no: Some(1),
                 duration_ms: info.duration_ms,
-                cover_key: None,
+                cover_key,
             };
             let media = MediaFile {
                 track_id: meta.id.clone(),
@@ -80,14 +107,12 @@ pub async fn dev_import_folder(app: AppHandle, state: State<'_, Arc<AppState>>, 
                 location: FileLocation::Library,
             };
             st.db.write(move |t| {
+                repo::upsert_album(t, &album)?;
                 repo::upsert_track(t, &meta)?;
                 repo::put_media_file(t, &media)
             })?;
             imported += 1;
         }
         Ok(imported)
-    })
-    .await?;
-    emit_changed(&app, &[ViewKind::Tracks, ViewKind::Albums, ViewKind::Artists]);
-    Ok(n)
+    }
 }

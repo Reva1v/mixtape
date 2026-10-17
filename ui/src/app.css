@@ -30,7 +30,7 @@
 :root {
   --sidebar-w: 64px;
   --gap: 8px;
-  --player-h: 80px;
+  --player-h: 72px;
   --drawer-w: 360px;
   /* Glow from the current artwork; set from JS, neutral by default. */
   --glow: #2a2a2e;
@@ -116,7 +116,15 @@ textarea {
   scrollbar-width: none;
 }
 
-:focus-visible {
-  outline: 2px solid rgb(255 255 255 / 0.6);
-  outline-offset: 2px;
+@layer base {
+  /* Keyboard focus ring for controls; text fields show focus through their own styling. */
+  :focus-visible:not(input, textarea, select) {
+    outline: 2px solid rgb(255 255 255 / 0.6);
+    outline-offset: 2px;
+  }
+  input:focus,
+  textarea:focus,
+  select:focus {
+    outline: none;
+  }
 }

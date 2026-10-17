@@ -16,7 +16,7 @@
 
   let { coverKey, title, subtitle, round = false, onopen, onplay, oncontextmenu }: Props = $props();
   let failed = $state(false);
-  const shape = $derived(round ? "rounded-full" : "rounded-lg");
+  const shape = $derived(round ? "rounded-full" : "rounded-md");
 </script>
 
 {#if title === undefined}
@@ -60,11 +60,11 @@
       {/if}
     </div>
     <div class="mt-3 min-w-0 {round ? 'text-center' : ''}">
-      <button type="button" class="block w-full truncate text-[14px] font-medium text-ink hover:underline {round ? 'text-center' : 'text-left'}" onclick={onopen}>
+      <button type="button" class="block w-full truncate text-[14.5px] font-medium text-ink hover:underline {round ? 'text-center' : 'text-left'}" onclick={onopen}>
         {title}
       </button>
       {#if subtitle}
-        <div class="truncate text-[12.5px] text-ink-3">{subtitle}</div>
+        <div class="mt-0.5 truncate text-[13px] text-ink-3">{subtitle}</div>
       {/if}
     </div>
   </div>
