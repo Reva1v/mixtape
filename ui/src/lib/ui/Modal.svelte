@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { fadeSpring, pop } from "$lib/motion";
+  import { fadeSpring, rise } from "$lib/motion";
 
   interface Props {
     open: boolean;
@@ -35,7 +35,7 @@
       aria-label={title}
       class="max-h-[85vh] overflow-auto rounded-xl bg-raised p-6 shadow-pop"
       style:width="{width}px"
-      transition:pop={{ scale: 0.94, y: 8 }}
+      transition:rise
     >
       {#if title}
         <h2 class="mb-4 text-lg font-semibold">{title}</h2>

@@ -58,6 +58,18 @@ export function pop(node: Element, opts: PopOpts = {}, ctx?: { direction: "in" |
   };
 }
 
+/**
+ * Dialog entrance: fades in and rises by whole pixels. No scaling — a scaled layer is
+ * drawn as a bitmap, so its text looks soft until the spring settles.
+ */
+export function rise(_node: Element, opts: { y?: number } = {}, ctx?: { direction: "in" | "out" | "both" }): TransitionConfig {
+  if (reduced()) return { duration: 120, css: (t) => `opacity:${t}` };
+  const y = opts.y ?? 8;
+  const out = ctx?.direction === "out";
+  const { duration, easing } = out ? { duration: 140, easing: exitEase } : curve(springs.snappy);
+  return { duration, easing, css: (t, u) => `opacity:${Math.min(1, t * 1.6)};transform:translateY(${Math.round(u * y)}px)` };
+}
+
 /** Entrance for whole screens: content rises a few pixels and fades in. */
 export function enter(_node: Element, opts: { y?: number } = {}): TransitionConfig {
   if (reduced()) return { duration: 0 };
