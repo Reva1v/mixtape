@@ -1,5 +1,6 @@
 // Sidebar icon sets, picked in Settings → Appearance. Outline (Lucide) is the default;
-// Solid is the original Solar set, Rounded is Phosphor's filled one.
+// Solid is the original Solar set, Duotone its two-tone variant, Rounded is Phosphor's
+// filled one.
 import type { Component } from "svelte";
 import type { IconStyle } from "$lib/ipc/bindings/IconStyle";
 import LucideHome from "~icons/lucide/house";
@@ -14,6 +15,12 @@ import SolarLibrary from "~icons/solar/book-bookmark-bold";
 import SolarDownloads from "~icons/solar/download-minimalistic-bold";
 import SolarStats from "~icons/solar/chart-2-bold";
 import SolarSettings from "~icons/solar/settings-bold";
+import DuoHome from "~icons/solar/home-smile-bold-duotone";
+import DuoSearch from "~icons/solar/magnifer-bold-duotone";
+import DuoLibrary from "~icons/solar/music-library-2-bold-duotone";
+import DuoDownloads from "~icons/solar/download-minimalistic-bold-duotone";
+import DuoStats from "~icons/solar/chart-2-bold-duotone";
+import DuoSettings from "~icons/solar/settings-bold-duotone";
 import PhHome from "~icons/ph/house-fill";
 import PhSearch from "~icons/ph/magnifying-glass-fill";
 import PhLibrary from "~icons/ph/vinyl-record-fill";
@@ -39,6 +46,14 @@ export const navIcons: Record<IconStyle, Record<NavIcon, Component>> = {
     downloads: SolarDownloads,
     stats: SolarStats,
     settings: SolarSettings,
+  },
+  duotone: {
+    home: DuoHome,
+    search: DuoSearch,
+    library: DuoLibrary,
+    downloads: DuoDownloads,
+    stats: DuoStats,
+    settings: DuoSettings,
   },
   rounded: {
     home: PhHome,

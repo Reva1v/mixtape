@@ -3,4 +3,4 @@
 /**
  * Look of the sidebar icons.
  */
-export type IconStyle = "outline" | "solid" | "rounded";
+export type IconStyle = "outline" | "solid" | "duotone" | "rounded";

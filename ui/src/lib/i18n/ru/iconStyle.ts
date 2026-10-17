@@ -5,5 +5,6 @@ export const iconStyle: typeof en = {
   hint: "Как выглядят иконки в боковой панели.",
   outline: "Контурные",
   solid: "Сплошные",
+  duotone: "Двухцветные",
   rounded: "Округлые",
 };

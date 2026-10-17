@@ -263,7 +263,7 @@
       {#snippet iconSelect()}
         <Select
           value={p.iconStyle}
-          options={(["outline", "solid", "rounded"] as const).map((id) => ({ id, label: t.iconStyle[id] }))}
+          options={(["outline", "solid", "duotone", "rounded"] as const).map((id) => ({ id, label: t.iconStyle[id] }))}
           label={t.iconStyle.title}
           onchange={(iconStyle) => prefs.update({ iconStyle })}
         />

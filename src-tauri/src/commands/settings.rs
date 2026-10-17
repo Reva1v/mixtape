@@ -21,6 +21,8 @@ pub enum IconStyle {
     Outline,
     /// Filled Solar icons, the original look.
     Solid,
+    /// Two-tone Solar icons.
+    Duotone,
     /// Filled rounded Phosphor icons.
     Rounded,
 }
