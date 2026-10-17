@@ -108,8 +108,6 @@ pub fn run() {
             commands::home::home_shelves,
             commands::home::mix_start_playlist,
             commands::player::player_subscribe,
-            commands::player::spectrum_subscribe,
-            commands::player::spectrum_unsubscribe,
             commands::player::play,
             commands::player::player_toggle,
             commands::player::player_next,

@@ -13,9 +13,14 @@
 //! step (commands and events keep flowing) and tries again on the next turn. A load whose header
 //! is not downloaded yet waits in `waiting`, a successor in `next_src`. While the head starves
 //! and the ring is nearly empty, Buffering(true) is reported.
+//!
+//! Power: the thread sleeps as long as it can. While playing it refills the ring in bursts once
+//! a third of it is free and sleeps until that is true again (≤ 10 wakeups/s); a starved stream
+//! is polled every 50 ms. The device is opened on the first Play, not on a paused load; once
+//! playback stops the stream is suspended (no device callbacks) and after a while closed, and
+//! the thread blocks on its command channel until something arrives.
 
 use std::collections::VecDeque;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -26,18 +31,26 @@ use crate::crossfade::Mixer;
 use crate::gain::volume_curve;
 use crate::output::{Output, RING_MS};
 use crate::pipeline::Pipeline;
-use crate::spectrum::{SpectrumReader, Tap};
 use crate::timeline::{Handover, Timeline, Transition};
 use crate::{Error, Result, Source};
 
 /// Open the successor and ask for one this long (plus the crossfade) before the head ends.
 const NEXT_LEAD_MS: u64 = 10_000;
-const POSITION_EVERY: Duration = Duration::from_millis(100);
-/// Sleep when there is nothing to decode (ring full) while playing, and while paused or idle.
-const PLAYING_WAIT: Duration = Duration::from_millis(10);
-const IDLE_WAIT: Duration = Duration::from_millis(250);
+const POSITION_EVERY: Duration = Duration::from_secs(1);
+/// Bounds of the sleep between refills while playing.
+const MIN_WAIT: Duration = Duration::from_millis(20);
+const MAX_WAIT: Duration = Duration::from_millis(100);
+/// Retry period of a streamed source waiting for its download.
+const STARVED_WAIT: Duration = Duration::from_millis(50);
+/// The same while paused (only until the stream is closed).
+const PAUSED_POLL: Duration = Duration::from_millis(250);
+/// Suspend the stream this long after playback stopped: the pause ramp and what the device
+/// had buffered have played out by then.
+const SUSPEND_AFTER: Duration = Duration::from_millis(50);
+/// Close a stream that stayed suspended this long.
+const CLOSE_AFTER: Duration = Duration::from_secs(30);
 /// Packets decoded between command checks.
-const PACKETS_PER_TURN: usize = 8;
+const PACKETS_PER_TURN: usize = 16;
 /// A flush the callback does not acknowledge in time means the stream is stuck.
 const FLUSH_TIMEOUT: Duration = Duration::from_millis(250);
 const REOPEN_EVERY: Duration = Duration::from_secs(1);
@@ -52,7 +65,8 @@ pub enum EngineEvent {
         id: String,
         duration_ms: u64,
     },
-    /// ~10 Hz while playing, from frames the device actually consumed.
+    /// ~1 Hz while playing (and after loads and seeks), from frames the device actually
+    /// consumed.
     Position {
         id: String,
         ms: u64,
@@ -106,27 +120,21 @@ enum Command {
 pub struct Engine {
     tx: Option<Sender<Command>>,
     thread: Option<JoinHandle<()>>,
-    tap: Arc<Tap>,
 }
 
 impl Engine {
-    /// Spawns the engine thread. The output device is opened on first use and reopened after
-    /// device errors, so this succeeds without a device.
+    /// Spawns the engine thread. The output device is opened when something first plays and
+    /// reopened after device errors, so this succeeds without a device.
     pub fn start() -> Result<(Engine, Receiver<EngineEvent>)> {
         let (tx, rx) = crossbeam_channel::unbounded();
         let (events, events_rx) = crossbeam_channel::unbounded();
-        let tap = Tap::new();
         let thread = std::thread::Builder::new()
             .name("mixtape-audio".into())
-            .spawn({
-                let tap = tap.clone();
-                move || State::new(events, tap).run(rx)
-            })?;
+            .spawn(move || State::new(events).run(rx))?;
         Ok((
             Engine {
                 tx: Some(tx),
                 thread: Some(thread),
-                tap,
             },
             events_rx,
         ))
@@ -188,12 +196,6 @@ impl Engine {
         self.send(Command::Stop);
     }
 
-    /// A reader of the spectrum of what the device plays (see [`SpectrumReader::read`]). It
-    /// survives device changes; any number may exist.
-    pub fn spectrum(&self) -> SpectrumReader {
-        SpectrumReader::new(self.tap.clone())
-    }
-
     fn send(&self, cmd: Command) {
         if let Some(tx) = &self.tx {
             let _ = tx.send(cmd);
@@ -218,12 +220,23 @@ struct Fade {
     mix: Mixer,
 }
 
+/// Opens the output device: `(volume, paused)`. Tests swap in a fake.
+type Opener = Box<dyn FnMut(f32, bool) -> Result<Output> + Send>;
+
 struct State {
     events: Sender<EngineEvent>,
-    /// Handed to every output stream the engine opens.
-    tap: Arc<Tap>,
+    open_output: Opener,
     out: Option<Output>,
     reopen_at: Instant,
+    /// Rate of the last opened device: pipelines opened without a device use it, so they
+    /// rarely need a new resampler when it opens.
+    dev_rate: u32,
+    /// When playback last stopped; `None` while playing.
+    quiet_since: Option<Instant>,
+    /// Decoding until the ring is full (see [`State::pump`]).
+    refilling: bool,
+    /// The last turn stopped decoding at [`PACKETS_PER_TURN`] with more to do.
+    busy: bool,
     timeline: Timeline,
     /// The audible track first, the decode head last.
     slots: VecDeque<Pipeline>,
@@ -255,13 +268,23 @@ struct State {
 }
 
 impl State {
-    fn new(events: Sender<EngineEvent>, tap: Arc<Tap>) -> Self {
+    fn new(events: Sender<EngineEvent>) -> Self {
         let now = Instant::now();
+        let open_output: Opener = if cfg!(test) {
+            // Unit tests never touch the real device.
+            Box::new(|_, _| Err(Error::Output("no device in tests".into())))
+        } else {
+            Box::new(Output::open)
+        };
         Self {
             events,
-            tap,
+            open_output,
             out: None,
             reopen_at: now,
+            dev_rate: FALLBACK_RATE,
+            quiet_since: Some(now),
+            refilling: false,
+            busy: false,
             timeline: Timeline::new(FALLBACK_RATE),
             slots: VecDeque::new(),
             next: None,
@@ -287,14 +310,12 @@ impl State {
     }
 
     fn run(mut self, rx: Receiver<Command>) {
-        let mut busy = false;
         loop {
-            let wait = match (busy, self.playing) {
-                (true, _) => Duration::ZERO,
-                (false, true) => PLAYING_WAIT,
-                (false, false) => IDLE_WAIT,
+            let got = match self.next_wait() {
+                Some(wait) => rx.recv_timeout(wait),
+                None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
             };
-            match rx.recv_timeout(wait) {
+            match got {
                 Ok(cmd) => {
                     self.handle(cmd);
                     while let Ok(cmd) = rx.try_recv() {
@@ -304,16 +325,62 @@ impl State {
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => break,
             }
-            self.check_output();
-            self.open_waiting();
-            busy = false;
-            for _ in 0..PACKETS_PER_TURN {
-                if !self.pump() {
-                    break;
-                }
-                busy = true;
+            self.turn();
+        }
+    }
+
+    /// One pass after the commands: device upkeep, decoding, events.
+    fn turn(&mut self) {
+        self.open_waiting();
+        self.check_output();
+        self.busy = false;
+        let mut steps = 0;
+        while self.pump() {
+            steps += 1;
+            if steps == PACKETS_PER_TURN {
+                self.busy = true;
+                break;
             }
-            self.tick();
+        }
+        self.tick();
+        self.idle_output();
+    }
+
+    /// How long the thread may sleep before the next turn; `None` until a command arrives.
+    fn next_wait(&self) -> Option<Duration> {
+        if self.busy {
+            return Some(Duration::ZERO);
+        }
+        if self.playing {
+            let Some(out) = &self.out else {
+                if self.starved {
+                    return Some(STARVED_WAIT);
+                }
+                // The device failed to open: retry when allowed.
+                let retry = self.reopen_at.saturating_duration_since(Instant::now());
+                return Some(retry.clamp(MIN_WAIT, REOPEN_EVERY));
+            };
+            if self.starved {
+                return Some(STARVED_WAIT);
+            }
+            // Sleep until a third of the ring is free again (the refill threshold), or until it
+            // runs dry when nothing more will be decoded.
+            let (cap, filled) = out.fill();
+            let more = !self.head_done || self.next.is_some() || self.next_src.is_some();
+            let target = if more { cap - cap / 3 } else { 0 };
+            let ms = filled.saturating_sub(target) * 1000 / out.rate.max(1) as u64;
+            return Some(Duration::from_millis(ms).clamp(MIN_WAIT, MAX_WAIT));
+        }
+        let out = self.out.as_ref()?;
+        let starving = self.starved || self.waiting.is_some();
+        match out.suspended_for() {
+            None => {
+                let quiet = self.quiet_since.map_or(SUSPEND_AFTER, |t| t.elapsed());
+                Some(SUSPEND_AFTER.saturating_sub(quiet).max(Duration::from_millis(1)))
+            }
+            // Paused on a stream still downloading: keep filling the ring for the resume, slowly.
+            Some(_) if starving => Some(PAUSED_POLL),
+            Some(t) => Some(CLOSE_AFTER.saturating_sub(t).max(Duration::from_millis(1))),
         }
     }
 
@@ -346,7 +413,7 @@ impl State {
     }
 
     fn rate(&self) -> u32 {
-        self.out.as_ref().map_or(FALLBACK_RATE, |o| o.rate)
+        self.out.as_ref().map_or(self.dev_rate, |o| o.rate)
     }
 
     fn consumed(&self) -> u64 {
@@ -396,7 +463,11 @@ impl State {
     }
 
     fn load(&mut self, src: Source, start_ms: u64, play: bool) {
-        self.ensure_output();
+        // A paused load (e.g. restoring the last track at startup) leaves the device closed
+        // until the first Play.
+        if play {
+            self.ensure_output();
+        }
         self.reset();
         let id = src.id.clone();
         if !src.open.ready() {
@@ -554,8 +625,25 @@ impl State {
 
     fn set_playing(&mut self, playing: bool) {
         let playing = playing && (!self.slots.is_empty() || self.waiting.is_some());
-        if let Some(o) = &self.out {
+        if let Some(o) = &mut self.out {
             o.shared.paused.store(!playing, Ordering::Relaxed);
+            if playing && let Err(e) = o.resume() {
+                tracing::warn!("cannot resume audio output: {e}");
+                o.shared.failed.store(true, Ordering::Release);
+            }
+        }
+        // Without a device, the turn after this opens one (see `check_output`).
+        if playing {
+            self.quiet_since = None;
+        } else if self.quiet_since.is_none() {
+            self.quiet_since = Some(Instant::now());
+        }
+        if self.playing && !playing {
+            // Positions are sparse: say exactly where it paused.
+            if let Some((id, ms)) = self.timeline.position(self.consumed()) {
+                let id = id.to_string();
+                self.emit(EngineEvent::Position { id, ms });
+            }
         }
         if playing != self.playing {
             self.playing = playing;
@@ -611,9 +699,24 @@ impl State {
     fn flush(&mut self) {
         self.pending.clear();
         self.pending_at = 0;
-        let Some(shared) = self.out.as_ref().map(|o| o.shared.clone()) else {
+        let Some(out) = &mut self.out else {
             return;
         };
+        let (_, filled) = out.fill();
+        if filled == 0 {
+            // Nothing queued for the device, so nothing to fade or drop (and a suspended
+            // stream can stay suspended).
+            return;
+        }
+        // A suspended stream has no callback to drop the ring and acknowledge. Paused, the
+        // callback only discards and plays silence; `idle_output` suspends it again.
+        if let Err(e) = out.resume() {
+            tracing::warn!("cannot resume audio output, reopening the device: {e}");
+            self.out = None;
+            self.written = 0;
+            return;
+        }
+        let shared = out.shared.clone();
         let generation = shared.flush.load(Ordering::Relaxed) + 1;
         shared.flush.store(generation, Ordering::Release);
         let deadline = Instant::now() + FLUSH_TIMEOUT;
@@ -681,15 +784,16 @@ impl State {
     }
 
     fn ensure_output(&mut self) {
-        // Unit tests drive the state without ever touching the real device.
-        if cfg!(test) || self.out.is_some() || Instant::now() < self.reopen_at {
+        if self.out.is_some() || Instant::now() < self.reopen_at {
             return;
         }
-        match Output::open(self.volume, !self.playing, self.tap.clone()) {
+        match (self.open_output)(self.volume, !self.playing) {
             Ok(out) => {
+                self.dev_rate = out.rate;
                 self.out = Some(out);
                 self.written = 0;
                 self.underruns_seen = 0;
+                self.refilling = false;
             }
             Err(e) => {
                 tracing::warn!("cannot open audio output: {e}");
@@ -699,25 +803,18 @@ impl State {
     }
 
     /// Rebuilds a failed stream (device error, default device changed) and resumes the audible
-    /// track where the old device stopped.
+    /// track where the old device stopped. Opens the device when something should play and
+    /// there is none (the first Play, after a failure, after an idle close).
     fn check_output(&mut self) {
         let failed = self
             .out
             .as_ref()
             .is_some_and(|o| o.shared.failed.load(Ordering::Acquire));
         if failed {
-            // Remember the audible position now: it is only known through the old ring.
-            let resume = self.timeline.position(self.consumed()).map(|(_, ms)| ms);
-            let started = self.timeline.started();
-            self.out = None;
-            self.written = 0;
+            self.close_output();
             self.reopen_at = Instant::now();
-            match resume {
-                Some(ms) => self.reprime(ms, started),
-                None => self.timeline.clear(self.rate()),
-            }
         }
-        if self.out.is_some() || self.slots.is_empty() {
+        if self.out.is_some() || self.slots.is_empty() || !self.playing {
             return;
         }
         self.ensure_output();
@@ -733,11 +830,60 @@ impl State {
         }
     }
 
+    /// Drops the device, keeping the audible track (re-primed at its audible position) for
+    /// the next one.
+    fn close_output(&mut self) {
+        if self.out.is_none() {
+            return;
+        }
+        // The audible position is only known through the old ring.
+        let resume = self.timeline.position(self.consumed()).map(|(_, ms)| ms);
+        let started = self.timeline.started();
+        self.out = None;
+        self.written = 0;
+        self.refilling = false;
+        if let Some(ms) = resume {
+            self.reprime(ms, started);
+        }
+    }
+
+    /// While nothing plays: suspends the stream once the pause ramp has played out, and
+    /// closes it after it stayed suspended for a while.
+    fn idle_output(&mut self) {
+        if self.playing {
+            return;
+        }
+        let Some(out) = &mut self.out else {
+            return;
+        };
+        match out.suspended_for() {
+            None if self.quiet_since.is_none_or(|t| t.elapsed() >= SUSPEND_AFTER) => {
+                out.suspend()
+            }
+            Some(t) if t >= CLOSE_AFTER => {
+                tracing::debug!("closing the idle audio output");
+                self.close_output();
+            }
+            _ => {}
+        }
+    }
+
     /// Moves one step of audio towards the ring. Returns whether anything happened.
+    ///
+    /// Decoding runs in bursts: it starts once a third of the ring is free and goes on until
+    /// the ring is full (or the source has nothing yet), so the thread can sleep in between.
     fn pump(&mut self) -> bool {
         let Some(out) = &mut self.out else {
             return false;
         };
+        let free = out.ring.slots();
+        if !self.refilling && free >= out.ring.buffer().capacity() / 3 {
+            self.refilling = true;
+        }
+        if !self.refilling || free == 0 {
+            self.refilling = false;
+            return false;
+        }
         if self.pending_at < self.pending.len() {
             let (pushed, rest) = out
                 .ring
@@ -749,13 +895,17 @@ impl State {
             if done {
                 self.pending.clear();
                 self.pending_at = 0;
+            } else {
+                // Full: wait for the device to drain it.
+                self.refilling = false;
             }
             return n > 0;
         }
-        if out.ring.slots() == 0 {
-            return false;
+        let progressed = self.produce();
+        if !progressed {
+            self.refilling = false;
         }
-        self.produce()
+        progressed
     }
 
     /// Decodes one step into `pending`, which must be empty. Returns whether anything happened.
@@ -1074,7 +1224,7 @@ mod tests {
     /// device `consumed` follows `written`: everything decoded counts as played at once.
     fn start(crossfade_ms: u32, a: &str, b: Option<Source>) -> (State, Receiver<EngineEvent>) {
         let (tx, rx) = crossbeam_channel::unbounded();
-        let mut st = State::new(tx, Tap::new());
+        let mut st = State::new(tx);
         st.crossfade_ms = crossfade_ms;
         let p = Pipeline::open(src(a, true), st.rate()).unwrap();
         st.start_head(p, 0, false);
@@ -1301,7 +1451,7 @@ mod tests {
 
             let (_dir, file, data) = sparse(name);
             let (tx, rx) = crossbeam_channel::unbounded();
-            let mut st = State::new(tx, Tap::new());
+            let mut st = State::new(tx);
             st.load(Source::stream(name, file.clone(), ext, 0.0), 0, true);
             assert!(
                 st.waiting.is_some() && st.playing,
@@ -1351,7 +1501,7 @@ mod tests {
         let tail = data.len() - 100;
         file.write_at(tail as u64, &data[tail..]).unwrap();
         let (tx, rx) = crossbeam_channel::unbounded();
-        let mut st = State::new(tx, Tap::new());
+        let mut st = State::new(tx);
         st.load(Source::stream(A, file.clone(), "webm", 0.0), 0, true);
         assert!(st.waiting.is_none(), "opens at once");
         let mut out = Played::default();
@@ -1387,5 +1537,278 @@ mod tests {
             "{after} frames after the seek"
         );
         assert!(out.ended_ms(A).abs_diff(2000) <= 20);
+    }
+
+    // ---------- a fake device: the test plays the callback's part ----------
+
+    use crate::output::Renderer;
+    use std::sync::atomic::{AtomicBool, AtomicUsize};
+    use std::sync::{Arc, Mutex};
+
+    type Slot = Arc<Mutex<Option<(Renderer, Arc<AtomicBool>)>>>;
+
+    struct Device {
+        slot: Slot,
+        opened: Arc<AtomicUsize>,
+    }
+
+    impl Device {
+        /// Makes `st` open fake outputs at [`RATE`].
+        fn install(st: &mut State) -> Self {
+            let slot: Slot = Arc::default();
+            let opened = Arc::new(AtomicUsize::new(0));
+            let (s, o) = (slot.clone(), opened.clone());
+            st.open_output = Box::new(move |volume, paused| {
+                let (out, renderer, running) = Output::fake(RATE as u32, volume, paused);
+                *s.lock().unwrap() = Some((renderer, running));
+                o.fetch_add(1, Ordering::Relaxed);
+                Ok(out)
+            });
+            Self { slot, opened }
+        }
+
+        fn opened(&self) -> usize {
+            self.opened.load(Ordering::Relaxed)
+        }
+
+        fn running(&self) -> bool {
+            let slot = self.slot.lock().unwrap();
+            slot.as_ref().is_some_and(|(_, r)| r.load(Ordering::Acquire))
+        }
+
+        /// The device asks for `frames` in 10 ms callbacks, unless the stream is suspended.
+        fn render(&self, frames: u64, pcm: &mut Vec<f32>) {
+            let mut slot = self.slot.lock().unwrap();
+            let Some((renderer, running)) = slot.as_mut() else {
+                return;
+            };
+            let mut left = frames as usize;
+            let mut buf = vec![0.0f32; RATE as usize / 100 * 2];
+            while left > 0 && running.load(Ordering::Acquire) {
+                let n = left.min(buf.len() / 2);
+                renderer.render(&mut buf[..n * 2]);
+                pcm.extend_from_slice(&buf[..n * 2]);
+                left -= n;
+            }
+        }
+
+        /// A device thread: 1 ms callbacks whenever the stream runs, until it is finished.
+        fn spawn(&self) -> Callbacks {
+            let stop = Arc::new(AtomicBool::new(false));
+            let dev = Device {
+                slot: self.slot.clone(),
+                opened: Arc::default(),
+            };
+            let s = stop.clone();
+            let thread = std::thread::spawn(move || {
+                let mut pcm = Vec::new();
+                while !s.load(Ordering::Acquire) {
+                    dev.render(RATE / 1000, &mut pcm);
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                pcm
+            });
+            Callbacks { stop, thread }
+        }
+    }
+
+    struct Callbacks {
+        stop: Arc<AtomicBool>,
+        thread: std::thread::JoinHandle<Vec<f32>>,
+    }
+
+    impl Callbacks {
+        /// Stops the thread and returns what it played.
+        fn finish(self) -> Vec<f32> {
+            self.stop.store(true, Ordering::Release);
+            self.thread.join().unwrap()
+        }
+    }
+
+    fn engine() -> (State, Receiver<EngineEvent>, Device) {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let mut st = State::new(tx);
+        let dev = Device::install(&mut st);
+        (st, rx, dev)
+    }
+
+    fn load(st: &mut State, name: &str, start_ms: u64, play: bool) {
+        st.handle(Command::Load {
+            src: src(name, true),
+            start_ms,
+            play,
+        });
+    }
+
+    /// Lets the "device" run for `wait` (simulated time), then runs a turn.
+    fn step(st: &mut State, dev: &Device, wait: Duration, pcm: &mut Vec<f32>) {
+        dev.render(RATE * wait.as_micros() as u64 / 1_000_000, pcm);
+        st.turn();
+    }
+
+    /// Pretends playback stopped longer ago than the suspend delay.
+    fn quiet_for_a_while(st: &mut State) {
+        st.quiet_since = Some(Instant::now() - SUSPEND_AFTER);
+    }
+
+    fn position(st: &State) -> Option<(String, u64)> {
+        let p = st.timeline.position(st.consumed());
+        p.map(|(id, ms)| (id.to_string(), ms))
+    }
+
+    #[test]
+    fn paused_load_opens_the_device_only_on_play() {
+        let (mut st, _rx, dev) = engine();
+        load(&mut st, A, 500, false);
+        st.turn();
+        assert_eq!(dev.opened(), 0);
+        assert!(st.out.is_none());
+        assert_eq!(st.next_wait(), None, "blocks until a command");
+
+        st.handle(Command::Play);
+        st.turn();
+        assert_eq!(dev.opened(), 1);
+        assert!(dev.running());
+        assert_eq!(position(&st), Some((A.into(), 500)));
+        assert!(st.written > 0, "primes the ring at once");
+        assert!(st.next_wait().is_some_and(|w| w <= MAX_WAIT));
+    }
+
+    #[test]
+    fn wakes_rarely_while_playing_and_stays_gapless() {
+        let mut reference = Vec::new();
+        for name in [A, B] {
+            let mut p = Pipeline::open(src(name, true), FALLBACK_RATE).unwrap();
+            while p.fill(&mut reference).unwrap() {}
+        }
+        let (mut st, rx, dev) = engine();
+        load(&mut st, A, 0, true);
+        st.handle(Command::SetNext(Some(src(B, true))));
+        st.turn();
+        let mut pcm = Vec::new();
+        let (mut wakes, mut sim) = (0u32, Duration::ZERO);
+        while st.playing {
+            let wait = st.next_wait().expect("never blocks while playing");
+            if !wait.is_zero() {
+                assert!(wait >= MIN_WAIT, "{wait:?}");
+                wakes += 1;
+                sim += wait;
+            }
+            step(&mut st, &dev, wait, &mut pcm);
+            if sim < Duration::from_millis(2800) {
+                let shared = &st.out.as_ref().unwrap().shared;
+                let underruns = shared.underruns.load(Ordering::Relaxed);
+                assert_eq!(underruns, 0, "ran dry at {sim:?}");
+            }
+            assert!(sim < Duration::from_secs(5), "never ended");
+        }
+        // 3 s of audio at ≤ 10 wakeups/s, plus the last drain.
+        assert!(wakes <= 33, "{wakes} wakeups");
+        let events: Vec<EngineEvent> = rx.try_iter().collect();
+        let story: Vec<String> = events
+            .iter()
+            .filter_map(|e| match e {
+                EngineEvent::Started { id, .. } => Some(format!("+{id}")),
+                EngineEvent::Ended { id, completed, .. } => Some(format!("-{id} {completed}")),
+                _ => None,
+            })
+            .collect();
+        let expected = [
+            format!("+{A}"),
+            format!("-{A} true"),
+            format!("+{B}"),
+            format!("-{B} true"),
+        ];
+        assert_eq!(story, expected);
+        // Bit-exact after the start ramps, up to where the device ran past the end.
+        let fade = RATE as usize / 100 * 2;
+        let n = reference.len();
+        assert!(pcm.len() >= n);
+        let diff = (fade..n).filter(|&i| pcm[i] != reference[i]).count();
+        assert_eq!(diff, 0, "{diff} samples differ");
+
+        // Ended: suspended shortly after, closed after a while; then nothing wakes the thread.
+        assert!(st.next_wait().is_some_and(|w| w <= SUSPEND_AFTER));
+        quiet_for_a_while(&mut st);
+        st.turn();
+        assert!(!dev.running());
+        let close_soon = CLOSE_AFTER - Duration::from_secs(1);
+        assert!(st.next_wait().is_some_and(|w| w > close_soon));
+        st.out.as_mut().unwrap().backdate_suspend(CLOSE_AFTER);
+        st.turn();
+        assert!(st.out.is_none());
+        assert_eq!(st.next_wait(), None);
+
+        // Play after the end starts the last track over, on a new device.
+        st.handle(Command::Play);
+        st.turn();
+        assert_eq!(dev.opened(), 2);
+        assert_eq!(position(&st), Some((B.into(), 0)));
+    }
+
+    #[test]
+    fn pause_suspends_and_a_seek_while_suspended_still_flushes() {
+        let (mut st, _rx, dev) = engine();
+        load(&mut st, A, 0, true);
+        st.turn();
+        let mut pcm = Vec::new();
+        for _ in 0..5 {
+            let wait = st.next_wait().unwrap();
+            step(&mut st, &dev, wait, &mut pcm);
+        }
+        st.handle(Command::Pause);
+        st.turn();
+        assert!(dev.running(), "the pause ramp still plays");
+        assert!(st.next_wait().is_some_and(|w| !w.is_zero() && w <= SUSPEND_AFTER));
+        step(&mut st, &dev, Duration::from_millis(30), &mut pcm);
+        quiet_for_a_while(&mut st);
+        st.turn();
+        assert!(!dev.running());
+        let (_, paused_at) = position(&st).unwrap();
+        assert!(paused_at > 0);
+
+        // The seek needs the callback to drop the ring: it resumes the stream for that.
+        let callbacks = dev.spawn();
+        st.handle(Command::Seek(1500));
+        st.turn();
+        let played = callbacks.finish();
+        assert!(st.out.is_some(), "the flush was acknowledged");
+        assert!(played.iter().all(|s| *s == 0.0), "silent while paused");
+        assert_eq!(position(&st), Some((A.into(), 1500)));
+        assert!(!dev.running(), "suspended again");
+
+        st.handle(Command::Play);
+        st.turn();
+        assert!(dev.running());
+        assert_eq!(dev.opened(), 1);
+    }
+
+    #[test]
+    fn closing_an_idle_device_keeps_the_position() {
+        let (mut st, rx, dev) = engine();
+        load(&mut st, A, 0, true);
+        st.turn();
+        let mut pcm = Vec::new();
+        while pcm.len() < RATE as usize {
+            let wait = st.next_wait().unwrap();
+            step(&mut st, &dev, wait, &mut pcm);
+        }
+        st.handle(Command::Pause);
+        st.turn();
+        step(&mut st, &dev, Duration::from_millis(30), &mut pcm);
+        quiet_for_a_while(&mut st);
+        st.turn();
+        let at = position(&st).unwrap();
+        st.out.as_mut().unwrap().backdate_suspend(CLOSE_AFTER);
+        st.turn();
+        assert!(st.out.is_none());
+        assert_eq!(position(&st), Some(at.clone()));
+
+        st.handle(Command::Play);
+        st.turn();
+        assert_eq!(dev.opened(), 2);
+        assert_eq!(position(&st), Some(at));
+        // Closing is not an end: the track did not report Ended.
+        assert!(!rx.try_iter().any(|e| matches!(e, EngineEvent::Ended { .. })));
     }
 }

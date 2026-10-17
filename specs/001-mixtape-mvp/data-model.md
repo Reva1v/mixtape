@@ -157,6 +157,6 @@ MixSession {
 - Без сети: если продолжение недоступно — предложение «продолжить из библиотеки»
   (локальные треки тех же артистов, затем случайные).
 
-### PlaybackState (поток в UI через Channel, 10 Гц)
+### PlaybackState (поток в UI через Channel: на изменениях и раз в ~5 с во время игры)
 `{ track_id, status: Idle|Loading|Buffering|Playing|Paused|Error, position_ms, duration_ms,
    volume, timestamp_ms }` — UI интерполирует позицию сам.

@@ -60,9 +60,7 @@ interface PlaylistCard { id: PlaylistId; title: string; origin: "ytm"|"local"; t
 | `queue_get` | → `{ items: QueueRow[], current, mix?: { chips: Chip[] } }` |
 | `queue_add` | `{ trackIds, position: "next"\|"end" }` |
 | `queue_remove` / `queue_move` / `queue_clear` | `{ uid }` / `{ uid, toIndex }` / — |
-| `player_subscribe` | `{ channel: Channel<PlaybackState> }` — позиция/статус 10 Гц и на изменениях |
-| `spectrum_subscribe` | `{ channel: Channel<number[]> }` — 16 полос 0..1 (40 Гц–16 кГц, лог-шкала, не зависят от громкости), ~30 Гц, пока что-то играет, затем один кадр нулей; подписывается только открытый полноэкранный плеер |
-| `spectrum_unsubscribe` | — останавливает поток спектра |
+| `player_subscribe` | `{ channel: Channel<PlaybackState> }` — на каждом изменении (статус, трек, перемотка, громкость) и раз в ~5 с во время игры; позицию между ними UI экстраполирует по `positionMs` + `timestampMs` |
 
 ## Синхронизация и загрузки
 

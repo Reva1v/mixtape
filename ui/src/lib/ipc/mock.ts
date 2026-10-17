@@ -1,5 +1,5 @@
 // Dev-only fake core for looking at screens in a plain browser: open the Vite page with
-// `?mock` (never bundled into the app, see main.ts). Only the sync/downloads, spectrum and home
+// `?mock` (never bundled into the app, see main.ts). Only the sync/downloads and home
 // commands answer, with made-up data; everything else fails the way a missing core does.
 
 import { mockIPC } from "@tauri-apps/api/mocks";
@@ -98,22 +98,6 @@ setInterval(() => {
   channel?.onmessage({ ...progress, failed: failed.length });
 }, 250);
 
-/** Fake spectrum at 30 Hz: a falling slope with a 2 Hz kick and wandering mids. */
-let spectrum: Channel<number[]> | null = null;
-setInterval(() => {
-  if (!spectrum) return;
-  const t = performance.now() / 1000;
-  const kick = Math.max(0, Math.sin(t * Math.PI * 2 * 2)) ** 4;
-  spectrum.onmessage(
-    Array.from({ length: 16 }, (_, i) => {
-      const slope = 0.75 - i * 0.03;
-      const wobble = 0.12 * Math.sin(t * (1.3 + i * 0.37) + i);
-      const v = slope + wobble + (i < 4 ? 0.25 * kick : 0) + Math.random() * 0.05;
-      return Math.min(1, Math.max(0, v));
-    }),
-  );
-}, 33);
-
 mockIPC(
   (cmd, args) => {
     const a = (args ?? {}) as Record<string, unknown>;
@@ -152,12 +136,6 @@ mockIPC(
         return null;
       case "downloads_subscribe":
         channel = a.channel as Channel<DownloadsProgress>;
-        return null;
-      case "spectrum_subscribe":
-        spectrum = a.channel as Channel<number[]>;
-        return null;
-      case "spectrum_unsubscribe":
-        spectrum = null;
         return null;
       case "home_get":
         return homePage;

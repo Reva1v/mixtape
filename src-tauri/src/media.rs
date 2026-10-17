@@ -10,8 +10,10 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 
-/// SMTC does not advance the position itself; refresh it this often while playing.
-const TIMELINE_EVERY: Duration = Duration::from_secs(5);
+/// SMTC does not advance the position itself; refresh it this often while playing. The
+/// player sends state on every change and about every 5 s while playing (its drift
+/// correction), so this takes each of those periodic updates.
+const TIMELINE_EVERY: Duration = Duration::from_secs(4);
 
 #[derive(Default)]
 pub struct Media {

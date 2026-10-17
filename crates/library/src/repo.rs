@@ -338,6 +338,15 @@ pub fn track(conn: &Connection, id: &TrackId) -> Result<Option<Track>> {
     Ok(tracks_by_ids(conn, std::slice::from_ref(id))?.pop())
 }
 
+/// The album of a track; `None` for an unknown track or one without an album.
+pub fn track_album_id(conn: &Connection, id: &TrackId) -> Result<Option<AlbumId>> {
+    let album: Option<Option<String>> = conn
+        .prepare_cached("SELECT album_id FROM tracks WHERE id = ?1")?
+        .query_row([id.as_str()], |r| r.get(0))
+        .optional()?;
+    Ok(album.flatten().map(AlbumId))
+}
+
 fn album_artists(conn: &Connection, ids: &[String]) -> Result<HashMap<String, Vec<ArtistRef>>> {
     let mut out: HashMap<String, Vec<ArtistRef>> = HashMap::new();
     for chunk in ids.chunks(500) {
@@ -657,6 +666,10 @@ pub(crate) mod tests {
         assert_eq!(a.state, TrackState::Downloaded);
         assert_eq!(a.title, "Take On Me");
         assert!(a.album.is_some());
+        let album = |id: &str| db.read(|c| track_album_id(c, &TrackId::from(id))).unwrap();
+        assert_eq!(album("a"), Some(AlbumId::from("MPRE1")));
+        assert_eq!(album("b"), None);
+        assert_eq!(album("x"), None);
     }
 
     #[test]

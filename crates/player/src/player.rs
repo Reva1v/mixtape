@@ -29,18 +29,56 @@ pub type EventSink = Arc<dyn Fn(PlayerEvent) + Send + Sync>;
 
 /// Stop skipping after this many tracks failed in a row.
 const MAX_SKIPS: u32 = 3;
+/// The queue and mix; written only when they change.
 const SNAPSHOT_KEY: &str = "queue_snapshot";
+/// Where in the current track playback is, and the volume; small, written often.
+const POSITION_KEY: &str = "playback_pos";
 /// Upper bound for the blend on next/previous/jump, so skipping still feels instant.
 const MANUAL_FADE_MS: u32 = 2_000;
-const SNAPSHOT_EVERY: Duration = Duration::from_secs(2);
+/// The position is saved this often while playing (and on pause, stop and exit).
+const POSITION_SAVE_EVERY: Duration = Duration::from_secs(20);
+/// A volume change or seek is saved at most this often.
+const POSITION_SAVE_CHANGED: Duration = Duration::from_secs(2);
+/// While playing the UI extrapolates the position itself; state goes out on every change
+/// and, to correct drift, at least this often.
+const STATE_EVERY: Duration = Duration::from_secs(5);
 
 #[derive(Serialize, Deserialize)]
 struct Snapshot {
     queue: Queue,
+    /// Position when the queue was saved; superseded by [`PlaybackPos`] for the same item.
     position_ms: u64,
     volume: f32,
     #[serde(default)]
     mix: Option<MixSession>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct PlaybackPos {
+    /// Queue item the position belongs to.
+    #[serde(default)]
+    uid: Option<u64>,
+    #[serde(default)]
+    track_id: Option<TrackId>,
+    position_ms: u64,
+    volume: f32,
+}
+
+/// Queue, position, volume and mix to start with. The position comes from `pos` when it
+/// belongs to the snapshot's current item (snapshots written before `playback_pos` existed
+/// carry their own).
+fn restore(snapshot: Option<Snapshot>, pos: Option<PlaybackPos>) -> (Queue, u64, f32, Option<MixSession>) {
+    let (queue, mut position_ms, mut volume, mix) = match snapshot {
+        Some(s) => (s.queue, s.position_ms, s.volume, s.mix),
+        None => (Queue::new(), 0, 0.8, None),
+    };
+    if let Some(p) = pos {
+        volume = p.volume;
+        if p.uid.is_some() && p.uid == queue.current().map(|i| i.uid) {
+            position_ms = p.position_ms;
+        }
+    }
+    (queue, position_ms, volume, mix)
 }
 
 pub struct Player {
@@ -61,7 +99,16 @@ struct Inner {
     /// Position the current play started from, to judge "full listen".
     seeked_forward: bool,
     skips: u32,
-    last_snapshot: Instant,
+    /// The queue or mix changed since `queue_snapshot` was written.
+    queue_dirty: bool,
+    /// Volume or position changed by the user since `playback_pos` was written.
+    position_dirty: bool,
+    last_position_save: Instant,
+    /// When `state.position_ms` was last set; it is extrapolated from there while playing.
+    position_at: Instant,
+    last_emit: Instant,
+    /// The last `StreamProvider::prefetch` arguments, so an unchanged window is not re-sent.
+    last_prefetch: Option<(Option<TrackId>, Vec<TrackId>)>,
     /// Crossfade for automatic transitions, ms; 0 = gapless.
     crossfade_ms: u32,
     mix: Option<MixSession>,
@@ -72,6 +119,36 @@ struct Inner {
     deferred: Option<(TrackId, u64)>,
     /// The remote successor whose stream is being opened.
     next_request: Option<TrackId>,
+}
+
+impl Inner {
+    /// Where playback is now: positions arrive about once a second, so it is extrapolated
+    /// while playing.
+    fn live_position(&self) -> u64 {
+        let ms = self.state.position_ms;
+        if self.state.status != Status::Playing {
+            return ms;
+        }
+        let ms = ms + self.position_at.elapsed().as_millis() as u64;
+        if self.state.duration_ms > 0 { ms.min(self.state.duration_ms) } else { ms }
+    }
+
+    fn set_position(&mut self, ms: u64) {
+        self.state.position_ms = ms;
+        self.position_at = Instant::now();
+    }
+
+    fn set_status(&mut self, status: Status) {
+        if status != self.state.status {
+            let ms = self.live_position();
+            self.state.status = status;
+            self.set_position(ms);
+        }
+    }
+
+    fn live_state(&self) -> PlaybackState {
+        PlaybackState { position_ms: self.live_position(), ..self.state.clone() }
+    }
 }
 
 fn now_ms() -> u64 {
@@ -92,10 +169,8 @@ impl Player {
         let (engine, events) =
             Engine::start().map_err(|e| err(ErrorKind::Audio, format!("Не удалось запустить звук: {e}")))?;
         let snapshot: Option<Snapshot> = settings::get(&db, SNAPSHOT_KEY).ok().flatten();
-        let (queue, position_ms, volume, mix) = match snapshot {
-            Some(s) => (s.queue, s.position_ms, s.volume, s.mix),
-            None => (Queue::new(), 0, 0.8, None),
-        };
+        let pos: Option<PlaybackPos> = settings::get(&db, POSITION_KEY).ok().flatten();
+        let (queue, position_ms, volume, mix) = restore(snapshot, pos);
         let state = PlaybackState {
             track_id: queue.current().map(|i| i.track_id.clone()),
             status: if queue.current().is_some() { Status::Paused } else { Status::Idle },
@@ -115,7 +190,12 @@ impl Player {
                 pending_next: None,
                 seeked_forward: false,
                 skips: 0,
-                last_snapshot: Instant::now(),
+                queue_dirty: false,
+                position_dirty: false,
+                last_position_save: Instant::now(),
+                position_at: Instant::now(),
+                last_emit: Instant::now(),
+                last_prefetch: None,
                 crossfade_ms: 0,
                 mix,
                 load_seq: 0,
@@ -152,7 +232,7 @@ impl Player {
     }
 
     pub fn state(&self) -> PlaybackState {
-        self.lock().state.clone()
+        PlaybackState { timestamp_ms: now_ms(), ..self.lock().live_state() }
     }
 
     pub fn current_track(&self) -> Option<Track> {
@@ -162,7 +242,8 @@ impl Player {
 
     fn emit_state(&self, inner: &mut Inner) {
         inner.state.timestamp_ms = now_ms();
-        (self.sink)(PlayerEvent::State(inner.state.clone()));
+        inner.last_emit = Instant::now();
+        (self.sink)(PlayerEvent::State(inner.live_state()));
     }
 
     /// Builds an engine source for a track that has audio on disk.
@@ -200,6 +281,8 @@ impl Player {
             inner.load_seq += 1;
             inner.deferred = None;
             inner.next_request = None;
+            // A new track: let the provider hear about the window again (retries failures).
+            inner.last_prefetch = None;
             inner.load_seq
         };
         match src {
@@ -218,8 +301,8 @@ impl Player {
         inner.pending_next = None;
         inner.seeked_forward = start_ms > 0;
         inner.state.track_id = Some(id.clone());
-        inner.state.position_ms = start_ms;
-        inner.state.status = if play { Status::Loading } else { Status::Paused };
+        inner.set_status(if play { Status::Loading } else { Status::Paused });
+        inner.set_position(start_ms);
         if let Ok(Some(t)) = self.db.read(|c| repo::track(c, id)) {
             inner.state.duration_ms = t.duration_ms;
             drop(inner);
@@ -264,7 +347,7 @@ impl Player {
                 }
                 match res {
                     Ok(src) => {
-                        let at = p.lock().state.position_ms.max(start_ms);
+                        let at = p.lock().live_position().max(start_ms);
                         p.engine.load(src, at, true);
                     }
                     Err(message) => p.on_engine(EngineEvent::Error { id: id2.0, message }),
@@ -281,7 +364,16 @@ impl Player {
             (inner.state.track_id.clone(), prefetch::window(&inner.queue))
         };
         let upcoming = prefetch::upcoming_remote(window, |id| self.has_audio(id));
-        streams.prefetch(current.as_ref(), &upcoming);
+        {
+            let mut inner = self.lock();
+            let call = (current, upcoming);
+            if inner.last_prefetch.as_ref() == Some(&call) {
+                return;
+            }
+            inner.last_prefetch = Some(call.clone());
+            drop(inner);
+            streams.prefetch(call.0.as_ref(), &call.1);
+        }
     }
 
     fn announce(&self, track: Track) {
@@ -295,10 +387,17 @@ impl Player {
     }
 
     /// Starts the current queue item, skipping forward over tracks that cannot play.
+    /// Callers moved the queue's current item (or replaced the queue), so the queue snapshot
+    /// is saved here.
     fn start_current(&self, start_ms: u64) {
+        self.lock().queue_dirty = true;
         for _ in 0..=MAX_SKIPS {
-            let Some(id) = self.lock().queue.current().map(|i| i.track_id.clone()) else { return };
+            let Some(id) = self.lock().queue.current().map(|i| i.track_id.clone()) else {
+                self.save_snapshot(false);
+                return;
+            };
             if self.load_track(&id, start_ms, true) {
+                self.save_snapshot(false);
                 return;
             }
             if self.lock().queue.advance(false).is_none() {
@@ -311,8 +410,10 @@ impl Player {
     fn stop_idle(&self) {
         self.engine.stop();
         let mut inner = self.lock();
-        inner.state.status = Status::Idle;
+        inner.set_status(Status::Idle);
         self.emit_state(&mut inner);
+        drop(inner);
+        self.save_snapshot(true);
     }
 
     // ---------- commands ----------
@@ -326,10 +427,11 @@ impl Player {
             inner.queue.set(ids, start, context);
             inner.skips = 0;
             inner.mix = None;
+            inner.queue_dirty = true;
         }
         (self.sink)(PlayerEvent::QueueChanged);
         self.start_current(0);
-        self.save_snapshot(true);
+        self.save_snapshot(false);
     }
 
     // ---------- mixes ----------
@@ -345,6 +447,7 @@ impl Player {
             inner.queue.set(tracks, 0, QueueContext::Mix(seed));
             inner.skips = 0;
             inner.mix = Some(session);
+            inner.queue_dirty = true;
             keep
         };
         (self.sink)(PlayerEvent::QueueChanged);
@@ -353,7 +456,7 @@ impl Player {
         } else {
             self.start_current(0);
         }
-        self.save_snapshot(true);
+        self.save_snapshot(false);
     }
 
     /// Tracks after the current one.
@@ -388,8 +491,10 @@ impl Player {
     }
 
     pub fn mix_more_failed(&self, generation: u64) {
-        if let Some(mix) = self.lock().mix.as_mut() {
+        let mut inner = self.lock();
+        if let Some(mix) = inner.mix.as_mut() {
             mix.more_failed(generation);
+            inner.queue_dirty = true;
         }
     }
 
@@ -399,7 +504,9 @@ impl Player {
             let mut inner = self.lock();
             let mix = inner.mix.as_mut()?;
             let generation = mix.select_chip(chip_id)?;
-            (mix.seed.clone(), mix.chip(chip_id)?.clone(), generation)
+            let picked = (mix.seed.clone(), mix.chip(chip_id)?.clone(), generation);
+            inner.queue_dirty = true;
+            picked
         };
         (self.sink)(PlayerEvent::QueueChanged);
         Some(picked)
@@ -440,7 +547,7 @@ impl Player {
         self.engine.play();
         let mut inner = self.lock();
         if inner.state.status != Status::Playing {
-            inner.state.status = Status::Playing;
+            inner.set_status(Status::Playing);
             self.emit_state(&mut inner);
         }
     }
@@ -448,7 +555,7 @@ impl Player {
     pub fn pause(&self) {
         self.engine.pause();
         let mut inner = self.lock();
-        inner.state.status = Status::Paused;
+        inner.set_status(Status::Paused);
         self.emit_state(&mut inner);
         drop(inner);
         self.save_snapshot(true);
@@ -476,10 +583,11 @@ impl Player {
     pub fn seek(&self, ms: u64) {
         self.engine.seek(ms);
         let mut inner = self.lock();
-        if ms > inner.state.position_ms + 5_000 {
+        if ms > inner.live_position() + 5_000 {
             inner.seeked_forward = true;
         }
-        inner.state.position_ms = ms;
+        inner.set_position(ms);
+        inner.position_dirty = true;
         self.emit_state(&mut inner);
     }
 
@@ -488,14 +596,10 @@ impl Player {
         self.engine.set_volume(v);
         let mut inner = self.lock();
         inner.state.volume = v;
+        inner.position_dirty = true;
         self.emit_state(&mut inner);
         drop(inner);
         self.save_snapshot(false);
-    }
-
-    /// Band levels of what is playing, for the full-screen visualiser.
-    pub fn spectrum(&self) -> mixtape_audio::SpectrumReader {
-        self.engine.spectrum()
     }
 
     /// Crossfade length for automatic transitions; 0 keeps playback gapless.
@@ -509,19 +613,23 @@ impl Player {
         let mut inner = self.lock();
         inner.queue.set_repeat(r);
         inner.state.repeat = r;
+        inner.queue_dirty = true;
         self.emit_state(&mut inner);
         drop(inner);
         self.refresh_next();
+        self.save_snapshot(false);
     }
 
     pub fn set_shuffle(&self, on: bool) {
         let mut inner = self.lock();
         inner.queue.set_shuffle(on);
         inner.state.shuffle = on;
+        inner.queue_dirty = true;
         self.emit_state(&mut inner);
         drop(inner);
         (self.sink)(PlayerEvent::QueueChanged);
         self.refresh_next();
+        self.save_snapshot(false);
     }
 
     /// Runs a queue edit, then re-lines up the gapless successor.
@@ -530,6 +638,7 @@ impl Player {
             let mut inner = self.lock();
             let was_empty = inner.queue.current().is_none();
             let r = f(&mut inner.queue);
+            inner.queue_dirty = true;
             (r, was_empty, inner.queue.current().is_some())
         };
         (self.sink)(PlayerEvent::QueueChanged);
@@ -538,7 +647,7 @@ impl Player {
         } else {
             self.refresh_next();
         }
-        self.save_snapshot(true);
+        self.save_snapshot(false);
         r
     }
 
@@ -552,11 +661,13 @@ impl Player {
     }
 
     pub fn queue_view(&self) -> QueueView {
-        let inner = self.lock();
-        let ids: Vec<TrackId> = inner.queue.items().iter().map(|i| i.track_id.clone()).collect();
+        // The query runs without the lock, so engine events are not held up behind it.
+        let ids: Vec<TrackId> = self.lock().queue.items().iter().map(|i| i.track_id.clone()).collect();
         let tracks = self.db.read(|c| repo::tracks_by_ids(c, &ids)).unwrap_or_default();
         let by_id: std::collections::HashMap<&str, &Track> =
             tracks.iter().map(|t| (t.id.as_str(), t)).collect();
+        // Items added meanwhile have no row here and are left out until the next refresh.
+        let inner = self.lock();
         let items = inner
             .queue
             .items()
@@ -599,10 +710,11 @@ impl Player {
         // Consecutive tracks of one album stay gapless even with crossfade on.
         if let (Some(s), Some(next_id)) = (src.as_mut(), next.as_ref()) {
             let current = self.lock().state.track_id.clone();
-            let album_of = |id: &TrackId| {
-                self.db.read(|c| repo::track(c, id)).ok().flatten().and_then(|t| t.album.map(|a| a.id))
-            };
-            let same_album = current.as_ref().and_then(album_of).is_some_and(|a| Some(a) == album_of(next_id));
+            let same_album = current.is_some_and(|cur| {
+                self.db
+                    .read(|c| Ok((repo::track_album_id(c, &cur)?, repo::track_album_id(c, next_id)?)))
+                    .is_ok_and(|(a, b)| a.is_some() && a == b)
+            });
             s.crossfade = !same_album;
         }
         let mut inner = self.lock();
@@ -660,13 +772,14 @@ impl Player {
                         inner.queue.advance(true);
                         inner.pending_next = None;
                         inner.seeked_forward = false;
-                        inner.state.position_ms = 0;
+                        inner.queue_dirty = true;
+                        inner.set_position(0);
                     }
                     inner.state.track_id = Some(id.clone());
                     if duration_ms > 0 {
                         inner.state.duration_ms = duration_ms;
                     }
-                    inner.state.status = Status::Playing;
+                    inner.set_status(Status::Playing);
                     self.emit_state(&mut inner);
                     gapless
                 };
@@ -677,24 +790,28 @@ impl Player {
                     (self.sink)(PlayerEvent::QueueChanged);
                 }
                 self.refresh_next();
+                self.save_snapshot(false);
             }
             EngineEvent::Position { id, ms } => {
                 let mut inner = self.lock();
                 if inner.state.track_id.as_ref().map(|t| t.as_str()) == Some(id.as_str()) {
-                    inner.state.position_ms = ms;
-                    self.emit_state(&mut inner);
+                    inner.set_position(ms);
+                    // The UI extrapolates while playing; this only corrects drift.
+                    if inner.last_emit.elapsed() >= STATE_EVERY {
+                        self.emit_state(&mut inner);
+                    }
                 }
                 drop(inner);
                 self.save_snapshot(false);
             }
             EngineEvent::StateChanged { playing } => {
                 let mut inner = self.lock();
-                inner.state.status = if playing { Status::Playing } else { Status::Paused };
+                inner.set_status(if playing { Status::Playing } else { Status::Paused });
                 self.emit_state(&mut inner);
             }
             EngineEvent::Buffering(on) => {
                 let mut inner = self.lock();
-                inner.state.status = if on { Status::Buffering } else { Status::Playing };
+                inner.set_status(if on { Status::Buffering } else { Status::Playing });
                 self.emit_state(&mut inner);
             }
             EngineEvent::NeedNext { .. } => self.refresh_next(),
@@ -719,9 +836,11 @@ impl Player {
                 }
                 if last {
                     let mut inner = self.lock();
-                    inner.state.status = Status::Idle;
-                    inner.state.position_ms = 0;
+                    inner.set_status(Status::Idle);
+                    inner.set_position(0);
                     self.emit_state(&mut inner);
+                    drop(inner);
+                    self.save_snapshot(true);
                 }
             }
             EngineEvent::Error { id, message } => {
@@ -746,7 +865,7 @@ impl Player {
     fn record_end(&self, full: bool) {
         let (id, pos) = {
             let inner = self.lock();
-            (inner.state.track_id.clone(), inner.state.position_ms)
+            (inner.state.track_id.clone(), inner.live_position())
         };
         if let Some(id) = id
             && pos > 30_000
@@ -762,23 +881,100 @@ impl Player {
         }
     }
 
-    /// Persists queue, position and volume; throttled unless `force`.
+    /// Persists what changed: the queue snapshot when the queue or mix did, the position and
+    /// volume every [`POSITION_SAVE_EVERY`] while playing, soon after a seek or volume change,
+    /// and always with `force` (pause, stop, exit).
     pub fn save_snapshot(&self, force: bool) {
-        let json = {
+        let (snapshot, pos) = {
             let mut inner = self.lock();
-            if !force && inner.last_snapshot.elapsed() < SNAPSHOT_EVERY {
-                return;
-            }
-            inner.last_snapshot = Instant::now();
-            Snapshot {
+            let position_ms = inner.live_position();
+            let snapshot = std::mem::take(&mut inner.queue_dirty).then(|| Snapshot {
                 queue: inner.queue.clone(),
-                position_ms: inner.state.position_ms,
+                position_ms,
                 volume: inner.state.volume,
                 mix: inner.mix.clone(),
-            }
+            });
+            let since = inner.last_position_save.elapsed();
+            let playing = matches!(inner.state.status, Status::Playing | Status::Buffering);
+            let due = force
+                || snapshot.is_some()
+                || (inner.position_dirty && since >= POSITION_SAVE_CHANGED)
+                || (playing && since >= POSITION_SAVE_EVERY);
+            let pos = due.then(|| {
+                inner.last_position_save = Instant::now();
+                inner.position_dirty = false;
+                let current = inner.queue.current();
+                PlaybackPos {
+                    uid: current.map(|i| i.uid),
+                    track_id: current.map(|i| i.track_id.clone()),
+                    position_ms,
+                    volume: inner.state.volume,
+                }
+            });
+            (snapshot, pos)
         };
-        if let Err(e) = settings::set(&self.db, SNAPSHOT_KEY, &json) {
+        if let Some(s) = snapshot
+            && let Err(e) = settings::set(&self.db, SNAPSHOT_KEY, &s)
+        {
             tracing::warn!(error = %e, "saving queue snapshot failed");
         }
+        if let Some(p) = pos
+            && let Err(e) = settings::set(&self.db, POSITION_KEY, &p)
+        {
+            tracing::warn!(error = %e, "saving playback position failed");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn queue(n: usize, current: usize) -> Queue {
+        let mut q = Queue::new();
+        q.set((0..n).map(|i| TrackId(format!("t{i}"))).collect(), current, QueueContext::None);
+        q
+    }
+
+    fn snapshot(q: Queue, position_ms: u64) -> Snapshot {
+        Snapshot { queue: q, position_ms, volume: 0.5, mix: None }
+    }
+
+    fn pos(q: &Queue, position_ms: u64) -> PlaybackPos {
+        let current = q.current().unwrap();
+        PlaybackPos {
+            uid: Some(current.uid),
+            track_id: Some(current.track_id.clone()),
+            position_ms,
+            volume: 0.3,
+        }
+    }
+
+    #[test]
+    fn restores_the_position_of_the_same_item() {
+        let q = queue(3, 1);
+        let p = pos(&q, 95_000);
+        let (q2, at, volume, _) = restore(Some(snapshot(q, 10_000)), Some(p));
+        assert_eq!(q2.current().unwrap().track_id.as_str(), "t1");
+        assert_eq!((at, volume), (95_000, 0.3));
+    }
+
+    #[test]
+    fn ignores_a_position_of_another_item() {
+        let mut q = queue(3, 2);
+        let p = pos(&q, 95_000);
+        // A new queue of the same tracks: new uids.
+        q.set((0..3).map(|i| TrackId(format!("t{i}"))).collect(), 2, QueueContext::None);
+        let (_, at, volume, _) = restore(Some(snapshot(q, 10_000)), Some(p));
+        assert_eq!((at, volume), (10_000, 0.3));
+    }
+
+    #[test]
+    fn reads_snapshots_from_before_playback_pos() {
+        let json = serde_json::to_string(&snapshot(queue(2, 0), 42_000)).unwrap();
+        let s: Snapshot = serde_json::from_str(&json).unwrap();
+        let (q, at, volume, mix) = restore(Some(s), None);
+        assert_eq!((q.items().len(), at, volume, mix.is_none()), (2, 42_000, 0.5, true));
+        assert_eq!(restore(None, None).1, 0);
     }
 }

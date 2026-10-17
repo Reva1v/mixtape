@@ -47,12 +47,21 @@ impl Pipeline {
             scratch: Vec::new(),
             done: false,
         };
-        p.set_out_rate(out_rate)?;
+        p.rebuild_resampler()?;
         Ok(p)
     }
 
+    /// Retargets the output rate; a no-op when it is unchanged (re-priming on every seek).
     pub fn set_out_rate(&mut self, rate: u32) -> Result<()> {
+        if rate == self.out_rate {
+            return Ok(());
+        }
         self.out_rate = rate;
+        self.rebuild_resampler()
+    }
+
+    fn rebuild_resampler(&mut self) -> Result<()> {
+        let rate = self.out_rate;
         self.fade_len = rate * FADE_MS / 1000;
         self.resampler = match self.dec.rate() {
             r if r == rate => None,
@@ -81,7 +90,7 @@ impl Pipeline {
             .is_some_and(|r| r.rates().0 != self.dec.rate())
         {
             // The codec revised its rate after the first frame (e.g. implicit SBR).
-            self.set_out_rate(self.out_rate)?;
+            self.rebuild_resampler()?;
         }
         match &mut self.resampler {
             Some(rs) => {
