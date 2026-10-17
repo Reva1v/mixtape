@@ -2,11 +2,8 @@
   import { router, type Route } from "$lib/stores/router.svelte";
   import { t } from "$lib/i18n";
   import type { Component } from "svelte";
-  import IconHome from "~icons/solar/home-2-bold";
-  import IconSearch from "~icons/solar/magnifier-bold";
-  import IconLibrary from "~icons/solar/book-bookmark-bold";
-  import IconDownloads from "~icons/solar/download-minimalistic-bold";
-  import IconSettings from "~icons/solar/settings-bold";
+  import { navIcons } from "./navIcons";
+  import { prefs } from "$lib/stores/prefs.svelte";
   import Logo from "../../assets/logo.svg?raw";
   import { pressable, springs } from "$lib/motion";
   import { layout } from "$lib/stores/layout.svelte";
@@ -14,22 +11,23 @@
 
   type Item = { label: string; icon: Component; route: Route; match: Route["name"][] };
 
+  const icons = $derived(navIcons[prefs.value.iconStyle] ?? navIcons.outline);
   const items: Item[] = $derived([
-    { label: t.nav.home, icon: IconHome, route: { name: "home" }, match: ["home"] },
-    { label: t.nav.search, icon: IconSearch, route: { name: "search" }, match: ["search"] },
+    { label: t.nav.home, icon: icons.home, route: { name: "home" }, match: ["home"] },
+    { label: t.nav.search, icon: icons.search, route: { name: "search" }, match: ["search"] },
     {
       label: t.nav.library,
-      icon: IconLibrary,
+      icon: icons.library,
       route: { name: "library", tab: "tracks" },
       match: ["library", "album", "artist", "playlist"],
     },
-    { label: t.nav.downloads, icon: IconDownloads, route: { name: "downloads" }, match: ["downloads"] },
+    { label: t.nav.downloads, icon: icons.downloads, route: { name: "downloads" }, match: ["downloads"] },
   ]);
   // Download progress for the badge on the «Загрузки» icon.
   const dl = $derived(downloads.progress);
   const dlPercent = $derived(dl.total > 0 ? Math.min(100, (dl.done / dl.total) * 100) : 0);
 
-  const settings: Item = $derived({ label: t.nav.settings, icon: IconSettings, route: { name: "settings" }, match: ["settings"] });
+  const settings: Item = $derived({ label: t.nav.settings, icon: icons.settings, route: { name: "settings" }, match: ["settings"] });
 </script>
 
 {#snippet navItem(item: Item)}

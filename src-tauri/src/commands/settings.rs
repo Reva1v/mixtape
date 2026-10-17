@@ -11,6 +11,20 @@ use ts_rs::TS;
 
 const KEY: &str = "prefs";
 
+/// Look of the sidebar icons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export)]
+pub enum IconStyle {
+    /// Thin outlines (Lucide).
+    #[default]
+    Outline,
+    /// Filled Solar icons, the original look.
+    Solid,
+    /// Filled rounded Phosphor icons.
+    Rounded,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", default)]
 #[ts(export)]
@@ -28,11 +42,12 @@ pub struct Prefs {
     pub language: Option<Lang>,
     /// Look for a new version on start and once a day.
     pub auto_update: bool,
+    pub icon_style: IconStyle,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        Self { smooth_background: true, crossfade: false, crossfade_sec: 6, mix_fullscreen: false, language: None, auto_update: true }
+        Self { smooth_background: true, crossfade: false, crossfade_sec: 6, mix_fullscreen: false, language: None, auto_update: true, icon_style: IconStyle::Outline }
     }
 }
 

@@ -5,7 +5,7 @@ import type { Prefs } from "$lib/ipc/bindings/Prefs";
 import { locale } from "$lib/i18n";
 
 class PrefsStore {
-  value = $state<Prefs>({ smoothBackground: true, crossfade: false, crossfadeSec: 6, mixFullscreen: false, autoUpdate: true });
+  value = $state<Prefs>({ smoothBackground: true, crossfade: false, crossfadeSec: 6, mixFullscreen: false, autoUpdate: true, iconStyle: "outline" });
 
   async init() {
     this.value = await invoke<Prefs>("prefs_get");

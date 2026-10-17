@@ -400,7 +400,7 @@ mockIPC(
       case "app_ready":
         return null;
       case "prefs_get":
-        return { smoothBackground: true, crossfade: false, crossfadeSec: 6, mixFullscreen: false, autoUpdate: true, language: lang };
+        return { smoothBackground: true, crossfade: false, crossfadeSec: 6, mixFullscreen: false, autoUpdate: true, iconStyle: "outline", language: lang };
       case "prefs_set":
         return null;
       case "account_status":

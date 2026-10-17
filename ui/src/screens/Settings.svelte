@@ -247,6 +247,15 @@
         />
       {/snippet}
       {@render row(t.language.title, t.language.hint, langSelect)}
+      {#snippet iconSelect()}
+        <Select
+          value={p.iconStyle}
+          options={(["outline", "solid", "rounded"] as const).map((id) => ({ id, label: t.iconStyle[id] }))}
+          label={t.iconStyle.title}
+          onchange={(iconStyle) => prefs.update({ iconStyle })}
+        />
+      {/snippet}
+      {@render row(t.iconStyle.title, t.iconStyle.hint, iconSelect)}
       {#snippet bgSwitch()}
         <Switch checked={p.smoothBackground} label={t.settings.appearance.smoothBackground} onchange={(v) => prefs.update({ smoothBackground: v })} />
       {/snippet}
