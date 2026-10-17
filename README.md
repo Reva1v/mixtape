@@ -63,7 +63,7 @@ Streams and downloads from your YouTube Music account, plays offline, and keeps 
 
 ## Installation
 
-There are no published releases yet: build the installer from source (below). It produces `Mixtape_0.1.0_x64-setup.exe`, a per-user NSIS installer in English, Ukrainian or Russian. The installer is unsigned, so Windows SmartScreen shows «Windows protected your PC»; choose **More info → Run anyway**.
+Download `Mixtape_0.1.0_x64-setup.exe` from **[Releases](https://github.com/Reva1v/mixtape/releases/latest)** and run it. It installs for the current user (no admin rights) and speaks English, Ukrainian or Russian, following Windows. The installer is unsigned, so Windows SmartScreen shows «Windows protected your PC»; choose **More info → Run anyway**.
 
 ## Privacy
 
