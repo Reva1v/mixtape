@@ -4,7 +4,7 @@ import { invoke } from "$lib/ipc";
 import type { Prefs } from "$lib/ipc/bindings/Prefs";
 
 class PrefsStore {
-  value = $state<Prefs>({ smoothBackground: true, crossfade: false, crossfadeSec: 6 });
+  value = $state<Prefs>({ smoothBackground: true, crossfade: false, crossfadeSec: 6, mixFullscreen: false });
 
   async init() {
     this.value = await invoke<Prefs>("prefs_get");

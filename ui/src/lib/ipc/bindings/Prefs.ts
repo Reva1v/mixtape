@@ -12,4 +12,8 @@ crossfade: boolean,
 /**
  * Crossfade length for automatic transitions, seconds.
  */
-crossfadeSec: number, };
+crossfadeSec: number, 
+/**
+ * «Включить микс» also opens the full-screen player.
+ */
+mixFullscreen: boolean, };

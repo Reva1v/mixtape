@@ -109,6 +109,10 @@
     scrub = null;
   }}
   onpointercancel={() => (scrub = null)}
+  oncontextmenu={(e) => {
+    e.preventDefault();
+    if (track) menu.show(trackMenu(track), e.clientX, e.clientY);
+  }}
 >
   {#if track}
     <div
@@ -136,10 +140,6 @@
         class="relative shrink-0"
         aria-label={t.player.fullscreen}
         onclick={() => (layout.fullscreen = true)}
-        oncontextmenu={(e) => {
-          e.preventDefault();
-          menu.show(trackMenu(track), e.clientX, e.clientY);
-        }}
       >
         <Cover coverKey={track.coverKey} size={40} rounded="sm" />
       </button>

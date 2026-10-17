@@ -20,11 +20,13 @@ pub struct Prefs {
     pub crossfade: bool,
     /// Crossfade length for automatic transitions, seconds.
     pub crossfade_sec: u32,
+    /// «Включить микс» also opens the full-screen player.
+    pub mix_fullscreen: bool,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        Self { smooth_background: true, crossfade: false, crossfade_sec: 6 }
+        Self { smooth_background: true, crossfade: false, crossfade_sec: 6, mix_fullscreen: false }
     }
 }
 

@@ -123,18 +123,18 @@
 **Goal**: бесконечный персональный микс от трека с чипами и мгновенными переходами.
 **Independent Test**: сценарии Q8–Q9.
 
-- [ ] T069 [US3] Сырые InnerTube-запросы с SAPISIDHASH (`SAPISIDHASH`, `SAPISID1PHASH`, `SAPISID3PHASH`, `X-Goog-AuthUser`) через `RustyPipeQuery::raw` или свой reqwest-клиент в `crates/yt/src/innertube.rs`
-- [ ] T070 [US3] `radio(seed)` / `radio_more(continuation)` / `radio_by_chip`: разбор `playlistPanelVideoRenderer` и `…WrapperRenderer` (брать аудио-версию), чипов `chipCloudChipRenderer` (пропуск действия «Сохранить»), `nextRadioContinuationData` в `crates/yt/src/radio.rs` + тест на сохранённой фикстуре ответа
-- [ ] T071 [US3] `SparseCacheFile`: предвыделенный файл, интервалы под `Mutex+Condvar`, блокирующий `read` с таймаутом/отменой, `MediaSource` для symphonia, перенацеливание загрузки при seek, финализация в `cache/` + тесты (чтение до/после докачки, seek за границу) в `crates/audio/src/sparse.rs`
-- [ ] T072 [US3] `Source::Streaming` в движке + статус `Buffering` при underrun в `crates/audio/src/engine.rs`
-- [ ] T073 [US3] `MixSession` (data-model.md): старт от трека, `seen`-дедупликация, подгрузка продолжения при ≤ 5 оставшихся, выбор чипа заменяет будущую часть очереди без прерывания текущего + unit-тесты в `crates/player/src/mix.rs`
-- [ ] T074 [US3] Предзагрузчик: пакетное предразрешение URL для следующих 5 треков, докачка 2–3 следующих в кэш, приоритет текущего, отмена при смене очереди в `crates/player/src/prefetch.rs`
-- [ ] T075 [US3] LRU кэша стрима (лимит из настроек, по умолчанию 5 ГБ; `cached → remote` при вытеснении) в `crates/library/src/cache_lru.rs` + тест
-- [ ] T076 [US3] Автосохранение: `full_play_count ≥ N` (по умолчанию 3, выключаемо) → перенос из кэша в библиотеку без повторной загрузки; лайк/«Скачать» → то же в `crates/player/src/autosave.rs` + тест
-- [ ] T077 [US3] `like_outbox`: лайк/снятие → `like/like` / `like/removelike`, отложенная отправка при появлении сети, схлопывание по track_id в `crates/sync/src/likes.rs` + тест
-- [ ] T078 [US3] Офлайн-режим микса: при недоступности продолжения — предложение «продолжить из библиотеки» (локальные треки тех же артистов, затем случайные) в `crates/player/src/mix.rs`
-- [ ] T079 [US3] Команды `mix_start`, `mix_select_chip`, `track_set_liked`, `track_download`, `queue_get` с чипами в `src-tauri/src/commands/mix.rs`
-- [ ] T080 [US3] UI: чипы над очередью в `QueuePanel` (горизонтальный скролл, выбранный подсвечен), значок «стрим/в кэше/скачан» у трека, состояние «буферизация» в мини-плеере в `ui/src/lib/ui/{QueuePanel,Chips,MiniPlayer}.svelte`
+- [x] T069 [US3] Сырые InnerTube-запросы с SAPISIDHASH (`SAPISIDHASH`, `SAPISID1PHASH`, `SAPISID3PHASH`, `X-Goog-AuthUser`) через `RustyPipeQuery::raw` или свой reqwest-клиент в `crates/yt/src/innertube.rs`
+- [x] T070 [US3] `radio(seed)` / `radio_more(continuation)` / `radio_by_chip`: разбор `playlistPanelVideoRenderer` и `…WrapperRenderer` (брать аудио-версию), чипов `chipCloudChipRenderer` (пропуск действия «Сохранить»), `nextRadioContinuationData` в `crates/yt/src/radio.rs` + тест на сохранённой фикстуре ответа
+- [x] T071 [US3] `SparseCacheFile`: предвыделенный файл, интервалы под `Mutex+Condvar`, блокирующий `read` с таймаутом/отменой, `MediaSource` для symphonia, перенацеливание загрузки при seek, финализация в `cache/` + тесты (чтение до/после докачки, seek за границу) в `crates/audio/src/sparse.rs`
+- [x] T072 [US3] `Source::Streaming` в движке + статус `Buffering` при underrun в `crates/audio/src/engine.rs`
+- [x] T073 [US3] `MixSession` (data-model.md): старт от трека, `seen`-дедупликация, подгрузка продолжения при ≤ 5 оставшихся, выбор чипа заменяет будущую часть очереди без прерывания текущего + unit-тесты в `crates/player/src/mix.rs`
+- [x] T074 [US3] Предзагрузчик: пакетное предразрешение URL для следующих 5 треков, докачка 2–3 следующих в кэш, приоритет текущего, отмена при смене очереди в `crates/player/src/prefetch.rs`
+- [x] T075 [US3] LRU кэша стрима (лимит из настроек, по умолчанию 5 ГБ; `cached → remote` при вытеснении) в `crates/library/src/cache_lru.rs` + тест
+- [x] T076 [US3] Автосохранение: `full_play_count ≥ N` (по умолчанию 3, выключаемо) → перенос из кэша в библиотеку без повторной загрузки; лайк/«Скачать» → то же в `crates/player/src/autosave.rs` + тест
+- [x] T077 [US3] `like_outbox`: лайк/снятие → `like/like` / `like/removelike`, отложенная отправка при появлении сети, схлопывание по track_id в `crates/sync/src/likes.rs` + тест
+- [x] T078 [US3] Офлайн-режим микса: при недоступности продолжения — предложение «продолжить из библиотеки» (локальные треки тех же артистов, затем случайные) в `crates/player/src/mix.rs`
+- [x] T079 [US3] Команды `mix_start`, `mix_select_chip`, `track_set_liked`, `track_download`, `queue_get` с чипами в `src-tauri/src/commands/mix.rs`
+- [x] T080 [US3] UI: чипы над очередью в `QueuePanel` (горизонтальный скролл, выбранный подсвечен), значок «стрим/в кэше/скачан» у трека, состояние «буферизация» в мини-плеере в `ui/src/lib/ui/{QueuePanel,Chips,MiniPlayer}.svelte`
 
 **Checkpoint**: Q8–Q9 проходят: 20 треков без пауз, смена чипа, автосохранение, лайк виден в YouTube Music.
 

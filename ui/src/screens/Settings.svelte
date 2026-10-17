@@ -128,6 +128,18 @@
         {/snippet}
         {@render row("Длительность перехода", "От 1 до 12 секунд. При ручном переключении — не больше 2 секунд.", fadeSlider)}
       {/if}
+      {#snippet mixFullSwitch()}
+        <Switch
+          checked={p.mixFullscreen}
+          label="Включать полноэкранный режим после включения микса"
+          onchange={(v) => prefs.update({ mixFullscreen: v })}
+        />
+      {/snippet}
+      {@render row(
+        "Включать полноэкранный режим после включения микса",
+        "«Включить микс» сразу открывает полноэкранный плеер.",
+        mixFullSwitch,
+      )}
     </div>
   </section>
 

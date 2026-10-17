@@ -4,6 +4,8 @@
 
 import { Channel, invoke, on } from "$lib/ipc";
 import { toasts } from "./overlay.svelte";
+import { prefs } from "./prefs.svelte";
+import { layout } from "./layout.svelte";
 import type { Track } from "$lib/ipc/bindings/Track";
 import type { Repeat } from "$lib/ipc/bindings/Repeat";
 import type { PlaybackState } from "$lib/ipc/bindings/PlaybackState";
@@ -105,6 +107,7 @@ class Player {
     toasts.push("Собираю микс…");
     try {
       await invoke("mix_start", { trackId });
+      if (prefs.value.mixFullscreen) layout.fullscreen = true;
     } catch (e) {
       toasts.push(e instanceof Error && e.message ? e.message : "Не удалось включить микс", "error");
     }
