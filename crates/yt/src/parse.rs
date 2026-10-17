@@ -151,7 +151,7 @@ fn album_from_runs(runs: &[Value]) -> Option<AlbumRef> {
     })
 }
 
-fn video_kind(v: &Value) -> VideoKind {
+pub fn video_kind(v: &Value) -> VideoKind {
     match find_first(v, "musicVideoType").and_then(Value::as_str) {
         Some("MUSIC_VIDEO_TYPE_ATV") => VideoKind::Audio,
         Some("MUSIC_VIDEO_TYPE_OMV" | "MUSIC_VIDEO_TYPE_UGC" | "MUSIC_VIDEO_TYPE_OFFICIAL_SOURCE_MUSIC") => {

@@ -4,6 +4,7 @@
 
 pub mod api;
 pub mod auth;
+pub mod home;
 pub mod innertube;
 pub mod limits;
 pub mod parse;
