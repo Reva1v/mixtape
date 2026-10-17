@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { prefs } from "$lib/stores/prefs.svelte";
-  import { plural } from "$lib/i18n/ru/legacy";
   import { LANGS, locale, t } from "$lib/i18n";
   import Select from "$lib/ui/Select.svelte";
   import Switch from "$lib/ui/Switch.svelte";
@@ -13,23 +12,23 @@
   import type { StorageInfo } from "$lib/ipc/bindings/StorageInfo";
 
   async function importFolder() {
-    const path = await prompt.ask("Путь к папке с .webm / .m4a / .opus");
+    const path = await prompt.ask(t.libraryScreen.importPrompt);
     if (!path) return;
     const n = await invoke<number>("dev_import_folder", { path });
-    toasts.push(`Импортировано треков: ${n}`);
+    toasts.push(t.libraryScreen.imported(n));
   }
 
   async function disconnect() {
     try {
       await downloads.disconnect();
-      toasts.push("Аккаунт отключён. Скачанная музыка остаётся в библиотеке");
+      toasts.push(t.settings.account.disconnected);
     } catch (e) {
-      toasts.push(e instanceof Error ? e.message : "Не удалось отключить аккаунт", "error");
+      toasts.push(e instanceof Error ? e.message : t.settings.account.disconnectFailed, "error");
     }
   }
 
   const syncedAt = (ms: number) =>
-    new Date(ms).toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+    new Date(ms).toLocaleString(locale.tag, { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
 
   const account = $derived(downloads.account);
   let avatarFailed = $state(false);
@@ -40,13 +39,16 @@
   const GB = 1024 ** 3;
   const LIMITS = [1, 2, 5, 10, 20];
   const PLAYS = [2, 3, 5, 10];
-  const gb = (b: number) => (b >= GB ? `${(b / GB).toFixed(1).replace(".0", "")} ГБ` : `${Math.round(b / 1024 ** 2)} МБ`);
+  const gb = (b: number) =>
+    b >= GB
+      ? t.settings.storage.gb((b / GB).toLocaleString(locale.tag, { maximumFractionDigits: 1 }))
+      : t.settings.storage.mb(String(Math.round(b / 1024 ** 2)));
 
   async function storageCall(cmd: string, args?: Record<string, unknown>) {
     try {
       storage = await invoke<StorageInfo>(cmd, args);
     } catch (e) {
-      toasts.push(e instanceof Error ? e.message : "Не получилось", "error");
+      toasts.push(e instanceof Error ? e.message : t.settings.failed, "error");
     }
   }
   let fadePreview = $state<number | null>(null);
@@ -66,7 +68,7 @@
   <h1 class="mb-8 text-[26px] font-bold tracking-tight">{t.nav.settings}</h1>
 
   <section class="mb-8">
-    <h2 class="mb-3 text-[13px] font-semibold tracking-wide text-ink-3 uppercase">Аккаунт YouTube Music</h2>
+    <h2 class="mb-3 text-[13px] font-semibold tracking-wide text-ink-3 uppercase">{t.settings.account.title}</h2>
     <div class="flex items-center gap-4 rounded-lg bg-white/[0.04] px-5 py-4">
       {#if account.connected}
         {@const avatar = coverUrl(account.avatar, 64)}
@@ -78,9 +80,9 @@
           {/if}
         </div>
         <div class="min-w-0 flex-1">
-          <div class="truncate text-[14.5px] font-medium">{account.name ?? "Аккаунт подключён"}</div>
+          <div class="truncate text-[14.5px] font-medium">{account.name ?? t.settings.account.connected}</div>
           <div class="mt-0.5 text-[13px] leading-snug text-ink-3">
-            {account.lastSyncAt ? `Последняя синхронизация ${syncedAt(account.lastSyncAt)}` : "Ещё не синхронизировался"}
+            {account.lastSyncAt ? t.settings.account.lastSync(syncedAt(account.lastSyncAt)) : t.settings.account.neverSynced}
           </div>
         </div>
         <button
@@ -88,20 +90,20 @@
           class="h-9 shrink-0 rounded-full px-4 text-[13px] font-medium text-ink-2 transition-colors hover:bg-fill-2 hover:text-ink"
           onclick={disconnect}
         >
-          Отключить
+          {t.settings.account.disconnect}
         </button>
         <button
           type="button"
           class="h-9 shrink-0 rounded-full bg-fill-2 px-4 text-[13px] font-medium text-ink transition-colors hover:bg-fill-3"
           onclick={() => router.go({ name: "downloads" })}
         >
-          Синхронизация
+          {t.settings.account.sync}
         </button>
       {:else}
         <div class="min-w-0 flex-1">
-          <div class="text-[14.5px] font-medium">Не подключён</div>
+          <div class="text-[14.5px] font-medium">{t.settings.account.notConnected}</div>
           <div class="mt-0.5 text-[13px] leading-snug text-ink-3">
-            Нужен, чтобы выкачать лайки, плейлисты, альбомы и исполнителей. Данные входа хранятся только на этом компьютере.
+            {t.settings.account.notConnectedHint}
           </div>
         </div>
         <button
@@ -109,21 +111,21 @@
           class="h-9 shrink-0 rounded-full bg-ink px-4 text-[13px] font-semibold text-black transition-[background-color] hover:bg-[#dcdcdc]"
           onclick={() => (downloads.connectOpen = true)}
         >
-          Подключить
+          {t.settings.account.connect}
         </button>
       {/if}
     </div>
   </section>
 
   <section class="mb-8">
-    <h2 class="mb-3 text-[13px] font-semibold tracking-wide text-ink-3 uppercase">Воспроизведение</h2>
+    <h2 class="mb-3 text-[13px] font-semibold tracking-wide text-ink-3 uppercase">{t.settings.playback.title}</h2>
     <div class="divide-y divide-line overflow-hidden rounded-lg bg-white/[0.04]">
       {#snippet crossfadeSwitch()}
-        <Switch checked={p.crossfade} label="Плавный переход между треками" onchange={(v) => prefs.update({ crossfade: v })} />
+        <Switch checked={p.crossfade} label={t.settings.playback.crossfade} onchange={(v) => prefs.update({ crossfade: v })} />
       {/snippet}
       {@render row(
-        "Плавный переход между треками",
-        "Конец трека плавно смешивается с началом следующего. Треки одного альбома идут без паузы, как задумано.",
+        t.settings.playback.crossfade,
+        t.settings.playback.crossfadeHint,
         crossfadeSwitch,
       )}
       {#if p.crossfade}
@@ -131,7 +133,7 @@
           <div class="flex w-56 items-center gap-3">
             <Slider
               class="flex-1"
-              label="Длительность перехода"
+              label={t.settings.playback.duration}
               value={fadePreview ?? p.crossfadeSec}
               max={12}
               wheelStep={1}
@@ -141,21 +143,21 @@
                 void prefs.update({ crossfadeSec: Math.max(1, Math.round(v)) });
               }}
             />
-            <span class="w-9 text-right text-[13px] text-ink-2 tnum">{fadePreview ?? p.crossfadeSec} с</span>
+            <span class="w-9 text-right text-[13px] text-ink-2 tnum">{t.settings.playback.seconds(fadePreview ?? p.crossfadeSec)}</span>
           </div>
         {/snippet}
-        {@render row("Длительность перехода", "От 1 до 12 секунд. При ручном переключении — не больше 2 секунд.", fadeSlider)}
+        {@render row(t.settings.playback.duration, t.settings.playback.durationHint, fadeSlider)}
       {/if}
       {#snippet mixFullSwitch()}
         <Switch
           checked={p.mixFullscreen}
-          label="Включать полноэкранный режим после включения микса"
+          label={t.settings.playback.mixFullscreen}
           onchange={(v) => prefs.update({ mixFullscreen: v })}
         />
       {/snippet}
       {@render row(
-        "Включать полноэкранный режим после включения микса",
-        "«Включить микс» сразу открывает полноэкранный плеер.",
+        t.settings.playback.mixFullscreen,
+        t.settings.playback.mixFullscreenHint,
         mixFullSwitch,
       )}
     </div>
@@ -179,16 +181,16 @@
   {#if storage}
     {@const st = storage}
     <section class="mb-8">
-      <h2 class="mb-3 text-[13px] font-semibold tracking-wide text-ink-3 uppercase">Хранилище</h2>
+      <h2 class="mb-3 text-[13px] font-semibold tracking-wide text-ink-3 uppercase">{t.settings.storage.title}</h2>
       <div class="divide-y divide-line overflow-hidden rounded-lg bg-white/[0.04]">
         {#snippet limitChoice()}
-          {@render choice(LIMITS, Math.round(st.cacheLimit / GB), (n) => `${n} ГБ`, (n) =>
+          {@render choice(LIMITS, Math.round(st.cacheLimit / GB), (n) => t.settings.storage.gb(String(n)), (n) =>
             void storageCall("storage_set_cache_limit", { bytes: n * GB }),
           )}
         {/snippet}
         {@render row(
-          "Кэш прослушанного",
-          `Треки из миксов и каталога, которые ещё не в библиотеке. Занято ${gb(st.cacheBytes)}; старые удаляются сами.`,
+          t.settings.storage.cache,
+          t.settings.storage.cacheHint(gb(st.cacheBytes)),
           limitChoice,
         )}
         {#snippet autosaveSwitch()}
@@ -198,44 +200,42 @@
             {/if}
             <Switch
               checked={!!st.autosavePlays}
-              label="Автосохранение"
+              label={t.settings.storage.autosaveLabel}
               onchange={(v) => void storageCall("storage_set_autosave", { plays: v ? 3 : null })}
             />
           </div>
         {/snippet}
         {@render row(
-          "Сохранять любимое из кэша",
-          st.autosavePlays
-            ? `Трек, дослушанный ${st.autosavePlays} ${plural(st.autosavePlays, "раз", "раза", "раз")}, переносится в библиотеку без новой загрузки.`
-            : "Выключено: из кэша в библиотеку попадает только то, что вы скачали или лайкнули.",
+          t.settings.storage.autosave,
+          st.autosavePlays ? t.settings.storage.autosaveOn(st.autosavePlays) : t.settings.storage.autosaveOff,
           autosaveSwitch,
         )}
         {#snippet clearButton()}
           <button
             type="button"
             class="h-9 shrink-0 rounded-full bg-fill-2 px-4 text-[13px] font-semibold ring-1 ring-line transition-colors hover:bg-fill-3"
-            onclick={() => void storageCall("cache_clear").then(() => toasts.push("Кэш очищен"))}
+            onclick={() => void storageCall("cache_clear").then(() => toasts.push(t.settings.storage.cleared))}
           >
-            Очистить
+            {t.settings.storage.clearButton}
           </button>
         {/snippet}
-        {@render row("Очистить кэш", "Скачанная музыка и лайки не пострадают.", clearButton)}
+        {@render row(t.settings.storage.clear, t.settings.storage.clearHint, clearButton)}
         {#snippet openButton()}
           <button
             type="button"
             class="h-9 shrink-0 rounded-full bg-fill-2 px-4 text-[13px] font-semibold ring-1 ring-line transition-colors hover:bg-fill-3"
             onclick={() => void invoke("open_data_dir")}
           >
-            Открыть
+            {t.settings.storage.open}
           </button>
         {/snippet}
-        {@render row("Папка данных", st.dataDir, openButton)}
+        {@render row(t.settings.storage.dataDir, st.dataDir, openButton)}
       </div>
     </section>
   {/if}
 
   <section>
-    <h2 class="mb-3 text-[13px] font-semibold tracking-wide text-ink-3 uppercase">Внешний вид</h2>
+    <h2 class="mb-3 text-[13px] font-semibold tracking-wide text-ink-3 uppercase">{t.settings.appearance.title}</h2>
     <div class="divide-y divide-line overflow-hidden rounded-lg bg-white/[0.04]">
       {#snippet langSelect()}
         <Select
@@ -247,18 +247,18 @@
       {/snippet}
       {@render row(t.language.title, t.language.hint, langSelect)}
       {#snippet bgSwitch()}
-        <Switch checked={p.smoothBackground} label="Плавная смена фона" onchange={(v) => prefs.update({ smoothBackground: v })} />
+        <Switch checked={p.smoothBackground} label={t.settings.appearance.smoothBackground} onchange={(v) => prefs.update({ smoothBackground: v })} />
       {/snippet}
       {@render row(
-        "Плавная смена фона",
-        "Подсветка от обложки и фон полноэкранного плеера плавно перетекают в цвета нового трека.",
+        t.settings.appearance.smoothBackground,
+        t.settings.appearance.smoothBackgroundHint,
         bgSwitch,
       )}
     </div>
   </section>
 
   <section class="mt-8">
-    <h2 class="mb-3 text-[13px] font-semibold tracking-wide text-ink-3 uppercase">Библиотека</h2>
+    <h2 class="mb-3 text-[13px] font-semibold tracking-wide text-ink-3 uppercase">{t.nav.library}</h2>
     <div class="divide-y divide-line overflow-hidden rounded-lg bg-white/[0.04]">
       {#snippet importButton()}
         <button
@@ -266,12 +266,12 @@
           class="h-9 shrink-0 rounded-full bg-fill-2 px-4 text-[13px] font-medium text-ink transition-colors hover:bg-fill-3"
           onclick={importFolder}
         >
-          Выбрать папку…
+          {t.settings.library.chooseFolder}
         </button>
       {/snippet}
       {@render row(
-        "Импорт папки с аудио",
-        "Добавляет в библиотеку файлы .webm, .m4a и .opus из папки. Обложка берётся из картинки с тем же именем.",
+        t.settings.library.importFolder,
+        t.settings.library.importHint,
         importButton,
       )}
     </div>

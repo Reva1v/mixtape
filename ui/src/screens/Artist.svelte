@@ -96,7 +96,7 @@
       songs = saved.songs = s;
       songRows.items = s.tracks;
     } catch (e) {
-      toasts.push(e instanceof Error ? e.message : "Не удалось загрузить песни", "error");
+      toasts.push(e instanceof Error ? e.message : t.artist.loadFailed, "error");
     } finally {
       if (artist === id) loading = null;
     }
@@ -108,7 +108,7 @@
 
   const canLoad = $derived(id.startsWith("UC") && downloads.account.connected && net.online);
   const loadLabel = $derived(
-    loading ? (loading.total ? `Загружаю ${loading.done} из ${loading.total}…` : "Загружаю…") : "Загрузить все песни",
+    loading ? (loading.total ? t.artist.loading(loading.done, loading.total) : t.artist.loadingShort) : t.artist.loadAll,
   );
 
   function playTop(i: number) {
@@ -148,7 +148,7 @@
 </script>
 
 {#if error}
-  <EmptyState icon={IconAlert} title="Не удалось открыть исполнителя" hint={error} />
+  <EmptyState icon={IconAlert} title={t.artist.openFailed} hint={error} />
 {:else if !page}
   <div class="flex items-end gap-7 px-7 pt-10">
     <Skeleton class="size-52 rounded-full" />
@@ -156,7 +156,7 @@
   </div>
 {:else}
   <CollectionHeader
-    kind="Исполнитель"
+    kind={t.artist.kind}
     title={page.artist.name}
     coverKey={page.artist.imageKey}
     round
@@ -166,7 +166,7 @@
     onmix={seed ? () => player.mix(seed!) : undefined}
   >
     {#snippet meta()}
-      <span>{t.count.tracks(page!.tracks.length)} в библиотеке</span>
+      <span>{t.artist.inLibrary(t.count.tracks(page!.tracks.length))}</span>
     {/snippet}
     {#snippet actions()}
       {#if canLoad && !songs}
@@ -180,7 +180,7 @@
         </button>
       {/if}
       {#if discography.length}
-        <DownloadButton kind="artist" {id} label="Скачать дискографию" />
+        <DownloadButton kind="artist" {id} label={t.artist.downloadDiscography} />
       {/if}
     {/snippet}
   </CollectionHeader>
@@ -188,24 +188,24 @@
   <div class="space-y-8 pb-10">
     {#if page.tracks.length}
       <section>
-        <h2 class="px-7 pb-2 text-[20px] font-bold">Популярное у вас</h2>
+        <h2 class="px-7 pb-2 text-[20px] font-bold">{t.artist.yourTop}</h2>
         <TrackList {rows} onplay={(i) => play(i)} />
         {#if page.tracks.length > 5}
           <button type="button" class="mt-2 ml-7 text-[13px] font-medium text-ink-2 hover:text-ink" onclick={() => (showAll = !showAll)}>
-            {showAll ? "Свернуть" : `Показать все (${page.tracks.length})`}
+            {showAll ? t.artist.showLess : t.artist.showAll(page.tracks.length)}
           </button>
         {/if}
       </section>
     {/if}
     {#if page.albums.length}
       <section class="px-7">
-        <h2 class="pb-4 text-[20px] font-bold">{catalog ? "В библиотеке" : "Альбомы"}</h2>
+        <h2 class="pb-4 text-[20px] font-bold">{catalog ? t.artist.inYourLibrary : t.library.albums}</h2>
         <div class="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-5">
           {#each page.albums as a (a.id)}
             <Card
               coverKey={a.coverKey}
               title={a.title}
-              subtitle={[a.year, { album: "Альбом", ep: "EP", single: "Сингл" }[a.albumType]].filter(Boolean).join(" • ")}
+              subtitle={[a.year, t.albumType[a.albumType]].filter(Boolean).join(" • ")}
               onopen={() => openAlbum(a)}
               onplay={() => player.play({ kind: "album", id: a.id })}
               menu={() => albumMenu(a)}
@@ -218,7 +218,7 @@
     {#if songs}
       <section>
         <div class="flex items-baseline gap-3 px-7 pb-2">
-          <h2 class="text-[20px] font-bold">Все песни</h2>
+          <h2 class="text-[20px] font-bold">{t.artist.allSongs}</h2>
           <span class="text-[13px] text-ink-3">{t.count.tracks(songs.tracks.length)}</span>
           {#if canLoad}
             <button
@@ -227,7 +227,7 @@
               class="ml-auto flex items-center gap-1.5 text-[13px] font-medium text-ink-3 hover:text-ink disabled:opacity-60"
               onclick={loadSongs}
             >
-              <IconRefresh class="size-3.5" />{loading ? loadLabel : "Обновить"}
+              <IconRefresh class="size-3.5" />{loading ? loadLabel : t.artist.refresh}
             </button>
           {/if}
         </div>
@@ -236,19 +236,19 @@
     {/if}
     {#if catalog?.top.length}
       <section>
-        <h2 class="px-7 pb-2 text-[20px] font-bold">Популярное в YouTube Music</h2>
+        <h2 class="px-7 pb-2 text-[20px] font-bold">{t.artist.popular}</h2>
         <TrackList rows={topRows} onplay={playTop} />
       </section>
     {/if}
     {#if discography.length}
       <section class="px-7">
-        <h2 class="pb-4 text-[20px] font-bold">Дискография</h2>
+        <h2 class="pb-4 text-[20px] font-bold">{t.artist.discography}</h2>
         <div class="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-5">
           {#each discography as a (a.id)}
             <Card
               coverKey={a.coverKey}
               title={a.title}
-              subtitle={[a.year, { album: "Альбом", ep: "EP", single: "Сингл" }[a.albumType]].filter(Boolean).join(" • ")}
+              subtitle={[a.year, t.albumType[a.albumType]].filter(Boolean).join(" • ")}
               onopen={() => router.go({ name: "album", id: a.id })}
               onplay={() => player.play({ kind: "album", id: a.id })}
               menu={() => albumMenu(a)}

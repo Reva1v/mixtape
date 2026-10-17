@@ -50,7 +50,6 @@
   });
 
   const total = $derived(page ? page.tracks.reduce((s, t) => s + t.durationMs, 0) : 0);
-  const typeLabel = { album: "Альбом", ep: "EP", single: "Сингл" } as const;
 
   function play(i = 0, shuffle = false) {
     if (shuffle !== player.state.shuffle) void player.toggleShuffle();
@@ -59,7 +58,7 @@
 </script>
 
 {#if error}
-  <EmptyState icon={IconAlert} title="Не удалось открыть альбом" hint={error} />
+  <EmptyState icon={IconAlert} title={t.album.openFailed} hint={error} />
 {:else if !page}
   <div class="flex items-end gap-7 px-7 pt-10">
     <Skeleton class="size-52 rounded-lg" />
@@ -67,7 +66,7 @@
   </div>
 {:else}
   <CollectionHeader
-    kind={typeLabel[page.album.albumType]}
+    kind={t.albumType[page.album.albumType]}
     title={page.album.title}
     coverKey={page.album.coverKey}
     palette={page.album.palette}
@@ -78,7 +77,7 @@
   >
     {#snippet actions()}
       {#if page!.tracks.some((t) => t.state === "remote" || t.state === "cached")}
-        <DownloadButton kind="album" {id} label="Скачать альбом" />
+        <DownloadButton kind="album" {id} label={t.album.download} />
       {/if}
     {/snippet}
     {#snippet meta()}

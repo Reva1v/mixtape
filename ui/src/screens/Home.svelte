@@ -102,21 +102,21 @@
   });
 
   const hour = new Date().getHours();
-  const greeting: { text: string; icon: Component } =
-    hour < 5 ? { text: "Доброй ночи", icon: IconMoon }
-    : hour < 12 ? { text: "Доброе утро", icon: IconSunrise }
-    : hour < 18 ? { text: "Добрый день", icon: IconSun }
-    : hour < 23 ? { text: "Добрый вечер", icon: IconSunset }
-    : { text: "Доброй ночи", icon: IconMoon };
+  const greeting: { key: keyof typeof t.home.greeting; icon: Component } =
+    hour < 5 ? { key: "night", icon: IconMoon }
+    : hour < 12 ? { key: "morning", icon: IconSunrise }
+    : hour < 18 ? { key: "day", icon: IconSun }
+    : hour < 23 ? { key: "evening", icon: IconSunset }
+    : { key: "night", icon: IconMoon };
 
   const tiles = $derived(page ? (page.recent.length ? page.recent : page.added).slice(0, 5) : []);
   const empty = $derived(!!page && !page.recent.length && !page.added.length && !page.likedCount);
 
   async function importFolder() {
-    const path = await prompt.ask("Путь к папке с .webm / .m4a / .opus");
+    const path = await prompt.ask(t.libraryScreen.importPrompt);
     if (!path) return;
     const n = await invoke<number>("dev_import_folder", { path });
-    toasts.push(`Импортировано треков: ${n}`);
+    toasts.push(t.libraryScreen.imported(n));
   }
 
   // --- YouTube Music shelf items ---
@@ -186,7 +186,7 @@
       case "artist":
         return [{ label: t.track.openArtist, icon: IconArtist, action: () => router.go({ name: "artist", id: i.id }) }];
       case "playlist":
-        return [{ label: "Открыть плейлист", icon: IconPlaylist, action: () => openPlaylist(i.id) }];
+        return [{ label: t.home.openPlaylist, icon: IconPlaylist, action: () => openPlaylist(i.id) }];
       case "mix":
         return [{ label: t.track.mix, icon: IconMix, action: () => void startMix(i.playlistId) }];
     }
@@ -196,7 +196,7 @@
   const titleOf = (i: ShelfItem) => (i.kind === "artist" ? i.name : i.kind === "track" ? i.track.title : i.title);
   const artistsOf = (i: ShelfItem) => (i.kind === "track" ? i.track.artists : i.kind === "album" ? i.artists : undefined);
   const subtitleOf = (i: ShelfItem) =>
-    i.kind === "playlist" || i.kind === "mix" ? (i.subtitle ?? undefined) : i.kind === "artist" ? "Исполнитель" : undefined;
+    i.kind === "playlist" || i.kind === "mix" ? (i.subtitle ?? undefined) : i.kind === "artist" ? t.artist.kind : undefined;
 
   /** Long song lists (quick picks) read better as compact rows, four to a column. */
   const asRows = (s: HomeShelf) => shelfTracks(s).length >= 12;
@@ -288,13 +288,13 @@
 <div class="pt-9 pb-12 [&>section:last-child]:mb-0">
   <header class="mb-5 flex items-center gap-3.5 px-8">
     <div class="grid size-9 place-items-center rounded-full bg-white/[0.08]"><greeting.icon class="size-5" /></div>
-    <h1 class="text-[26px] font-bold tracking-tight">{greeting.text}</h1>
+    <h1 class="text-[26px] font-bold tracking-tight">{t.home.greeting[greeting.key]}</h1>
   </header>
 
   {#if empty}
     <EmptyState icon={IconLibrary} title={t.library.empty} hint={t.library.emptyHint}>
       <button type="button" class="h-9 rounded-full bg-fill-2 px-4 text-[13px] font-medium text-ink-2 hover:bg-fill-3 hover:text-ink" onclick={importFolder}>
-        Импортировать папку с аудио
+        {t.libraryScreen.importFolder}
       </button>
     </EmptyState>
   {:else if page}
@@ -331,19 +331,19 @@
 
     {#if page.recent.length}
       <section class="mb-10">
-        {@render section("Сейчас в ротации", IconFire)}
+        {@render section(t.home.onRepeat, IconFire)}
         {@render carousel(page.recent)}
       </section>
     {/if}
     {#if page.top.length}
       <section class="mb-10">
-        {@render section("Часто слушаю", IconHistory)}
+        {@render section(t.home.mostPlayed, IconHistory)}
         <TrackList rows={top} onplay={(i) => player.play({ kind: "tracks", trackIds: page!.top.map((x) => x.id) }, i)} />
       </section>
     {/if}
     {#if page.added.length}
       <section class="mb-10">
-        {@render section("Недавно добавлено", IconClock)}
+        {@render section(t.home.recentlyAdded, IconClock)}
         {@render carousel(page.added)}
       </section>
     {/if}

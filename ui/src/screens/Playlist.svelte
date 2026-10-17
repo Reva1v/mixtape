@@ -63,12 +63,12 @@
 
   async function remove() {
     await invoke("playlist_edit", { edit: { op: "delete", id } });
-    toasts.push("Плейлист удалён");
+    toasts.push(t.playlist.deleted);
     router.back();
   }
 
   async function rename() {
-    const title = await prompt.ask("Название плейлиста", page?.playlist.title ?? "");
+    const title = await prompt.ask(t.playlist.name, page?.playlist.title ?? "");
     if (!title) return;
     const newId = await invoke<string | null>("playlist_edit", { edit: { op: "rename", id, title } });
     if (newId && newId !== id) router.replace({ name: "playlist", id: newId });
@@ -77,7 +77,7 @@
 </script>
 
 {#if error}
-  <EmptyState icon={IconAlert} title="Не удалось открыть плейлист" hint={error} />
+  <EmptyState icon={IconAlert} title={t.playlist.openFailed} hint={error} />
 {:else if !page}
   <div class="flex items-end gap-7 px-7 pt-10">
     <Skeleton class="size-52 rounded-lg" />
@@ -85,7 +85,7 @@
   </div>
 {:else}
   <CollectionHeader
-    kind={page.playlist.origin === "ytm" ? "Плейлист YouTube Music" : "Плейлист"}
+    kind={page.playlist.origin === "ytm" ? t.playlist.kindYtm : t.playlist.kind}
     title={page.playlist.title}
     coverKey={page.playlist.coverKey}
     onplay={page.tracks.length ? () => play(0) : undefined}
@@ -97,16 +97,16 @@
     {/snippet}
     {#snippet actions()}
       {#if page!.playlist.origin === "ytm" && page!.tracks.some((t) => t.state === "remote" || t.state === "cached")}
-        <DownloadButton kind="playlist" id={page!.playlist.id} label="Скачать плейлист" />
+        <DownloadButton kind="playlist" id={page!.playlist.id} label={t.playlist.download} />
       {/if}
       <IconButton
-        label="Ещё"
+        label={t.playlist.more}
         onclick={(e) =>
           menu.showAt(
             [
-              { label: "Переименовать", icon: IconPencil, action: rename },
+              { label: t.playlist.rename, icon: IconPencil, action: rename },
               "separator",
-              { label: "Удалить плейлист", icon: IconTrash, danger: true, action: remove },
+              { label: t.playlist.delete, icon: IconTrash, danger: true, action: remove },
             ],
             e.currentTarget,
           )}
@@ -117,7 +117,7 @@
   </CollectionHeader>
   <div class="pb-10">
     {#if page.tracks.length === 0}
-      <EmptyState icon={IconList} title="Плейлист пуст" hint="Добавляйте треки через меню трека" />
+      <EmptyState icon={IconList} title={t.playlist.empty} hint={t.playlist.emptyHint} />
     {:else}
       <TrackList {rows} onplay={(i) => play(i)} />
     {/if}

@@ -82,10 +82,10 @@
 
   // Recent: what was opened or played from the results, and queries confirmed with Enter.
   const names = (a: { name: string }[]) => a.map((x) => x.name).join(", ");
-  const trackItem = (t: Track): RecentItem => ({ kind: "track", id: t.id, title: t.title, subtitle: `Трек · ${names(t.artists)}`, coverKey: t.coverKey });
-  const albumItem = (a: Album): RecentItem => ({ kind: "album", id: a.id, title: a.title, subtitle: `Альбом · ${names(a.artists)}`, coverKey: a.coverKey });
-  const artistItem = (a: Artist): RecentItem => ({ kind: "artist", id: a.id, title: a.name, subtitle: "Исполнитель", coverKey: a.imageKey });
-  const playlistItem = (p: Playlist): RecentItem => ({ kind: "playlist", id: p.id, title: p.title, subtitle: "Плейлист", coverKey: p.coverKey });
+  const trackItem = (x: Track): RecentItem => ({ kind: "track", id: x.id, title: x.title, subtitle: t.searchScreen.kind.track(names(x.artists)), coverKey: x.coverKey });
+  const albumItem = (a: Album): RecentItem => ({ kind: "album", id: a.id, title: a.title, subtitle: t.searchScreen.kind.album(names(a.artists)), coverKey: a.coverKey });
+  const artistItem = (a: Artist): RecentItem => ({ kind: "artist", id: a.id, title: a.name, subtitle: t.searchScreen.kind.artist, coverKey: a.imageKey });
+  const playlistItem = (p: Playlist): RecentItem => ({ kind: "playlist", id: p.id, title: p.title, subtitle: t.searchScreen.kind.playlist, coverKey: p.coverKey });
 
   function openRecent(item: RecentItem) {
     recentSearch.add(item);
@@ -102,8 +102,8 @@
   {#if recentSearch.items.length}
     <section class="px-7">
       <div class="flex items-baseline justify-between px-1 pb-3">
-        <h2 class="text-[20px] font-bold">Недавнее</h2>
-        <button type="button" class="text-[13px] font-medium text-ink-3 hover:text-ink" onclick={() => recentSearch.clear()}>Очистить</button>
+        <h2 class="text-[20px] font-bold">{t.searchScreen.recent}</h2>
+        <button type="button" class="text-[13px] font-medium text-ink-3 hover:text-ink" onclick={() => recentSearch.clear()}>{t.searchScreen.clear}</button>
       </div>
       <div class="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-x-4 gap-y-1">
         {#each recentSearch.items as item (item.kind === "query" ? `q:${item.text}` : `${item.kind}:${item.id}`)}
@@ -121,11 +121,11 @@
             {/if}
             <div class="min-w-0 flex-1">
               <div class="truncate text-[13.5px] text-ink">{item.kind === "query" ? item.text : item.title}</div>
-              <div class="truncate text-[12px] text-ink-3">{item.kind === "query" ? "Запрос" : item.subtitle}</div>
+              <div class="truncate text-[12px] text-ink-3">{item.kind === "query" ? t.searchScreen.query : item.subtitle}</div>
             </div>
             <button
               type="button"
-              aria-label="Убрать из недавнего"
+              aria-label={t.searchScreen.removeRecent}
               class="grid size-8 shrink-0 place-items-center rounded-full text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 hover:text-ink"
               onclick={(e) => {
                 e.stopPropagation();
@@ -144,10 +144,10 @@
 {/snippet}
 
 {#snippet catalogHint()}
-  <EmptyState icon={IconSearch} title="Поиск в YouTube Music" hint="Треки, альбомы и исполнители за пределами библиотеки — слушайте сразу, скачивайте что понравится" />
+  <EmptyState icon={IconSearch} title={t.searchScreen.catalogTitle} hint={t.searchScreen.catalogHint} />
 {/snippet}
 {#snippet libraryHint()}
-  <EmptyState icon={IconSearch} title="Поиск по библиотеке" hint="Начните вводить название трека, альбома или исполнителя" />
+  <EmptyState icon={IconSearch} title={t.searchScreen.libraryTitle} hint={t.searchScreen.libraryHint} />
 {/snippet}
 
 <div class="pb-10">
@@ -166,7 +166,7 @@
     </label>
   </div>
   <div class="flex gap-6 px-8 pb-4">
-    {#each [["library", "Библиотека"], ["catalog", "YouTube Music"]] as [id, label] (id)}
+    {#each [["library", t.nav.library], ["catalog", "YouTube Music"]] as [id, label] (id)}
       <button
         type="button"
         class="relative pb-1.5 text-[14.5px] font-semibold transition-colors {scope === id ? 'text-ink' : 'text-ink-3 hover:text-ink-2'}"
@@ -186,22 +186,22 @@
   {:else if !query.trim()}
     {@render recent(libraryHint)}
   {:else if empty}
-    <EmptyState icon={IconNothing} title="Ничего не найдено" hint={`По запросу «${query}» в библиотеке ничего нет`}>
+    <EmptyState icon={IconNothing} title={t.searchScreen.nothing} hint={t.searchScreen.nothingHint(query)}>
       <button type="button" class="h-9 rounded-full bg-ink px-4 text-[13px] font-semibold text-black" onclick={() => (scope = "catalog")}>
-        Искать в YouTube Music
+        {t.searchScreen.searchCatalog}
       </button>
     </EmptyState>
   {:else if result}
     <div class="space-y-8">
       {#if result.tracks.length}
         <section>
-          <h2 class="px-7 pb-2 text-[20px] font-bold">Треки</h2>
+          <h2 class="px-7 pb-2 text-[20px] font-bold">{t.library.tracks}</h2>
           <TrackList rows={tracks} onplay={playTrack} />
         </section>
       {/if}
       {#if result.artists.length}
         <section class="px-7">
-          <h2 class="pb-4 text-[20px] font-bold">Исполнители</h2>
+          <h2 class="pb-4 text-[20px] font-bold">{t.library.artists}</h2>
           <div class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-5">
             {#each result.artists.slice(0, 12) as a (a.id)}
               <Card round coverKey={a.imageKey} title={a.name} onopen={() => {
@@ -214,7 +214,7 @@
       {/if}
       {#if result.albums.length}
         <section class="px-7">
-          <h2 class="pb-4 text-[20px] font-bold">Альбомы</h2>
+          <h2 class="pb-4 text-[20px] font-bold">{t.library.albums}</h2>
           <div class="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-5">
             {#each result.albums.slice(0, 12) as a (a.id)}
               <Card
@@ -238,7 +238,7 @@
       {/if}
       {#if result.playlists.length}
         <section class="px-7">
-          <h2 class="pb-4 text-[20px] font-bold">Плейлисты</h2>
+          <h2 class="pb-4 text-[20px] font-bold">{t.library.playlists}</h2>
           <div class="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-5">
             {#each result.playlists.slice(0, 12) as p (p.id)}
               <Card

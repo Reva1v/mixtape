@@ -29,37 +29,41 @@
 
   let { tab }: { tab: LibraryTab } = $props();
 
-  const tabs: { id: LibraryTab; label: string; kind: ViewKind }[] = [
-    { id: "tracks", label: t.library.tracks, kind: "tracks" },
-    { id: "albums", label: t.library.albums, kind: "albums" },
-    { id: "artists", label: t.library.artists, kind: "artists" },
-    { id: "playlists", label: t.library.playlists, kind: "playlists" },
-    { id: "liked", label: t.library.liked, kind: "liked" },
+  // Tab labels are read from `t.library[id]` at render time, so they follow the language.
+  const tabs: { id: LibraryTab; kind: ViewKind }[] = [
+    { id: "tracks", kind: "tracks" },
+    { id: "albums", kind: "albums" },
+    { id: "artists", kind: "artists" },
+    { id: "playlists", kind: "playlists" },
+    { id: "liked", kind: "liked" },
   ];
-  const sorts: Record<ViewKind, { id: ViewSort; label: string }[]> = {
-    tracks: [
-      { id: "recent", label: "Недавно добавленные" },
-      { id: "title", label: "По названию" },
-      { id: "artist", label: "По исполнителю" },
-      { id: "album", label: "По альбому" },
-    ],
-    liked: [
-      { id: "recent", label: "Недавно понравившиеся" },
-      { id: "title", label: "По названию" },
-      { id: "artist", label: "По исполнителю" },
-    ],
-    albums: [
-      { id: "recent", label: "Недавно добавленные" },
-      { id: "title", label: "По названию" },
-      { id: "artist", label: "По исполнителю" },
-      { id: "year", label: "По году" },
-    ],
-    artists: [{ id: "title", label: "По имени" }],
-    playlists: [
-      { id: "recent", label: "Недавние" },
-      { id: "title", label: "По названию" },
-    ],
-  };
+  const sorts: Record<ViewKind, { id: ViewSort; label: string }[]> = $derived.by(() => {
+    const s = t.libraryScreen.sort;
+    return {
+      tracks: [
+        { id: "recent", label: s.recent },
+        { id: "title", label: s.title },
+        { id: "artist", label: s.artist },
+        { id: "album", label: s.album },
+      ],
+      liked: [
+        { id: "recent", label: s.recentLiked },
+        { id: "title", label: s.title },
+        { id: "artist", label: s.artist },
+      ],
+      albums: [
+        { id: "recent", label: s.recent },
+        { id: "title", label: s.title },
+        { id: "artist", label: s.artist },
+        { id: "year", label: s.year },
+      ],
+      artists: [{ id: "title", label: s.name }],
+      playlists: [
+        { id: "recent", label: s.recentPlaylists },
+        { id: "title", label: s.title },
+      ],
+    };
+  });
 
   const kind = $derived(tabs.find((x) => x.id === tab)!.kind);
   let sort = $state<ViewSort>("recent");
@@ -100,10 +104,10 @@
   });
 
   async function importFolder() {
-    const path = await prompt.ask("Путь к папке с .webm / .m4a / .opus");
+    const path = await prompt.ask(t.libraryScreen.importPrompt);
     if (!path) return;
     const n = await invoke<number>("dev_import_folder", { path });
-    toasts.push(`Импортировано треков: ${n}`);
+    toasts.push(t.libraryScreen.imported(n));
   }
 
   function playAll(start = 0, shuffle = false) {
@@ -148,7 +152,7 @@
               {x.id === tab ? 'bg-ink text-black' : 'bg-fill-1 text-ink-2 hover:bg-fill-2 hover:text-ink'}"
             onclick={() => router.replace({ name: "library", tab: x.id })}
           >
-            {x.label}
+            {t.library[x.id]}
           </button>
         {/each}
       </div>
@@ -160,7 +164,7 @@
           <input
             bind:this={filterEl}
             bind:value={filterText}
-            placeholder="Найти в библиотеке"
+            placeholder={t.libraryScreen.filter}
             spellcheck="false"
             class="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink outline-none placeholder:text-ink-3"
             onkeydown={(e) => {
@@ -171,27 +175,27 @@
             }}
           />
           {#if filterText}
-            <button type="button" aria-label="Очистить" class="text-ink-3 hover:text-ink" onclick={() => ((filterText = ""), filterEl?.focus())}>
+            <button type="button" aria-label={t.libraryScreen.clear} class="text-ink-3 hover:text-ink" onclick={() => ((filterText = ""), filterEl?.focus())}>
               <IconClear class="size-3.5" />
             </button>
           {/if}
         </label>
         {#if rows}<span class="tnum">{rows.count}</span>{/if}
         {#if sorts[kind].length > 1}
-          <Select bind:value={sort} options={sorts[kind]} label="Сортировка" />
+          <Select bind:value={sort} options={sorts[kind]} label={t.libraryScreen.sort.label} />
         {/if}
       </div>
     </div>
   </div>
 
   {#if loaded && rows && rows.count === 0 && filter}
-    <EmptyState icon={IconFind} title="Ничего не найдено" hint={`В этом разделе нет ничего по запросу «${filter}»`}>
+    <EmptyState icon={IconFind} title={t.libraryScreen.nothing} hint={t.libraryScreen.nothingHint(filter)}>
       <button
         type="button"
         class="h-9 rounded-full bg-fill-2 px-4 text-[13px] font-medium text-ink-2 hover:bg-fill-3 hover:text-ink"
         onclick={() => router.go({ name: "search", query: filter })}
       >
-        Искать везде
+        {t.libraryScreen.searchEverywhere}
       </button>
     </EmptyState>
   {:else if loaded && rows && rows.count === 0}
@@ -201,7 +205,7 @@
         class="h-9 rounded-full bg-fill-2 px-4 text-[13px] font-medium text-ink-2 hover:bg-fill-3 hover:text-ink"
         onclick={importFolder}
       >
-        Импортировать папку с аудио
+        {t.libraryScreen.importFolder}
       </button>
     </EmptyState>
   {:else if rows}

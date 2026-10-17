@@ -110,8 +110,8 @@
 
   <button
     type="button"
-    aria-label="Свернуть"
-    data-tip="Свернуть (Esc)"
+    aria-label={t.fullscreen.collapse}
+    data-tip={t.fullscreen.collapseTip}
     data-tip-pos="right"
     class="absolute top-4 left-4 z-10 grid size-9 place-items-center rounded-full bg-white/8 text-ink-2 backdrop-blur
       transition-colors hover:bg-white/14 hover:text-ink"
@@ -149,8 +149,8 @@
           <Cover coverKey={track.coverKey} size={coverSize} rounded="lg" class="shadow-[0_30px_80px_-24px_rgb(0_0_0/0.95)]" />
           <button
             type="button"
-            aria-label="Ещё"
-            data-tip="Ещё"
+            aria-label={t.fullscreen.more}
+            data-tip={t.fullscreen.more}
             class="absolute right-2.5 bottom-2.5 grid size-7 place-items-center rounded-full bg-black/45 text-ink backdrop-blur transition-colors hover:bg-black/65"
             onclick={(e) => menu.showAt(trackMenu(track), e.currentTarget)}
           >
