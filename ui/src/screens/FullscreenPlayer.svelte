@@ -23,6 +23,7 @@
   import IconPlus from "~icons/lucide/plus";
   import IconLyrics from "~icons/solar/microphone-2-linear";
   import IconQueue from "~icons/solar/playlist-minimalistic-linear";
+  import IconMore from "~icons/solar/menu-dots-bold";
   import QueuePanel from "$lib/ui/QueuePanel.svelte";
 
   const track = $derived(player.track);
@@ -171,6 +172,15 @@
             onclick={() => (queueOpen = !queueOpen)}
           >
             <IconQueue class="size-4" />
+          </button>
+          <button
+            type="button"
+            aria-label="Ещё"
+            data-tip="Ещё"
+            class="grid size-7 place-items-center rounded-full text-ink-3 transition-colors hover:text-ink"
+            onclick={(e) => menu.showAt(trackMenu(track), e.currentTarget)}
+          >
+            <IconMore class="size-4" />
           </button>
         </div>
       </section>

@@ -3,6 +3,7 @@
 // re-rendering on every tick.
 
 import { Channel, invoke, on } from "$lib/ipc";
+import { toasts } from "./overlay.svelte";
 import type { Track } from "$lib/ipc/bindings/Track";
 import type { Repeat } from "$lib/ipc/bindings/Repeat";
 import type { PlaybackState } from "$lib/ipc/bindings/PlaybackState";
@@ -92,8 +93,13 @@ class Player {
   queueAdd(trackIds: string[], position: "next" | "end") {
     return invoke("queue_add", { trackIds, position });
   }
-  mix(trackId: string) {
-    return invoke("mix_start", { trackId });
+  /** Replaces the queue with a mix built from this track (US3). */
+  async mix(trackId: string) {
+    try {
+      await invoke("mix_start", { trackId });
+    } catch {
+      toasts.push("Миксы появятся на этапе «Включить микс» — нужен доступ к YouTube Music", "error");
+    }
   }
 }
 
