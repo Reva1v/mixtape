@@ -31,6 +31,36 @@ pub async fn player_subscribe(state: St<'_>, channel: Channel<PlaybackState>) ->
 #[tauri::command]
 pub async fn play(state: St<'_>, source: PlaySource, start_index: Option<u32>) -> CmdResult<()> {
     let st = state.inner().clone();
+    // Catalog items (search, home) may not have their tracks stored yet.
+    let source = match source {
+        PlaySource::Album { id } => {
+            let (n, total) = st.db.read(|c| {
+                Ok((repo::album_track_ids(c, &id)?.len(), repo::album(c, &id)?.and_then(|a| a.track_count)))
+            })?;
+            crate::commands::catalog::fill_album(&st, &id, Some((n, total))).await;
+            PlaySource::Album { id }
+        }
+        PlaySource::Playlist { id } if st.db.read(|c| repo::playlist(c, &id))?.is_none() => {
+            let (_, tracks) = crate::commands::catalog::catalog_playlist(&st, &id).await?;
+            let ids = tracks.into_iter().map(|t| t.id).collect();
+            return blocking(move || {
+                st.player.play_tracks(ids, start_index.unwrap_or(0) as usize, QueueContext::Playlist(id));
+                Ok(())
+            })
+            .await;
+        }
+        PlaySource::Artist { id } if st.db.read(|c| repo::artist_track_ids(c, &id))?.is_empty() => {
+            let found = mixtape_sync::catalog::store_artist(&*st.yt, st.yt.http(), &st.db, &st.covers, &id)
+                .await
+                .map_err(AppError::from)?;
+            return blocking(move || {
+                st.player.play_tracks(found.top, start_index.unwrap_or(0) as usize, QueueContext::Artist(id));
+                Ok(())
+            })
+            .await;
+        }
+        other => other,
+    };
     blocking(move || {
         let (ids, context) = match source {
             PlaySource::Album { id } => (st.db.read(|c| repo::album_track_ids(c, &id))?, QueueContext::Album(id)),

@@ -1,5 +1,11 @@
+<script lang="ts" module>
+  // Which tab the search was on last time.
+  let lastScope: "library" | "catalog" = "library";
+</script>
+
 <script lang="ts">
   import { invoke } from "$lib/ipc";
+  import CatalogResults from "$lib/ui/CatalogResults.svelte";
   import type { SearchResult } from "$lib/ipc/bindings/SearchResult";
   import type { Track } from "$lib/ipc/bindings/Track";
   import { Fixed } from "$lib/stores/paged.svelte";
@@ -16,6 +22,10 @@
   import IconNothing from "~icons/solar/magnifier-bug-linear";
 
   let { query = "" }: { query?: string } = $props();
+  let scope = $state(lastScope);
+  $effect(() => {
+    lastScope = scope;
+  });
 
   let input = $state<HTMLInputElement>();
   // The route keeps the query; the input only needs it once on open.
@@ -77,10 +87,32 @@
       />
     </label>
   </div>
-  {#if !query.trim()}
+  <div class="flex gap-6 px-8 pb-4">
+    {#each [["library", "Библиотека"], ["catalog", "YouTube Music"]] as [id, label] (id)}
+      <button
+        type="button"
+        class="relative pb-1.5 text-[14.5px] font-semibold transition-colors {scope === id ? 'text-ink' : 'text-ink-3 hover:text-ink-2'}"
+        onclick={() => (scope = id as typeof scope)}
+      >
+        {label}
+        {#if scope === id}<span class="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-ink"></span>{/if}
+      </button>
+    {/each}
+  </div>
+  {#if scope === "catalog"}
+    {#if query.trim()}
+      <CatalogResults {query} />
+    {:else}
+      <EmptyState icon={IconSearch} title="Поиск в YouTube Music" hint="Треки, альбомы и исполнители за пределами библиотеки — слушайте сразу, скачивайте что понравится" />
+    {/if}
+  {:else if !query.trim()}
     <EmptyState icon={IconSearch} title="Поиск по библиотеке" hint="Начните вводить название трека, альбома или исполнителя" />
   {:else if empty}
-    <EmptyState icon={IconNothing} title="Ничего не найдено" hint={`По запросу «${query}» в библиотеке ничего нет`} />
+    <EmptyState icon={IconNothing} title="Ничего не найдено" hint={`По запросу «${query}» в библиотеке ничего нет`}>
+      <button type="button" class="h-9 rounded-full bg-ink px-4 text-[13px] font-semibold text-black" onclick={() => (scope = "catalog")}>
+        Искать в YouTube Music
+      </button>
+    </EmptyState>
   {:else if result}
     <div class="space-y-8">
       {#if result.tracks.length}

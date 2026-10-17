@@ -15,6 +15,10 @@
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import IconAlert from "~icons/solar/danger-circle-linear";
+  import DownloadButton from "$lib/ui/DownloadButton.svelte";
+  import type { ArtistCatalog } from "$lib/ipc/bindings/ArtistCatalog";
+  import { downloads } from "$lib/stores/downloads.svelte";
+  import { net } from "$lib/stores/net.svelte";
 
   let { id }: { id: string } = $props();
 
@@ -22,6 +26,29 @@
   let error = $state<string | null>(null);
   let showAll = $state(false);
   const rows = new Fixed<Track>([]);
+  const topRows = new Fixed<Track>([]);
+
+  // What YouTube Music has beyond the library: popular tracks and the full discography.
+  let catalog = $state.raw<ArtistCatalog | null>(null);
+  $effect(() => {
+    const artist = id;
+    catalog = null;
+    if (!artist.startsWith("UC") || !downloads.account.connected || !net.online) return;
+    void invoke<ArtistCatalog>("artist_catalog", { id: artist })
+      .then((c) => {
+        if (artist !== id) return;
+        catalog = c;
+        topRows.items = c.top.slice(0, 10);
+      })
+      .catch(() => {});
+  });
+  const owned = $derived(new Set(page?.albums.map((a) => a.id) ?? []));
+  const discography = $derived(catalog?.albums.filter((a) => !owned.has(a.id)) ?? []);
+  const seed = $derived(page?.tracks[0]?.id ?? catalog?.top[0]?.id);
+
+  function playTop(i: number) {
+    if (catalog) void player.play({ kind: "tracks", trackIds: catalog.top.map((t) => t.id) }, i);
+  }
 
   async function load() {
     try {
@@ -68,13 +95,18 @@
     title={page.artist.name}
     coverKey={page.artist.imageKey}
     round
-    onplay={page.tracks.length ? () => play(0) : undefined}
+    onplay={page.tracks.length || catalog?.top.length ? () => play(0) : undefined}
     current={page.tracks.some((x) => x.id === player.currentId)}
     onshuffle={page.tracks.length ? () => play(0, true) : undefined}
-    onmix={page.tracks[0] ? () => player.mix(page!.tracks[0].id) : undefined}
+    onmix={seed ? () => player.mix(seed!) : undefined}
   >
     {#snippet meta()}
       <span>{tracks(page!.tracks.length)} в библиотеке</span>
+    {/snippet}
+    {#snippet actions()}
+      {#if discography.length}
+        <DownloadButton kind="artist" {id} label="Скачать дискографию" />
+      {/if}
     {/snippet}
   </CollectionHeader>
 
@@ -92,7 +124,7 @@
     {/if}
     {#if page.albums.length}
       <section class="px-7">
-        <h2 class="pb-4 text-[20px] font-bold">Альбомы</h2>
+        <h2 class="pb-4 text-[20px] font-bold">{catalog ? "В библиотеке" : "Альбомы"}</h2>
         <div class="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-5">
           {#each page.albums as a (a.id)}
             <Card
@@ -103,6 +135,30 @@
               onplay={() => player.play({ kind: "album", id: a.id })}
               menu={() => albumMenu(a)}
                 current={!!a && player.track?.album?.id === a.id}
+            />
+          {/each}
+        </div>
+      </section>
+    {/if}
+    {#if catalog?.top.length}
+      <section>
+        <h2 class="px-7 pb-2 text-[20px] font-bold">Популярное в YouTube Music</h2>
+        <TrackList rows={topRows} onplay={playTop} />
+      </section>
+    {/if}
+    {#if discography.length}
+      <section class="px-7">
+        <h2 class="pb-4 text-[20px] font-bold">Дискография</h2>
+        <div class="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-5">
+          {#each discography as a (a.id)}
+            <Card
+              coverKey={a.coverKey}
+              title={a.title}
+              subtitle={[a.year, { album: "Альбом", ep: "EP", single: "Сингл" }[a.albumType]].filter(Boolean).join(" • ")}
+              onopen={() => router.go({ name: "album", id: a.id })}
+              onplay={() => player.play({ kind: "album", id: a.id })}
+              menu={() => albumMenu(a)}
+              current={player.track?.album?.id === a.id}
             />
           {/each}
         </div>

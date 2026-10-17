@@ -46,12 +46,12 @@ const COVER_PARALLEL: usize = 6;
 
 /// One source's tracks, tagged for `download_jobs.source`.
 #[derive(Default)]
-struct Collected {
-    tracks: Vec<YtTrack>,
-    albums: Vec<YtAlbum>,
+pub(crate) struct Collected {
+    pub(crate) tracks: Vec<YtTrack>,
+    pub(crate) albums: Vec<YtAlbum>,
     liked: Option<Vec<TrackId>>,
     playlists: Vec<(PlaylistId, String, Option<String>, Vec<TrackId>)>,
-    sources: HashMap<TrackId, String>,
+    pub(crate) sources: HashMap<TrackId, String>,
     /// Albums saved in the user's YouTube Music library.
     saved_albums: HashSet<AlbumId>,
     errors: Vec<(String, String)>,
@@ -305,6 +305,18 @@ pub fn save_library_artists(db: &Db, artists: Vec<Artist>) -> mixtape_library::R
         }
         Ok(())
     })
+}
+
+/// Fetches covers for what was collected and writes it; `enqueue` queues downloads.
+pub(crate) async fn store(
+    http: &reqwest::Client,
+    db: &Db,
+    covers: &CoverStore,
+    c: Collected,
+    enqueue: bool,
+) -> mixtape_library::Result<SyncReport> {
+    let covers = fetch_covers(http, covers, &c, &|_| {}).await;
+    save(db, c, covers, enqueue)
 }
 
 /// Stores catalog tracks (a mix page, search results) with their covers, without queueing

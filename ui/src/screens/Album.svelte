@@ -11,6 +11,7 @@
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import Skeleton from "$lib/ui/Skeleton.svelte";
   import IconAlert from "~icons/solar/danger-circle-linear";
+  import DownloadButton from "$lib/ui/DownloadButton.svelte";
 
   let { id }: { id: string } = $props();
 
@@ -60,6 +61,11 @@
     onshuffle={() => play(0, true)}
     onmix={page.tracks[0] ? () => player.mix(page!.tracks[0].id) : undefined}
   >
+    {#snippet actions()}
+      {#if page!.tracks.some((t) => t.state === "remote" || t.state === "cached")}
+        <DownloadButton kind="album" {id} label="Скачать альбом" />
+      {/if}
+    {/snippet}
     {#snippet meta()}
       {#each page!.album.artists as a, i (i)}
         {#if i > 0}<span>,</span>{/if}

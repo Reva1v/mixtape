@@ -28,6 +28,23 @@ pub fn toast_error(app: &AppHandle, text: impl Into<String>) {
     let _ = app.emit("toast", Toast { level: "error", text: text.into() });
 }
 
+pub fn toast_info(app: &AppHandle, text: impl Into<String>) {
+    let _ = app.emit("toast", Toast { level: "info", text: text.into() });
+}
+
+/// «1 трек», «3 трека», «12 треков».
+pub fn tracks_word(n: usize) -> String {
+    let (m10, m100) = (n % 10, n % 100);
+    let word = if m10 == 1 && m100 != 11 {
+        "трек"
+    } else if (2..=4).contains(&m10) && !(12..=14).contains(&m100) {
+        "трека"
+    } else {
+        "треков"
+    };
+    format!("{n} {word}")
+}
+
 pub fn announce_track(st: &AppState, track: Track) {
     let palette = track
         .album

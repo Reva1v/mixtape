@@ -3,6 +3,7 @@
 //! in `mixtape_library::jobs`.
 
 pub mod artists;
+pub mod catalog;
 pub mod disk;
 pub mod downloader;
 pub mod fetch;

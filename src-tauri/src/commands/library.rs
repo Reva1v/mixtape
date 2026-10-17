@@ -145,13 +145,22 @@ pub async fn library_search(
 #[tauri::command]
 pub async fn album_get(state: State<'_, Arc<AppState>>, id: AlbumId) -> CmdResult<AlbumPage> {
     let st = state.inner().clone();
+    let page = album_page(st.clone(), id.clone()).await?;
+    // Known only in part (a liked single, a search card) or not at all: read the catalog.
+    let known = page.as_ref().map(|p| (p.tracks.len(), p.album.track_count));
+    if crate::commands::catalog::fill_album(&st, &id, known).await {
+        return album_page(st, id).await?.ok_or_else(|| not_found("Альбом"));
+    }
+    page.ok_or_else(|| not_found("Альбом"))
+}
+
+async fn album_page(st: Arc<AppState>, id: AlbumId) -> CmdResult<Option<AlbumPage>> {
     blocking(move || {
-        let page = st.db.read(|c| {
+        Ok(st.db.read(|c| {
             let Some(album) = repo::album(c, &id)? else { return Ok(None) };
             let tracks = repo::tracks_by_ids(c, &repo::album_track_ids(c, &id)?)?;
             Ok(Some(AlbumPage { album, tracks }))
-        })?;
-        page.ok_or_else(|| not_found("Альбом"))
+        })?)
     })
     .await
 }
@@ -159,7 +168,12 @@ pub async fn album_get(state: State<'_, Arc<AppState>>, id: AlbumId) -> CmdResul
 #[tauri::command]
 pub async fn artist_get(state: State<'_, Arc<AppState>>, id: ArtistId) -> CmdResult<ArtistPage> {
     let st = state.inner().clone();
-    let mut page = artist_page(st.clone(), id.clone()).await?;
+    let mut page = match artist_page(st.clone(), id.clone()).await {
+        Err(e) if e.kind == ErrorKind::NotFound && crate::commands::catalog::fill_artist(&st, &id).await => {
+            artist_page(st.clone(), id.clone()).await?
+        }
+        r => r?,
+    };
     // Pictures fetched before palettes were stored: compute it once from the thumbnail.
     if let Some(key) = page.artist.image_key.clone()
         && page.artist.palette.is_empty()
@@ -196,15 +210,25 @@ async fn artist_page(st: Arc<AppState>, id: ArtistId) -> CmdResult<ArtistPage> {
 #[tauri::command]
 pub async fn playlist_get(state: State<'_, Arc<AppState>>, id: PlaylistId) -> CmdResult<PlaylistPage> {
     let st = state.inner().clone();
-    blocking(move || {
-        let page = st.db.read(|c| {
-            let Some(playlist) = repo::playlist(c, &id)? else { return Ok(None) };
-            let tracks = repo::tracks_by_ids(c, &repo::playlist_track_ids(c, &id)?)?;
+    let st2 = st.clone();
+    let id2 = id.clone();
+    let page = blocking(move || {
+        Ok(st2.db.read(|c| {
+            let Some(playlist) = repo::playlist(c, &id2)? else { return Ok(None) };
+            let tracks = repo::tracks_by_ids(c, &repo::playlist_track_ids(c, &id2)?)?;
             Ok(Some(PlaylistPage { playlist, tracks }))
-        })?;
-        page.ok_or_else(|| not_found("Плейлист"))
+        })?)
     })
-    .await
+    .await?;
+    match page {
+        Some(p) => Ok(p),
+        // Not in the library: show it from the catalog without adding it.
+        None if id.as_str().starts_with("VL") || id.as_str().starts_with("PL") => {
+            let (playlist, tracks) = crate::commands::catalog::catalog_playlist(&st, &id).await?;
+            Ok(PlaylistPage { playlist, tracks })
+        }
+        None => Err(not_found("Плейлист")),
+    }
 }
 
 /// Playlist edits. Each returns the id that was edited: editing a YouTube Music mirror

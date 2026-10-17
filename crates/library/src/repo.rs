@@ -402,6 +402,15 @@ pub fn album_track_ids(conn: &Connection, id: &AlbumId) -> Result<Vec<TrackId>> 
     Ok(ids.collect::<std::result::Result<_, _>>()?)
 }
 
+/// Whether any of the album's tracks is in the library.
+pub fn album_owned(conn: &Connection, id: &AlbumId) -> Result<bool> {
+    Ok(conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM tracks WHERE album_id = ?1 AND state IN ('downloaded', 'broken'))",
+        [id.as_str()],
+        |r| r.get(0),
+    )?)
+}
+
 pub fn artists_by_ids(conn: &Connection, ids: &[ArtistId]) -> Result<Vec<Artist>> {
     let mut out: HashMap<String, Artist> = HashMap::new();
     for chunk in ids.chunks(500) {

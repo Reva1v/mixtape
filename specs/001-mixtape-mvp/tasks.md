@@ -144,9 +144,9 @@
 **Independent Test**: сценарий Q10.
 
 - [x] T081 [US4] `search(q, kind)`, `suggest(q)`, страницы каталога с токеном продолжения в `crates/yt/src/rustypipe_impl.rs`
-- [ ] T082 [US4] Сохранение элементов каталога как `remote` (без загрузки) для открытия и проигрывания в `crates/library/src/repo/catalog.rs`
-- [ ] T083 [US4] Команды `catalog_search`, `catalog_more`, `catalog_suggest`; `album_get`/`artist_get` с фолбэком на каталог в `src-tauri/src/commands/catalog.rs`
-- [ ] T084 [US4] Вкладка «Каталог» в поиске (метки «скачано»), страницы альбома/артиста из каталога с кнопками «Скачать альбом» / «Скачать дискографию» в `ui/src/screens/{Search,Album,Artist}.svelte`
+- [x] T082 [US4] Сохранение элементов каталога как `remote` (без загрузки) для открытия и проигрывания в `crates/library/src/repo/catalog.rs`
+- [x] T083 [US4] Команды `catalog_search`, `catalog_more`, `catalog_suggest`; `album_get`/`artist_get` с фолбэком на каталог в `src-tauri/src/commands/catalog.rs`
+- [x] T084 [US4] Вкладка «Каталог» в поиске (метки «скачано»), страницы альбома/артиста из каталога с кнопками «Скачать альбом» / «Скачать дискографию» в `ui/src/screens/{Search,Album,Artist}.svelte`
 
 ## Phase 7: Главная (FR-024, обслуживает US1/US3)
 

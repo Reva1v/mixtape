@@ -58,6 +58,7 @@
     const newId = await invoke<string | null>("playlist_edit", { edit: { op: "rename", id, title } });
     if (newId && newId !== id) router.replace({ name: "playlist", id: newId });
   }
+  import DownloadButton from "$lib/ui/DownloadButton.svelte";
 </script>
 
 {#if error}
@@ -80,6 +81,9 @@
       <span>{tracks(page!.tracks.length)}{total ? `, ${formatTime(total)}` : ""}</span>
     {/snippet}
     {#snippet actions()}
+      {#if page!.playlist.origin === "ytm" && page!.tracks.some((t) => t.state === "remote" || t.state === "cached")}
+        <DownloadButton kind="playlist" id={page!.playlist.id} label="Скачать плейлист" />
+      {/if}
       <IconButton
         label="Ещё"
         onclick={(e) =>
