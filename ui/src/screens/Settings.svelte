@@ -4,6 +4,15 @@
   import { t } from "$lib/i18n/ru";
   import Switch from "$lib/ui/Switch.svelte";
   import Slider from "$lib/ui/Slider.svelte";
+  import { invoke } from "$lib/ipc";
+  import { prompt, toasts } from "$lib/stores/overlay.svelte";
+
+  async function importFolder() {
+    const path = await prompt.ask("Путь к папке с .webm / .m4a / .opus");
+    if (!path) return;
+    const n = await invoke<number>("dev_import_folder", { path });
+    toasts.push(`Импортировано треков: ${n}`);
+  }
 
   const p = $derived(prefs.value);
   let fadePreview = $state<number | null>(null);
@@ -65,6 +74,26 @@
         "Плавная смена фона",
         "Подсветка от обложки и фон полноэкранного плеера плавно перетекают в цвета нового трека.",
         bgSwitch,
+      )}
+    </div>
+  </section>
+
+  <section class="mt-8">
+    <h2 class="mb-3 text-[13px] font-semibold tracking-wide text-ink-3 uppercase">Библиотека</h2>
+    <div class="divide-y divide-line overflow-hidden rounded-lg bg-white/[0.04]">
+      {#snippet importButton()}
+        <button
+          type="button"
+          class="h-9 shrink-0 rounded-full bg-fill-2 px-4 text-[13px] font-medium text-ink transition-colors hover:bg-fill-3"
+          onclick={importFolder}
+        >
+          Выбрать папку…
+        </button>
+      {/snippet}
+      {@render row(
+        "Импорт папки с аудио",
+        "Добавляет в библиотеку файлы .webm, .m4a и .opus из папки. Обложка берётся из картинки с тем же именем.",
+        importButton,
       )}
     </div>
   </section>
