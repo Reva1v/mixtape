@@ -43,7 +43,7 @@
 {/snippet}
 
 <nav class="flex w-(--sidebar-w) shrink-0 flex-col items-center rounded-xl bg-panel pt-3.5 pb-4" data-tauri-drag-region>
-  <div class="mb-5 size-11 [&>svg]:size-full" aria-hidden="true">{@html Logo}</div>
+  <div class="mb-5 size-11 rounded-[10px] ring-1 ring-white/12 [&>svg]:size-full" aria-hidden="true">{@html Logo}</div>
   <div class="flex flex-col items-center gap-3.5">
     {#each items as item (item.label)}
       {@render navItem(item)}
