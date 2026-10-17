@@ -291,6 +291,14 @@ async fn worker(inner: Arc<Inner>) {
                 continue;
             }
         };
+        // Already streamed into the cache: move it into the library instead of downloading.
+        let (root, tid) = (inner.root.clone(), job.track_id.clone());
+        if let Ok(true) = inner.db_write(move |t| mixtape_library::cache_lru::promote(t, &root, &tid)).await {
+            let _ = inner.db_write(move |t| jobs::mark_done(t, job.id)).await;
+            inner.hooks.finished(&job.track_id);
+            inner.emit(true);
+            continue;
+        }
         let permit = inner.pacer.acquire().await;
         if inner.paused.load(Ordering::SeqCst) {
             // Paused while waiting for a slot: `pause_all` already parked the job.
