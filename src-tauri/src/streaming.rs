@@ -8,7 +8,7 @@
 //! the current one's download has ended (or right away when the current track is on disk).
 
 use mixtape_audio::{SparseCacheFile, Source};
-use mixtape_core::{AppError, TrackId};
+use mixtape_core::{AppError, TrackId, tr, trf};
 use mixtape_library::{Db, cache_lru, repo};
 use mixtape_player::prefetch::{CACHE_AHEAD, RESOLVE_LOW_WATER};
 use mixtape_player::{Opened, StreamProvider};
@@ -150,7 +150,9 @@ impl AppStreams {
             Err(e) => return Err(e.to_string()),
         };
         let file = SparseCacheFile::create(self.part_path(id, stream.container), len)
-            .map_err(|e| format!("Не удалось создать файл кэша: {e}"))?;
+            .map_err(|e| {
+                trf!("Couldn't create the cache file: {e}", "Не вдалося створити файл кешу: {e}", "Не удалось создать файл кэша: {e}")
+            })?;
         let me = self.me.clone();
         let id2 = id.clone();
         let fill = StreamFill::start(self.http.clone(), stream.url.clone(), file.clone(), move || {
@@ -272,7 +274,7 @@ impl StreamProvider for AppStreams {
         let generation = self.generation.load(Ordering::SeqCst);
         self.rt.spawn(async move {
             if !s.wait_turn(&id, generation, false).await {
-                done(Err("Трек больше не в очереди".into()));
+                done(Err(tr("The track is no longer in the queue", "Трека більше немає в черзі", "Трек больше не в очереди").into()));
                 return;
             }
             match s.start(&id).await {

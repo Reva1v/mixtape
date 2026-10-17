@@ -2,7 +2,7 @@
 //!
 //! yt-dlp runs once per batch of up to five videos with `-f 251/140/… -J` (see `FORMATS`). It prints one
 //! JSON object per video (`null` for a failed one) and `ERROR: [youtube] <id>: …` lines
-//! on stderr, which become Russian reasons. URLs live about six hours and are cached in
+//! on stderr, which become reasons in the app language. URLs live about six hours and are cached in
 //! memory. yt-dlp rewrites its cookie file on exit, so every call gets a fresh temporary
 //! copy of the cookies that is deleted right after the call. An id that is being resolved
 //! already is not passed to a second yt-dlp: later callers wait for the first one's answer.
@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use mixtape_core::TrackId;
+use mixtape_core::{TrackId, tr, trf};
 use serde_json::Value;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, Command};
@@ -206,7 +206,7 @@ impl StreamResolver {
             .map(|id| {
                 let res = match done.get(id) {
                     Some(r) => clone_result(r),
-                    None => Err(YtError::Tool("yt-dlp не вернул данные о видео".into())),
+                    None => Err(no_data()),
                 };
                 (id.clone(), res)
             })
@@ -218,7 +218,7 @@ impl StreamResolver {
             .await
             .pop()
             .map(|(_, r)| r)
-            .unwrap_or_else(|| Err(YtError::Tool("yt-dlp не вернул данные о видео".into())))
+            .unwrap_or_else(|| Err(no_data()))
     }
 
     /// A cached URL that is still fresh, without running yt-dlp.
@@ -260,7 +260,11 @@ impl StreamResolver {
         let cookies = match self.write_cookie_copy().await {
             Ok(c) => c,
             Err(e) => {
-                let reason = format!("не удалось подготовить cookies для yt-dlp: {e}");
+                let reason = trf!(
+                    "couldn't prepare cookies: {e}",
+                    "не вдалося підготувати cookies: {e}",
+                    "не удалось подготовить cookies для yt-dlp: {e}",
+                );
                 return ids
                     .iter()
                     .map(|id| (id.clone(), Err(YtError::Tool(reason.clone()))))
@@ -338,7 +342,13 @@ impl StreamResolver {
 
         let mut child = match cmd.spawn() {
             Ok(c) => c,
-            Err(e) => return RunOutput::failed(format!("не удалось запустить yt-dlp: {e}")),
+            Err(e) => {
+                return RunOutput::failed(trf!(
+                    "couldn't start: {e}",
+                    "не вдалося запустити: {e}",
+                    "не удалось запустить yt-dlp: {e}",
+                ));
+            }
         };
         let pid = child.id();
         let mut stdout = child.stdout.take();
@@ -356,10 +366,15 @@ impl StreamResolver {
         .await;
         let failure = match finished {
             Ok(Ok(_)) => None,
-            Ok(Err(e)) => Some(format!("ошибка ожидания yt-dlp: {e}")),
+            Ok(Err(e)) => Some(trf!("wait failed: {e}", "помилка очікування: {e}", "ошибка ожидания yt-dlp: {e}")),
             Err(_) => {
                 kill_tree(pid, &mut child).await;
-                Some(format!("yt-dlp не ответил за {} с", self.timeout.as_secs()))
+                let secs = self.timeout.as_secs();
+                Some(trf!(
+                    "no answer in {secs} s",
+                    "немає відповіді за {secs} с",
+                    "yt-dlp не ответил за {secs} с",
+                ))
             }
         };
         RunOutput {
@@ -524,21 +539,47 @@ fn attribute(ids: &[TrackId], out: &RunOutput, now: u64) -> Vec<(TrackId, Result
             } else if let Some(msg) = &general {
                 Err(classify(msg))
             } else {
-                Err(YtError::Tool("yt-dlp не вернул данные о видео".into()))
+                Err(no_data())
             };
             (id.clone(), res)
         })
         .collect()
 }
 
+/// yt-dlp printed nothing about a video.
+pub fn no_data() -> YtError {
+    YtError::Tool(
+        tr(
+            "returned no video data",
+            "не повернув даних про відео",
+            "не вернул данные о видео",
+        )
+        .into(),
+    )
+}
+
 /// Builds a [`ResolvedStream`] from one `-J` object.
 fn parse_info(v: &Value, now: u64) -> Result<ResolvedStream> {
     let f = selected_format(v)
-        .ok_or_else(|| YtError::Parse("в ответе yt-dlp нет выбранного формата".into()))?;
+        .ok_or_else(|| YtError::Parse(
+            tr(
+                "yt-dlp picked no format",
+                "у відповіді yt-dlp немає вибраного формату",
+                "в ответе yt-dlp нет выбранного формата",
+            )
+            .into(),
+        ))?;
     let url = f
         .get("url")
         .and_then(Value::as_str)
-        .ok_or_else(|| YtError::Parse("в ответе yt-dlp нет ссылки на поток".into()))?
+        .ok_or_else(|| YtError::Parse(
+            tr(
+                "yt-dlp gave no stream link",
+                "у відповіді yt-dlp немає посилання на потік",
+                "в ответе yt-dlp нет ссылки на поток",
+            )
+            .into(),
+        ))?
         .to_owned();
     let format_id = f
         .get("format_id")
@@ -547,9 +588,17 @@ fn parse_info(v: &Value, now: u64) -> Result<ResolvedStream> {
     let digits: String = format_id.chars().take_while(char::is_ascii_digit).collect();
     let itag: u32 = digits
         .parse()
-        .map_err(|_| YtError::Parse(format!("непонятный формат yt-dlp: {format_id:?}")))?;
+        .map_err(|_| YtError::Parse(trf!(
+            "unknown yt-dlp format: {format_id:?}",
+            "незрозумілий формат yt-dlp: {format_id:?}",
+            "непонятный формат yt-dlp: {format_id:?}",
+        )))?;
     let container = Container::detect(f.get("ext").and_then(Value::as_str), itag)
-        .ok_or_else(|| YtError::Parse(format!("неожиданный формат {format_id}")))?;
+        .ok_or_else(|| YtError::Parse(trf!(
+            "unexpected format {format_id}",
+            "неочікуваний формат {format_id}",
+            "неожиданный формат {format_id}",
+        )))?;
     let size = as_u64(f.get("filesize")).or_else(|| as_u64(f.get("filesize_approx")));
     let duration_ms = v
         .get("duration")
@@ -647,25 +696,25 @@ pub fn classify(message: &str) -> YtError {
     ]) {
         YtError::RateLimited
     } else if has(&["copyright", "umg", "content id", "who has blocked it"]) {
-        unavailable("Заблокировано правообладателем")
+        unavailable(tr("Blocked by the copyright holder", "Заблоковано правовласником", "Заблокировано правообладателем"))
     } else if has(&["in your country", "geo restricted", "geo-restricted"]) {
-        unavailable("Недоступно в вашей стране")
+        unavailable(tr("Not available in your country", "Недоступно у вашій країні", "Недоступно в вашей стране"))
     } else if has(&["requested format is not available"]) {
-        unavailable("Нет подходящей аудиодорожки")
+        unavailable(tr("No suitable audio track", "Немає відповідної аудіодоріжки", "Нет подходящей аудиодорожки"))
     } else if has(&["private video"]) {
-        unavailable("Приватное видео")
+        unavailable(tr("Private video", "Приватне відео", "Приватное видео"))
     } else if has(&["members-only", "join this channel"]) {
-        unavailable("Только для спонсоров канала")
+        unavailable(tr("Channel members only", "Лише для спонсорів каналу", "Только для спонсоров канала"))
     } else if has(&["premium"]) {
-        unavailable("Только для YouTube Premium")
+        unavailable(tr("YouTube Premium only", "Лише для YouTube Premium", "Только для YouTube Premium"))
     } else if has(&[
         "removed by the uploader",
         "has been removed",
         "account associated with this video has been terminated",
     ]) {
-        unavailable("Видео удалено")
+        unavailable(tr("Video removed", "Відео видалено", "Видео удалено"))
     } else if has(&["premieres in", "live event will begin", "this live event"]) {
-        unavailable("Трансляция или премьера ещё не началась")
+        unavailable(tr("The stream or premiere hasn't started yet", "Трансляція або прем'єра ще не почалася", "Трансляция или премьера ещё не началась"))
     } else if has(&[
         "video unavailable",
         "video is unavailable",
@@ -673,7 +722,7 @@ pub fn classify(message: &str) -> YtError {
         "isn't available",
         "no longer available",
     ]) {
-        unavailable("Видео недоступно")
+        unavailable(tr("Video unavailable", "Відео недоступне", "Видео недоступно"))
     } else if has(&[
         "sign in",
         "cookies are no longer valid",
@@ -685,7 +734,7 @@ pub fn classify(message: &str) -> YtError {
         let line = message.trim();
         let short: String = line.chars().take(300).collect();
         YtError::Tool(if short.is_empty() {
-            "неизвестная ошибка".into()
+            tr("unknown error", "невідома помилка", "неизвестная ошибка").into()
         } else {
             short
         })
@@ -769,7 +818,7 @@ mod tests {
 
         assert_eq!(
             unavailable(res[1].1.as_ref().unwrap_err()),
-            "Видео недоступно"
+            "Video unavailable"
         );
 
         // No top-level url: taken from requested_downloads, size from filesize_approx.
@@ -784,9 +833,9 @@ mod tests {
     #[test]
     fn missing_ids_get_failure_or_general_error() {
         let ids = ids(&["dQw4w9WgXcQ", "bbbbbbbbbbb"]);
-        let timeout = RunOutput::failed("yt-dlp не ответил за 30 с".into());
+        let timeout = RunOutput::failed("no answer in 30 s".into());
         for (_, r) in attribute(&ids, &timeout, NOW) {
-            assert!(matches!(r, Err(YtError::Tool(ref s)) if s.contains("30 с")));
+            assert!(matches!(r, Err(YtError::Tool(ref s)) if s.contains("30 s")));
         }
         let general = RunOutput {
             stderr: "ERROR: Unable to download API page: HTTP Error 429: Too Many Requests\n"
@@ -839,42 +888,42 @@ mod tests {
             ),
             (
                 "Video unavailable. This video contains content from UMG, who has blocked it in your country on copyright grounds",
-                Some("Заблокировано правообладателем"),
+                Some("Blocked by the copyright holder"),
             ),
             (
                 "This video is no longer available due to a copyright claim by SomeLabel",
-                Some("Заблокировано правообладателем"),
+                Some("Blocked by the copyright holder"),
             ),
             (
                 "Video unavailable. The uploader has not made this video available in your country",
-                Some("Недоступно в вашей стране"),
+                Some("Not available in your country"),
             ),
             (
                 "Requested format is not available. Use --list-formats",
-                Some("Нет подходящей аудиодорожки"),
+                Some("No suitable audio track"),
             ),
             (
                 "Private video. Sign in if you've been granted access to this video",
-                Some("Приватное видео"),
+                Some("Private video"),
             ),
             (
                 "Join this channel to get access to members-only content like this video",
-                Some("Только для спонсоров канала"),
+                Some("Channel members only"),
             ),
             (
                 "This video is only available to Music Premium members",
-                Some("Только для YouTube Premium"),
+                Some("YouTube Premium only"),
             ),
             (
                 "Video unavailable. This video has been removed by the uploader",
-                Some("Видео удалено"),
+                Some("Video removed"),
             ),
             (
                 "Premieres in 3 hours",
-                Some("Трансляция или премьера ещё не началась"),
+                Some("The stream or premiere hasn't started yet"),
             ),
-            ("Video unavailable", Some("Видео недоступно")),
-            ("This video is not available", Some("Видео недоступно")),
+            ("Video unavailable", Some("Video unavailable")),
+            ("This video is not available", Some("Video unavailable")),
         ];
         for (msg, want) in cases {
             match (classify(msg), want) {
@@ -994,7 +1043,7 @@ mod tests {
         assert_eq!(res[0].1.as_ref().unwrap().itag, 251);
         assert_eq!(
             unavailable(res[1].1.as_ref().unwrap_err()),
-            "Приватное видео"
+            "Private video"
         );
         assert_eq!(res[2].1.as_ref().unwrap().itag, 251);
 
@@ -1083,7 +1132,7 @@ mod tests {
             .await
             .unwrap_err();
         assert!(
-            matches!(err, YtError::Tool(ref s) if s.contains("не ответил")),
+            matches!(err, YtError::Tool(ref s) if s.contains("no answer")),
             "{err:?}"
         );
         assert!(started.elapsed() < Duration::from_secs(10));
@@ -1105,7 +1154,7 @@ mod tests {
         let err = rt
             .block_on(r.resolve_one(&TrackId::new("dQw4w9WgXcQ")))
             .unwrap_err();
-        assert!(matches!(err, YtError::Tool(ref s) if s.contains("не удалось запустить")));
+        assert!(matches!(err, YtError::Tool(ref s) if s.contains("couldn't start")));
     }
 
     /// Live: `MIXTAPE_SIDECARS=<dir with yt-dlp/deno> cargo test -p mixtape-yt -- --ignored live_`.

@@ -4,7 +4,7 @@
 use crate::innertube::{InnerTube, MAX_PAGES};
 use crate::parse::{self, at, find_all, find_first, runs, text};
 use crate::{Result, YtError};
-use mixtape_core::{AlbumId, AlbumRef, AlbumType, ArtistId, ArtistRef, PlaylistId, TrackId};
+use mixtape_core::{AlbumId, AlbumRef, AlbumType, ArtistId, ArtistRef, PlaylistId, TrackId, tr};
 use serde_json::{Value, json};
 use std::future::Future;
 
@@ -193,14 +193,16 @@ impl YtMusic for InnerTube {
             thumbnail: header.and_then(|h| h.get("thumbnail")).and_then(parse::thumbnail),
         };
         if card.title.is_empty() && tracks.is_empty() {
-            return Err(YtError::Unavailable("плейлист не найден или скрыт".into()));
+            return Err(YtError::Unavailable(
+                tr("Playlist not found or hidden", "Плейлист не знайдено або приховано", "плейлист не найден или скрыт").into(),
+            ));
         }
         Ok(YtPlaylist { card, tracks })
     }
 
     async fn album(&self, id: &AlbumId) -> Result<YtAlbum> {
         let page = self.browse(id.as_str()).await?;
-        let header = page_header(&page).ok_or_else(|| YtError::Unavailable("альбом не найден".into()))?;
+        let header = page_header(&page).ok_or_else(|| YtError::Unavailable(tr("Album not found", "Альбом не знайдено", "альбом не найден").into()))?;
         let sub = runs(header.get("subtitle"));
         let artists = parse::artists_from_runs(runs(header.get("straplineTextOne")));
         let card = YtAlbumCard {
@@ -235,7 +237,7 @@ impl YtMusic for InnerTube {
         let header = page
             .get("header")
             .and_then(|h| h.as_object()?.values().next())
-            .ok_or_else(|| YtError::Unavailable("исполнитель не найден".into()))?;
+            .ok_or_else(|| YtError::Unavailable(tr("Artist not found", "Виконавця не знайдено", "исполнитель не найден").into()))?;
         let card = YtArtistCard {
             id: id.clone(),
             name: text(header.get("title")),
@@ -278,7 +280,7 @@ impl YtMusic for InnerTube {
         let item = find_all(&resp, "playlistPanelVideoRenderer")
             .into_iter()
             .find(|v| v.get("videoId").and_then(Value::as_str) == Some(id.as_str()))
-            .ok_or_else(|| YtError::Unavailable("трек недоступен".into()))?;
+            .ok_or_else(|| YtError::Unavailable(tr("Track unavailable", "Трек недоступний", "трек недоступен").into()))?;
         parse::panel_track(item).ok_or_else(|| YtError::Parse("next: playlistPanelVideoRenderer".into()))
     }
 }

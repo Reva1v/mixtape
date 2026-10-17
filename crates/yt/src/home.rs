@@ -7,7 +7,7 @@ use crate::api::{YtAlbumCard, YtArtistCard, YtPlaylistCard, YtTrack};
 use crate::innertube::InnerTube;
 use crate::parse::{self, at, find_first, runs, text};
 use crate::{Result, YtError};
-use mixtape_core::{ArtistRef, PlaylistId, TrackId};
+use mixtape_core::{ArtistRef, PlaylistId, TrackId, tr};
 use serde_json::Value;
 
 /// Upper bound on continuation pages of the home feed.
@@ -230,7 +230,9 @@ impl InnerTube {
         }
         shelves.truncate(max_shelves);
         if shelves.is_empty() && max_shelves > 0 {
-            return Err(YtError::Parse("на главной нет ни одной подборки".into()));
+            return Err(YtError::Parse(
+                tr("the home page has no shelves", "на головній немає жодної добірки", "на главной нет ни одной подборки").into(),
+            ));
         }
         Ok(shelves)
     }

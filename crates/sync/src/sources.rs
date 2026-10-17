@@ -94,7 +94,7 @@ pub async fn run<Y: YtMusic>(
     stage(SyncStage::Covers { done: 0, total: 0 });
     let covers = fetch_covers(http, covers, &collected, Detail::Full, &stage).await;
     stage(SyncStage::Saving);
-    let report = save(db, collected, covers, true).map_err(|e| YtError::Parse(format!("библиотека: {e}")))?;
+    let report = save(db, collected, covers, true).map_err(crate::catalog::lib_err)?;
     // The schedule counts from here; a sync cut short by the network is tried again sooner.
     if reached {
         let _ = db.write(|t| ytm::source_synced(t, PLAN_SOURCE, None));
@@ -471,6 +471,6 @@ pub async fn import_link<Y: YtMusic>(
         }
     };
     let covers = fetch_covers(http, covers, &c, Detail::Full, &|_| {}).await;
-    save(db, c, covers, true).map_err(|e| YtError::Parse(format!("библиотека: {e}")))?;
+    save(db, c, covers, true).map_err(crate::catalog::lib_err)?;
     Ok(result)
 }

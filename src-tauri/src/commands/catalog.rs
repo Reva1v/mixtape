@@ -4,7 +4,7 @@
 use super::CmdResult;
 use crate::commands::library::emit_changed;
 use crate::state::AppState;
-use mixtape_core::{Album, AlbumId, AppError, Artist, ArtistId, ErrorKind, Playlist, PlaylistId, Track};
+use mixtape_core::{Album, AlbumId, AppError, Artist, ArtistId, ErrorKind, Playlist, PlaylistId, Track, tr, trf};
 use mixtape_library::repo;
 use mixtape_library::views::ViewKind;
 use mixtape_sync::{catalog, sources, url_import};
@@ -92,10 +92,20 @@ pub(crate) fn can_reach(st: &AppState) -> bool {
 
 fn need_catalog(st: &AppState) -> CmdResult<()> {
     if !st.yt.is_authenticated() {
-        return Err(AppError::new(ErrorKind::Auth, "Каталог YouTube Music доступен после подключения аккаунта"));
+        return Err(AppError::new(
+            ErrorKind::Auth,
+            tr(
+                "The YouTube Music catalog is available once the account is connected",
+                "Каталог YouTube Music доступний після підключення акаунта",
+                "Каталог YouTube Music доступен после подключения аккаунта",
+            ),
+        ));
     }
     if !st.online.load(Ordering::SeqCst) {
-        return Err(AppError::new(ErrorKind::Network, "Нет сети — доступна только библиотека"));
+        return Err(AppError::new(
+            ErrorKind::Network,
+            tr("Offline, only the library is available", "Немає мережі — доступна лише бібліотека", "Нет сети — доступна только библиотека"),
+        ));
     }
     Ok(())
 }
@@ -216,13 +226,18 @@ pub async fn catalog_download(state: St<'_>, kind: DownloadKind, id: String) -> 
         };
         match res {
             Ok(n) => {
-                crate::events::toast_info(&st.app, format!("В загрузках: {}", crate::events::tracks_word(n)));
+                let n = crate::events::tracks_word(n);
+                crate::events::toast_info(&st.app, trf!("Queued for download: {n}", "У завантаженнях: {n}", "В загрузках: {n}"));
                 emit_changed(&st.app, &[ViewKind::Playlists, ViewKind::Albums]);
                 st.downloads.wake();
             }
             Err(e) => {
                 let e = yt_error(&st, e);
-                crate::events::toast_error(&st.app, format!("Не удалось добавить в загрузки: {}", e.message));
+                let m = e.message;
+                crate::events::toast_error(
+                    &st.app,
+                    trf!("Couldn't add to downloads: {m}", "Не вдалося додати до завантажень: {m}", "Не удалось добавить в загрузки: {m}"),
+                );
             }
         }
     });

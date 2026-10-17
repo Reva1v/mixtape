@@ -8,6 +8,7 @@
 //!   `hqdefault` is the safe fallback.
 
 use crate::{Result, YtError};
+use mixtape_core::{tr, trf};
 
 /// Size options for a 1200 px square cover.
 pub const HI_RES_OPTIONS: &str = "w1200-h1200-l90-rj";
@@ -148,19 +149,21 @@ async fn fetch_first(client: &reqwest::Client, urls: &[String]) -> Result<Vec<u8
             return Err(YtError::RateLimited);
         }
         if !status.is_success() {
-            last = Some(YtError::Unavailable(format!(
-                "Обложка недоступна (HTTP {})",
-                status.as_u16()
+            let code = status.as_u16();
+            last = Some(YtError::Unavailable(trf!(
+                "Cover unavailable (HTTP {code})",
+                "Обкладинка недоступна (HTTP {code})",
+                "Обложка недоступна (HTTP {code})",
             )));
             continue;
         }
         match resp.bytes().await {
             Ok(body) if !body.is_empty() => return Ok(body.to_vec()),
-            Ok(_) => last = Some(YtError::Unavailable("Обложка пустая".into())),
+            Ok(_) => last = Some(YtError::Unavailable(tr("Cover is empty", "Обкладинка порожня", "Обложка пустая").into())),
             Err(e) => last = Some(YtError::from(e)),
         }
     }
-    Err(last.unwrap_or_else(|| YtError::Unavailable("Нет ссылки на обложку".into())))
+    Err(last.unwrap_or_else(|| YtError::Unavailable(tr("No cover link", "Немає посилання на обкладинку", "Нет ссылки на обложку").into())))
 }
 
 #[cfg(test)]

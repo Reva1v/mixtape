@@ -111,7 +111,11 @@ pub fn album_type(s: &str) -> Option<AlbumType> {
     let s = s.to_lowercase();
     if s.contains("сингл") || s.contains("single") {
         Some(AlbumType::Single)
-    } else if s == "ep" || s.contains("мини-альбом") || s.split_whitespace().any(|w| w == "ep") {
+    } else if s == "ep"
+        || s.contains("мини-альбом")
+        || s.contains("міні-альбом")
+        || s.split_whitespace().any(|w| w == "ep")
+    {
         Some(AlbumType::Ep)
     } else if s.contains("альбом") || s.contains("album") {
         Some(AlbumType::Album)
@@ -121,7 +125,7 @@ pub fn album_type(s: &str) -> Option<AlbumType> {
 }
 
 /// Artists linked in a list of runs; unlinked names count too (`Various Artists`),
-/// separators (", ", " и ", " & ", " • ") do not.
+/// separators (", ", " и ", " і ", " та ", " & ", " • ") do not.
 pub fn artists_from_runs(runs: &[Value]) -> Vec<ArtistRef> {
     let mut out = Vec::new();
     for run in runs {
@@ -140,7 +144,7 @@ pub fn artists_from_runs(runs: &[Value]) -> Vec<ArtistRef> {
 }
 
 fn is_separator(s: &str) -> bool {
-    matches!(s, "" | "," | "&" | "•" | "и" | "and" | "x" | "×" | "feat." | "ft.")
+    matches!(s, "" | "," | "&" | "•" | "и" | "і" | "та" | "and" | "x" | "×" | "feat." | "ft.")
 }
 
 fn album_from_runs(runs: &[Value]) -> Option<AlbumRef> {
@@ -437,5 +441,24 @@ mod tests {
         assert_eq!(leading_number("23 трека"), Some(23));
         assert_eq!(year("Альбом • 2020"), Some(2020));
         assert_eq!(album_type("EP"), Some(AlbumType::Ep));
+    }
+
+    #[test]
+    fn ukrainian_labels() {
+        assert_eq!(album_type("Сингл"), Some(AlbumType::Single));
+        assert_eq!(album_type("Сингли та міні-альбоми"), Some(AlbumType::Single));
+        assert_eq!(album_type("Міні-альбом"), Some(AlbumType::Ep));
+        assert_eq!(album_type("Альбом"), Some(AlbumType::Album));
+        assert_eq!(album_type("Альбоми"), Some(AlbumType::Album));
+        assert_eq!(leading_number("1\u{a0}277 треків"), Some(1277));
+        let runs = [
+            artist_run("A", "UCa"),
+            json!({"text": " і "}),
+            json!({"text": "B"}),
+            json!({"text": " та "}),
+            json!({"text": "C"}),
+        ];
+        let names: Vec<String> = artists_from_runs(&runs).into_iter().map(|a| a.name).collect();
+        assert_eq!(names, ["A", "B", "C"]);
     }
 }

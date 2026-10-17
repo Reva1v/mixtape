@@ -4,7 +4,7 @@
 
 use crate::sources::{self, Collected};
 use mixtape_artwork::{CoverStore, Detail};
-use mixtape_core::{AlbumId, AlbumType, ArtistId, Playlist, PlaylistId, PlaylistOrigin, TrackId};
+use mixtape_core::{AlbumId, AlbumType, ArtistId, Playlist, PlaylistId, PlaylistOrigin, TrackId, trf};
 use mixtape_library::repo::{self, AlbumMeta};
 use mixtape_library::{Db, ytm};
 use mixtape_yt::YtError;
@@ -13,8 +13,12 @@ use mixtape_yt::thumbs;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-fn lib_err(e: mixtape_library::Error) -> YtError {
-    YtError::Parse(format!("библиотека: {e}"))
+pub(crate) fn lib_err(e: mixtape_library::Error) -> YtError {
+    YtError::Parse(trf!(
+        "library: {e}",
+        "бібліотека: {e}",
+        "библиотека: {e}",
+    ))
 }
 
 /// Stores a full album page; `download` also queues its tracks. Returns the track count.

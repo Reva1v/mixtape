@@ -6,6 +6,7 @@
 //! Bytes are appended to `<name>.part` as they arrive; a later call resumes from the
 //! bytes already there. [`finalize`] moves the finished file into place.
 
+use mixtape_core::tr;
 use reqwest::StatusCode;
 use reqwest::header::{CONTENT_RANGE, RANGE};
 use std::io::SeekFrom;
@@ -22,15 +23,15 @@ pub const CHUNK: u64 = 10 * 1024 * 1024;
 pub enum FetchError {
     /// HTTP 403: the stream URL expired; the caller resolves a fresh one and retries
     /// (the `.part` file is kept).
-    #[error("ссылка на аудио устарела")]
+    #[error("{}", tr("The audio link expired", "Посилання на аудіо застаріло", "ссылка на аудио устарела"))]
     Expired,
-    #[error("сервер ответил ошибкой {0}")]
+    #[error("{} {}", tr("The server answered with error", "Сервер відповів помилкою", "сервер ответил ошибкой"), .0)]
     Http(u16),
-    #[error("ошибка сети: {0}")]
+    #[error("{}: {}", tr("Network error", "Помилка мережі", "ошибка сети"), .0)]
     Network(String),
-    #[error("ошибка записи файла: {0}")]
+    #[error("{}: {}", tr("Couldn't write the file", "Помилка запису файлу", "ошибка записи файла"), .0)]
     Io(#[from] std::io::Error),
-    #[error("загрузка остановлена")]
+    #[error("{}", tr("Download stopped", "Завантаження зупинено", "загрузка остановлена"))]
     Cancelled,
 }
 
@@ -247,7 +248,9 @@ async fn download(
             return Ok(w.done);
         }
         if got == 0 {
-            return Err(FetchError::Network("сервер прислал пустой ответ".into()));
+            return Err(FetchError::Network(
+                tr("the server sent an empty answer", "сервер надіслав порожню відповідь", "сервер прислал пустой ответ").into(),
+            ));
         }
     }
 }
@@ -430,7 +433,7 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, FetchError::Expired), "{err:?}");
-        assert_eq!(err.to_string(), "ссылка на аудио устарела");
+        assert_eq!(err.to_string(), "The audio link expired");
     }
 
     #[tokio::test]

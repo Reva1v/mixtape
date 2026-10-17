@@ -8,7 +8,7 @@ pub mod player;
 pub mod settings;
 pub mod sync;
 
-use mixtape_core::{AppError, ErrorKind};
+use mixtape_core::{AppError, ErrorKind, trf};
 
 pub type CmdResult<T> = Result<T, AppError>;
 
@@ -20,5 +20,5 @@ where
 {
     tauri::async_runtime::spawn_blocking(f)
         .await
-        .map_err(|e| AppError::new(ErrorKind::Internal, format!("Внутренняя ошибка: {e}")))?
+        .map_err(|e| AppError::new(ErrorKind::Internal, trf!("Internal error: {e}", "Внутрішня помилка: {e}", "Внутренняя ошибка: {e}")))?
 }

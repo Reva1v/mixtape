@@ -5,20 +5,26 @@
 
 use crate::account::{self, AccountStatus};
 use crate::state::AppState;
-use mixtape_core::{AppError, ErrorKind};
+use mixtape_core::{AppError, ErrorKind, tr, trf};
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
 use tauri::webview::cookie::Cookie;
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 const LABEL: &str = "login";
-const START: &str = "https://accounts.google.com/ServiceLogin?service=youtube&passive=true&hl=ru\
-    &continue=https%3A%2F%2Fmusic.youtube.com%2F";
+/// Google's sign-in page, in the app language.
+fn start_url() -> String {
+    format!(
+        "https://accounts.google.com/ServiceLogin?service=youtube&passive=true&hl={}\
+         &continue=https%3A%2F%2Fmusic.youtube.com%2F",
+        mixtape_core::l10n::lang().code()
+    )
+}
 const POLL: Duration = Duration::from_millis(800);
 const GIVE_UP: Duration = Duration::from_secs(15 * 60);
 
 fn cancelled() -> AppError {
-    AppError::new(ErrorKind::Auth, "Вход отменён")
+    AppError::new(ErrorKind::Auth, tr("Sign-in cancelled", "Вхід скасовано", "Вход отменён"))
 }
 
 pub async fn sign_in(st: &AppState) -> Result<AccountStatus, AppError> {
@@ -26,9 +32,9 @@ pub async fn sign_in(st: &AppState) -> Result<AccountStatus, AppError> {
     let window = match st.app.get_webview_window(LABEL) {
         Some(w) => w,
         None => {
-            let url = START.parse().map_err(|e| AppError::new(ErrorKind::Internal, format!("{e}")))?;
+            let url = start_url().parse().map_err(|e| AppError::new(ErrorKind::Internal, format!("{e}")))?;
             let mut builder = WebviewWindowBuilder::new(&st.app, LABEL, WebviewUrl::External(url))
-                .title("Вход в YouTube Music")
+                .title(tr("Sign in to YouTube Music", "Вхід у YouTube Music", "Вход в YouTube Music"))
                 .inner_size(480.0, 720.0)
                 .center()
                 .focused(true)
@@ -39,7 +45,16 @@ pub async fn sign_in(st: &AppState) -> Result<AccountStatus, AppError> {
             }
             builder
                 .build()
-                .map_err(|e| AppError::new(ErrorKind::Internal, format!("Не удалось открыть окно входа: {e}")))?
+                .map_err(|e| {
+                    AppError::new(
+                        ErrorKind::Internal,
+                        trf!(
+                            "Couldn't open the sign-in window: {e}",
+                            "Не вдалося відкрити вікно входу: {e}",
+                            "Не удалось открыть окно входа: {e}",
+                        ),
+                    )
+                })?
         }
     };
     let _ = window.unminimize();

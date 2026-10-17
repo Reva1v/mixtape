@@ -13,22 +13,30 @@ pub mod resolver;
 pub mod search;
 pub mod thumbs;
 
-use mixtape_core::{AppError, ErrorKind};
+use mixtape_core::{AppError, ErrorKind, tr};
 
 #[derive(Debug, thiserror::Error)]
 pub enum YtError {
-    #[error("нет соединения с YouTube: {0}")]
+    #[error("{}: {}", tr("No connection to YouTube", "Немає з'єднання з YouTube", "нет соединения с YouTube"), .0)]
     Network(String),
     /// Cookies are missing, expired or rejected — the UI asks to reconnect.
-    #[error("вход в YouTube Music истёк, подключите аккаунт заново")]
+    #[error("{}", tr(
+        "YouTube Music sign-in expired, connect the account again",
+        "Вхід у YouTube Music закінчився, підключіть акаунт знову",
+        "вход в YouTube Music истёк, подключите аккаунт заново",
+    ))]
     Auth,
     /// YouTube throttles us (HTTP 429 or "confirm you're not a bot").
-    #[error("YouTube временно ограничил запросы, попробуем позже")]
+    #[error("{}", tr(
+        "YouTube is limiting requests for now, we'll try again later",
+        "YouTube тимчасово обмежив запити, спробуємо пізніше",
+        "YouTube временно ограничил запросы, попробуем позже",
+    ))]
     RateLimited,
-    /// This item cannot be played or downloaded; the text says why, in Russian.
+    /// This item cannot be played or downloaded; the text says why, in the app language.
     #[error("{0}")]
     Unavailable(String),
-    #[error("не удалось разобрать ответ YouTube: {0}")]
+    #[error("{}: {}", tr("Couldn't read the YouTube response", "Не вдалося розібрати відповідь YouTube", "не удалось разобрать ответ YouTube"), .0)]
     Parse(String),
     #[error("yt-dlp: {0}")]
     Tool(String),

@@ -2,6 +2,6 @@
 import type { ErrorKind } from "./ErrorKind";
 
 /**
- * Error type that crosses the IPC boundary: a stable kind for code and a Russian message for people.
+ * Error type that crosses the IPC boundary: a stable kind for code and a message for people, in the interface language.
  */
 export type AppError = { kind: ErrorKind, message: string, };

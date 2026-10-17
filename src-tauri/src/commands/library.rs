@@ -3,7 +3,7 @@
 use super::{CmdResult, blocking};
 use crate::state::AppState;
 use mixtape_core::{
-    Album, AlbumId, AppError, Artist, ArtistId, ErrorKind, Playlist, PlaylistId, Track, TrackId,
+    Album, AlbumId, AppError, Artist, ArtistId, ErrorKind, Playlist, PlaylistId, Track, TrackId, tr,
 };
 use mixtape_library::views::{self, ViewIds, ViewKind, ViewSort};
 use mixtape_library::{playlists, repo, search};
@@ -77,8 +77,8 @@ pub fn emit_changed(app: &AppHandle, kinds: &[ViewKind]) {
     let _ = app.emit("library:changed", LibraryChanged { kinds: kinds.to_vec() });
 }
 
-fn not_found(what: &str) -> AppError {
-    AppError::new(ErrorKind::NotFound, format!("{what} не найден"))
+fn not_found(message: &str) -> AppError {
+    AppError::new(ErrorKind::NotFound, message)
 }
 
 #[tauri::command]
@@ -110,7 +110,7 @@ pub async fn library_rows(
         let slice = st
             .views
             .slice(view_id, offset as usize, limit.min(200) as usize)
-            .ok_or_else(|| AppError::new(ErrorKind::Invalid, "Список устарел, обновите экран"))?;
+            .ok_or_else(|| AppError::new(ErrorKind::Invalid, tr("The list is out of date, refresh the screen", "Список застарів, оновіть екран", "Список устарел, обновите экран")))?;
         Ok(st.db.read(|c| {
             Ok(match slice {
                 ViewIds::Tracks(ids) => Rows::Tracks(repo::tracks_by_ids(c, &ids)?),
@@ -159,9 +159,9 @@ pub async fn album_get(state: State<'_, Arc<AppState>>, id: AlbumId) -> CmdResul
     // Known only in part (a liked single, a search card) or not at all: read the catalog.
     let known = page.as_ref().map(|p| (p.tracks.len(), p.album.track_count));
     if crate::commands::catalog::fill_album(&st, &id, known).await {
-        return album_page(st, id).await?.ok_or_else(|| not_found("Альбом"));
+        return album_page(st, id).await?.ok_or_else(|| not_found(tr("Album not found", "Альбом не знайдено", "Альбом не найден")));
     }
-    page.ok_or_else(|| not_found("Альбом"))
+    page.ok_or_else(|| not_found(tr("Album not found", "Альбом не знайдено", "Альбом не найден")))
 }
 
 async fn album_page(st: Arc<AppState>, id: AlbumId) -> CmdResult<Option<AlbumPage>> {
@@ -219,7 +219,7 @@ async fn artist_page(st: Arc<AppState>, id: ArtistId) -> CmdResult<ArtistPage> {
             let albums = repo::albums_by_ids(c, &repo::artist_album_ids(c, &id)?)?;
             Ok(Some(ArtistPage { artist, tracks, albums }))
         })?;
-        page.ok_or_else(|| not_found("Исполнитель"))
+        page.ok_or_else(|| not_found(tr("Artist not found", "Виконавця не знайдено", "Исполнитель не найден")))
     })
     .await
 }
@@ -244,7 +244,7 @@ pub async fn playlist_get(state: State<'_, Arc<AppState>>, id: PlaylistId) -> Cm
             let (playlist, tracks) = crate::commands::catalog::catalog_playlist(&st, &id).await?;
             Ok(PlaylistPage { playlist, tracks })
         }
-        None => Err(not_found("Плейлист")),
+        None => Err(not_found(tr("Playlist not found", "Плейлист не знайдено", "Плейлист не найден"))),
     }
 }
 

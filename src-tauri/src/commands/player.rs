@@ -2,7 +2,7 @@
 
 use super::{CmdResult, blocking};
 use crate::state::AppState;
-use mixtape_core::{AppError, ErrorKind, TrackId};
+use mixtape_core::{AppError, ErrorKind, TrackId, tr};
 use mixtape_library::repo;
 use mixtape_player::{PlaySource, PlaybackState, QueueContext, QueueView, Repeat};
 use serde::Deserialize;
@@ -72,7 +72,7 @@ pub async fn play(state: St<'_>, source: PlaySource, start_index: Option<u32>) -
                 let ids = st
                     .views
                     .track_ids(view_id)
-                    .ok_or_else(|| AppError::new(ErrorKind::Invalid, "Список устарел, обновите экран"))?;
+                    .ok_or_else(|| AppError::new(ErrorKind::Invalid, tr("The list is out of date, refresh the screen", "Список застарів, оновіть екран", "Список устарел, обновите экран")))?;
                 (ids, if liked { QueueContext::Liked } else { QueueContext::Library })
             }
             PlaySource::Tracks { track_ids } => (track_ids, QueueContext::Search),

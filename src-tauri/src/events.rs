@@ -2,7 +2,7 @@
 //! the bridge from player events to the UI and to Windows media controls.
 
 use crate::state::AppState;
-use mixtape_core::Track;
+use mixtape_core::{Lang, Track};
 use mixtape_player::PlayerEvent;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
@@ -32,15 +32,25 @@ pub fn toast_info(app: &AppHandle, text: impl Into<String>) {
     let _ = app.emit("toast", Toast { level: "info", text: text.into() });
 }
 
-/// «1 трек», «3 трека», «12 треков».
+/// "3 tracks" in the app language.
 pub fn tracks_word(n: usize) -> String {
+    tracks_word_in(mixtape_core::l10n::lang(), n)
+}
+
+/// "1 track", "3 tracks"; «1 трек», «3 треки», «12 треків»; «1 трек», «3 трека», «12 треков».
+fn tracks_word_in(lang: Lang, n: usize) -> String {
     let (m10, m100) = (n % 10, n % 100);
-    let word = if m10 == 1 && m100 != 11 {
-        "трек"
-    } else if (2..=4).contains(&m10) && !(12..=14).contains(&m100) {
-        "трека"
-    } else {
-        "треков"
+    let one = m10 == 1 && m100 != 11;
+    let few = (2..=4).contains(&m10) && !(12..=14).contains(&m100);
+    let word = match lang {
+        Lang::En if n == 1 => "track",
+        Lang::En => "tracks",
+        Lang::Uk if one => "трек",
+        Lang::Uk if few => "треки",
+        Lang::Uk => "треків",
+        Lang::Ru if one => "трек",
+        Lang::Ru if few => "трека",
+        Lang::Ru => "треков",
     };
     format!("{n} {word}")
 }
@@ -79,5 +89,27 @@ pub fn on_player_event(app: &AppHandle, ev: PlayerEvent) {
             }
         }
         PlayerEvent::Error(msg) => toast_error(app, msg),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tracks_word_plurals() {
+        let words = |lang| [1, 2, 5, 11, 21, 22, 112].map(|n| tracks_word_in(lang, n));
+        assert_eq!(
+            words(Lang::En),
+            ["1 track", "2 tracks", "5 tracks", "11 tracks", "21 tracks", "22 tracks", "112 tracks"]
+        );
+        assert_eq!(
+            words(Lang::Uk),
+            ["1 трек", "2 треки", "5 треків", "11 треків", "21 трек", "22 треки", "112 треків"]
+        );
+        assert_eq!(
+            words(Lang::Ru),
+            ["1 трек", "2 трека", "5 треков", "11 треков", "21 трек", "22 трека", "112 треков"]
+        );
     }
 }

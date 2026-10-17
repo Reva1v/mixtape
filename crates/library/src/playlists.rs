@@ -97,7 +97,7 @@ fn editable(conn: &Connection, id: &PlaylistId) -> Result<PlaylistId> {
             Ok((r.get(0)?, r.get(1)?))
         })
         .optional()?;
-    let (origin, title) = row.ok_or_else(|| Error::Other("Плейлист не найден".into()))?;
+    let (origin, title) = row.ok_or_else(|| Error::Other(mixtape_core::tr("Playlist not found", "Плейлист не знайдено", "Плейлист не найден").into()))?;
     if origin == "local" {
         return Ok(id.clone());
     }

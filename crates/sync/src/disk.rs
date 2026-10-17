@@ -12,7 +12,10 @@ pub fn free_bytes(path: &Path) -> std::io::Result<u64> {
     let existing = path
         .ancestors()
         .find(|p| !p.as_os_str().is_empty() && p.exists())
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "путь не найден"))?;
+        .ok_or_else(|| std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                mixtape_core::tr("path not found", "шлях не знайдено", "путь не найден"),
+            ))?;
     imp::free_bytes(existing)
 }
 
@@ -50,7 +53,7 @@ mod imp {
     pub fn free_bytes(_path: &Path) -> std::io::Result<u64> {
         Err(std::io::Error::new(
             std::io::ErrorKind::Unsupported,
-            "только Windows",
+            mixtape_core::tr("Windows only", "лише Windows", "только Windows"),
         ))
     }
 }

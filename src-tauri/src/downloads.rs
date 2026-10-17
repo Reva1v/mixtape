@@ -60,6 +60,13 @@ impl Hooks for AppHooks {
     }
 
     fn low_space(&self) {
-        crate::events::toast_error(&self.app, "На диске меньше 2 ГБ — загрузки на паузе");
+        crate::events::toast_error(
+            &self.app,
+            mixtape_core::tr(
+                "Less than 2 GB left on the disk, downloads are paused",
+                "На диску менше 2 ГБ — завантаження на паузі",
+                "На диске меньше 2 ГБ — загрузки на паузе",
+            ),
+        );
     }
 }

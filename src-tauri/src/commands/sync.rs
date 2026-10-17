@@ -4,7 +4,7 @@ use super::{CmdResult, blocking};
 use crate::account::{self, AccountStatus};
 use crate::commands::library::emit_changed;
 use crate::state::AppState;
-use mixtape_core::{AppError, ErrorKind, Playlist, PlaylistId, PlaylistOrigin};
+use mixtape_core::{AppError, ErrorKind, Playlist, PlaylistId, PlaylistOrigin, tr, trf};
 use mixtape_library::jobs::{self, FailedJob};
 use mixtape_library::views::ViewKind;
 use mixtape_sync::downloader::{DownloadsProgress, SyncStatus};
@@ -40,7 +40,10 @@ fn need_account(st: &AppState) -> CmdResult<()> {
     if st.yt.is_authenticated() {
         Ok(())
     } else {
-        Err(AppError::new(ErrorKind::Auth, "Сначала подключите аккаунт YouTube Music"))
+        Err(AppError::new(
+            ErrorKind::Auth,
+            tr("Connect a YouTube Music account first", "Спершу підключіть акаунт YouTube Music", "Сначала подключите аккаунт YouTube Music"),
+        ))
     }
 }
 
@@ -104,12 +107,16 @@ pub async fn sync_preview(state: State<'_, Arc<AppState>>) -> CmdResult<SyncPrev
 
 fn sync_status(stage: &SyncStage) -> SyncStatus {
     let (label, done, total) = match stage {
-        SyncStage::Liked => ("Читаю лайки", 0, 0),
-        SyncStage::Playlist(_) => ("Читаю плейлисты", 0, 0),
-        SyncStage::Albums { done, total } => ("Читаю альбомы", *done, *total),
-        SyncStage::Artists { done, total } => ("Читаю исполнителей", *done, *total),
-        SyncStage::Covers { done, total } => ("Скачиваю обложки", *done, *total),
-        SyncStage::Saving => ("Сохраняю в библиотеку", 0, 0),
+        SyncStage::Liked => (tr("Reading likes", "Читаю лайки", "Читаю лайки"), 0, 0),
+        SyncStage::Playlist(_) => (tr("Reading playlists", "Читаю плейлисти", "Читаю плейлисты"), 0, 0),
+        SyncStage::Albums { done, total } => (tr("Reading albums", "Читаю альбоми", "Читаю альбомы"), *done, *total),
+        SyncStage::Artists { done, total } => {
+            (tr("Reading artists", "Читаю виконавців", "Читаю исполнителей"), *done, *total)
+        }
+        SyncStage::Covers { done, total } => {
+            (tr("Downloading covers", "Завантажую обкладинки", "Скачиваю обложки"), *done, *total)
+        }
+        SyncStage::Saving => (tr("Saving to the library", "Зберігаю в бібліотеку", "Сохраняю в библиотеку"), 0, 0),
     };
     SyncStatus { label: label.into(), done: done as u32, total: total as u32 }
 }
@@ -137,7 +144,7 @@ pub async fn sync_start(
 /// One sync at a time. A scheduled (`quiet`) run only logs its failure.
 fn run_sync(st: Arc<AppState>, plan: SyncPlan, quiet: bool) -> CmdResult<()> {
     if st.syncing.swap(true, Ordering::SeqCst) {
-        return Err(AppError::new(ErrorKind::Invalid, "Синхронизация уже идёт"));
+        return Err(AppError::new(ErrorKind::Invalid, tr("Sync is already running", "Синхронізація вже триває", "Синхронизация уже идёт")));
     }
     tauri::async_runtime::spawn(async move {
         let _ = st.db.write(|t| jobs::clear_done(t));
@@ -163,7 +170,11 @@ fn run_sync(st: Arc<AppState>, plan: SyncPlan, quiet: bool) -> CmdResult<()> {
                 if quiet {
                     tracing::warn!(error = %e.message, "scheduled sync failed");
                 } else {
-                    crate::events::toast_error(&st.app, format!("Синхронизация не удалась: {}", e.message));
+                    let m = e.message;
+                    crate::events::toast_error(
+                        &st.app,
+                        trf!("Sync failed: {m}", "Синхронізація не вдалася: {m}", "Синхронизация не удалась: {m}"),
+                    );
                 }
             }
         }
@@ -236,7 +247,16 @@ pub async fn import_url(state: State<'_, Arc<AppState>>, url: String) -> CmdResu
     let st = state.inner().clone();
     need_account(&st)?;
     let link = url_import::parse_link(&url)
-        .ok_or_else(|| AppError::new(ErrorKind::Invalid, "Это не ссылка на трек, альбом, плейлист или исполнителя YouTube Music"))?;
+        .ok_or_else(|| {
+            AppError::new(
+                ErrorKind::Invalid,
+                tr(
+                    "This isn't a link to a YouTube Music track, album, playlist or artist",
+                    "Це не посилання на трек, альбом, плейлист чи виконавця YouTube Music",
+                    "Это не ссылка на трек, альбом, плейлист или исполнителя YouTube Music",
+                ),
+            )
+        })?;
     let result = sources::import_link(&*st.yt, st.yt.http(), &st.db, &st.covers, link)
         .await
         .map_err(|e| yt_error(&st, e))?;

@@ -2,7 +2,7 @@
 
 use super::CmdResult;
 use crate::state::AppState;
-use mixtape_core::{AppError, ErrorKind, TrackId};
+use mixtape_core::{AppError, ErrorKind, TrackId, tr};
 use mixtape_library::repo;
 use mixtape_sync::lyrics::{self, Lyrics};
 use std::sync::Arc;
@@ -18,6 +18,6 @@ pub async fn lyrics_get(
     let track = st
         .db
         .read(|c| repo::track(c, &track_id))?
-        .ok_or_else(|| AppError::new(ErrorKind::NotFound, "Трек не найден"))?;
+        .ok_or_else(|| AppError::new(ErrorKind::NotFound, tr("Track not found", "Трек не знайдено", "Трек не найден")))?;
     Ok(lyrics::get(st.lrclib()?, &st.db, &track).await?)
 }

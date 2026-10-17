@@ -4,7 +4,7 @@
 //! `/api/search` and the result closest in duration (within ±2 s). Synced LRC wins over
 //! plain text. "Not found" is cached too and looked up again after a week.
 
-use mixtape_core::{AppError, ErrorKind, Track};
+use mixtape_core::{AppError, ErrorKind, Track, tr, trf};
 use mixtape_library::{Db, lyrics as cache};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -50,9 +50,9 @@ pub struct Lyrics {
 
 #[derive(Debug, thiserror::Error)]
 pub enum LyricsError {
-    #[error("ошибка сети: {0}")]
+    #[error("{}: {}", tr("network error", "помилка мережі", "ошибка сети"), .0)]
     Network(#[from] reqwest::Error),
-    #[error("сервер текстов ответил ошибкой {0}")]
+    #[error("{} {}", tr("the lyrics server answered with error", "сервер текстів відповів помилкою", "сервер текстов ответил ошибкой"), .0)]
     Http(u16),
     #[error("{0}")]
     Library(#[from] mixtape_library::Error),
@@ -64,7 +64,10 @@ impl From<LyricsError> for AppError {
             LyricsError::Library(_) => ErrorKind::Storage,
             _ => ErrorKind::Network,
         };
-        AppError::new(kind, format!("Не удалось загрузить текст: {e}"))
+        AppError::new(
+            kind,
+            trf!("Couldn't load the lyrics: {e}", "Не вдалося завантажити текст: {e}", "Не удалось загрузить текст: {e}"),
+        )
     }
 }
 
@@ -235,7 +238,7 @@ fn pick(records: Vec<Record>, duration_ms: u64) -> Option<Found> {
 
 /// Drops video decorations like "(Official Video)" or "[Lyric Video]" from a title.
 fn clean_title(title: &str) -> String {
-    const NOISE: [&str; 6] = ["official", "video", "audio", "lyric", "visuali", "клип"];
+    const NOISE: [&str; 7] = ["official", "video", "audio", "lyric", "visuali", "клип", "кліп"];
     let mut out = String::with_capacity(title.len());
     let mut rest = title;
     while let Some(start) = rest.find(['(', '[']) {
@@ -468,6 +471,7 @@ mod tests {
         assert_eq!(clean_title("Take On Me (Official Video)"), "Take On Me");
         assert_eq!(clean_title("Song [Lyric Video] (Remix)"), "Song (Remix)");
         assert_eq!(clean_title("Песня (Официальный клип)"), "Песня");
+        assert_eq!(clean_title("Пісня (Офіційний кліп)"), "Пісня");
         assert_eq!(clean_title("Plain"), "Plain");
     }
 

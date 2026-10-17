@@ -7,7 +7,7 @@ use crate::prefetch::{self, StreamProvider};
 use crate::queue::{Queue, QueueContext, Repeat};
 use crate::state::{PlaybackState, QueueEntry, QueueView, Status};
 use mixtape_audio::{Engine, EngineEvent, Source};
-use mixtape_core::{AppError, AppResult, ErrorKind, Track, TrackId};
+use mixtape_core::{AppError, AppResult, ErrorKind, Track, TrackId, tr, trf};
 use mixtape_library::{Db, repo, settings};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -167,7 +167,12 @@ impl Player {
         streams: Option<Arc<dyn StreamProvider>>,
     ) -> AppResult<Arc<Self>> {
         let (engine, events) =
-            Engine::start().map_err(|e| err(ErrorKind::Audio, format!("Не удалось запустить звук: {e}")))?;
+            Engine::start().map_err(|e| {
+                err(
+                    ErrorKind::Audio,
+                    trf!("Couldn't start the audio: {e}", "Не вдалося запустити звук: {e}", "Не удалось запустить звук: {e}"),
+                )
+            })?;
         let snapshot: Option<Snapshot> = settings::get(&db, SNAPSHOT_KEY).ok().flatten();
         let pos: Option<PlaybackPos> = settings::get(&db, POSITION_KEY).ok().flatten();
         let (queue, position_ms, volume, mix) = restore(snapshot, pos);
@@ -252,7 +257,7 @@ impl Player {
             .db
             .read(|c| repo::media_file(c, id))
             .map_err(AppError::from)?
-            .ok_or_else(|| err(ErrorKind::NotFound, "Трек ещё не скачан"))?;
+            .ok_or_else(|| err(ErrorKind::NotFound, tr("The track isn't downloaded yet", "Трек ще не завантажено", "Трек ещё не скачан")))?;
         let gain = mixtape_audio::gain_for(media.lufs, media.true_peak);
         let mut src = Source::file(id.as_str(), self.data_root.join(&media.path), gain);
         src.hint_ext = Some(media.container);
@@ -271,7 +276,12 @@ impl Player {
             Ok(src) => Some(src),
             Err(e) if e.kind == ErrorKind::NotFound && self.streams.is_some() => None,
             Err(e) => {
-                (self.sink)(PlayerEvent::Error(format!("Не удалось воспроизвести: {}", e.message)));
+                let m = e.message;
+                (self.sink)(PlayerEvent::Error(trf!(
+                    "Couldn't play: {m}",
+                    "Не вдалося відтворити: {m}",
+                    "Не удалось воспроизвести: {m}",
+                )));
                 return false;
             }
         };
@@ -845,7 +855,11 @@ impl Player {
             }
             EngineEvent::Error { id, message } => {
                 tracing::warn!(%id, %message, "playback error");
-                (self.sink)(PlayerEvent::Error(format!("Ошибка воспроизведения: {message}")));
+                (self.sink)(PlayerEvent::Error(trf!(
+                    "Playback error: {message}",
+                    "Помилка відтворення: {message}",
+                    "Ошибка воспроизведения: {message}",
+                )));
                 let skip = {
                     let mut inner = self.lock();
                     inner.skips += 1;

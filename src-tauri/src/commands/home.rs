@@ -6,7 +6,7 @@ use super::mix::{page_of, yt_error};
 use super::{CmdResult, blocking};
 use crate::state::AppState;
 use mixtape_core::{
-    Album, AlbumId, AppError, ArtistId, ArtistRef, ErrorKind, PlaylistId, Track, TrackId,
+    Album, AlbumId, AppError, ArtistId, ArtistRef, ErrorKind, PlaylistId, Track, TrackId, tr,
 };
 use mixtape_library::repo;
 use mixtape_sync::sources;
@@ -179,7 +179,11 @@ pub async fn mix_start_playlist(state: St<'_>, playlist_id: String) -> CmdResult
     if !st.yt.is_authenticated() {
         return Err(AppError::new(
             ErrorKind::Auth,
-            "Миксы собирает YouTube Music — сначала подключите аккаунт",
+            tr(
+                "Mixes are made by YouTube Music, connect the account first",
+                "Мікси збирає YouTube Music — спершу підключіть акаунт",
+                "Миксы собирает YouTube Music — сначала подключите аккаунт",
+            ),
         ));
     }
     let radio = st
@@ -191,7 +195,7 @@ pub async fn mix_start_playlist(state: St<'_>, playlist_id: String) -> CmdResult
     let Some(seed) = page.tracks.first().cloned() else {
         return Err(AppError::new(
             ErrorKind::NotFound,
-            "YouTube Music не собрал этот микс",
+            tr("YouTube Music didn't make this mix", "YouTube Music не зібрав цей мікс", "YouTube Music не собрал этот микс"),
         ));
     };
     blocking(move || {

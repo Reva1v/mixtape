@@ -4,7 +4,7 @@
 
 use crate::disk;
 use crate::fetch::{self, Cancel, FetchError};
-use mixtape_core::TrackId;
+use mixtape_core::{TrackId, trf};
 use mixtape_library::repo::{self, FileLocation, MediaFile};
 use mixtape_library::{Db, jobs};
 use mixtape_yt::YtError;
@@ -52,7 +52,7 @@ pub struct DownloadsProgress {
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct SyncStatus {
-    /// What is being read, in Russian: «Читаю лайки», «Скачиваю обложки»…
+    /// What is being read, in the app language: "Reading likes", "Downloading covers"…
     pub label: String,
     pub done: u32,
     /// 0 when the amount is not known yet.
@@ -426,7 +426,7 @@ async fn download(inner: &Arc<Inner>, job: i64, id: TrackId) -> Outcome {
         }
     };
     if let Err(e) = fetch::finalize(&part, &path) {
-        fail(format!("не удалось сохранить файл: {e}")).await;
+        fail(trf!("Couldn't save the file: {e}", "Не вдалося зберегти файл: {e}", "не удалось сохранить файл: {e}")).await;
         return Outcome::OtherError;
     }
 
@@ -457,7 +457,12 @@ async fn download(inner: &Arc<Inner>, job: i64, id: TrackId) -> Outcome {
             Outcome::Ok
         }
         Err(e) => {
-            fail(format!("не удалось записать в библиотеку: {e}")).await;
+            fail(trf!(
+                "Couldn't write to the library: {e}",
+                "Не вдалося записати в бібліотеку: {e}",
+                "не удалось записать в библиотеку: {e}",
+            ))
+            .await;
             Outcome::OtherError
         }
     }
@@ -480,7 +485,7 @@ async fn resolve_with_lookahead(inner: &Arc<Inner>, id: &TrackId) -> Result<Reso
         .into_iter()
         .next()
         .map(|(_, r)| r)
-        .unwrap_or_else(|| Err(YtError::Tool("yt-dlp не вернул данные о видео".into())))
+        .unwrap_or_else(|| Err(mixtape_yt::resolver::no_data()))
 }
 
 async fn fetch_with_progress(

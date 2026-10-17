@@ -2587,6 +2587,7 @@ dependencies = [
 name = "mixtape-win"
 version = "0.1.0"
 dependencies = [
+ "mixtape-core",
  "thiserror 2.0.21",
  "tracing",
  "windows",

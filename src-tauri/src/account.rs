@@ -3,7 +3,7 @@
 //! client and yt-dlp.
 
 use crate::state::AppState;
-use mixtape_core::{AppError, ErrorKind};
+use mixtape_core::{AppError, ErrorKind, tr, trf};
 use mixtape_library::settings;
 use mixtape_yt::api::YtMusic;
 use mixtape_yt::auth::Cookies;
@@ -99,14 +99,23 @@ pub async fn connect(st: &AppState, text: &str) -> Result<AccountStatus, AppErro
             return Err(match e {
                 mixtape_yt::YtError::Auth => AppError::new(
                     ErrorKind::Auth,
-                    "YouTube не принял эти cookies — войдите заново и экспортируйте их ещё раз",
+                    tr(
+                        "YouTube didn't accept these cookies, sign in again and export them once more",
+                        "YouTube не прийняв ці cookies — увійдіть знову й експортуйте їх ще раз",
+                        "YouTube не принял эти cookies — войдите заново и экспортируйте их ещё раз",
+                    ),
                 ),
                 e => e.into(),
             });
         }
     };
     std::fs::write(sealed_path(st), seal(&cookies.to_netscape())?)
-        .map_err(|e| AppError::new(ErrorKind::Storage, format!("Не удалось сохранить вход: {e}")))?;
+        .map_err(|e| {
+            AppError::new(
+                ErrorKind::Storage,
+                trf!("Couldn't save the sign-in: {e}", "Не вдалося зберегти вхід: {e}", "Не удалось сохранить вход: {e}"),
+            )
+        })?;
     apply(st, Some(cookies));
 
     let mut avatar = None;

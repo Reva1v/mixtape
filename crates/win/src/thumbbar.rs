@@ -7,6 +7,7 @@
 
 use crate::glyph::{self, Glyph};
 use crate::{Error, MediaCommand};
+use mixtape_core::tr;
 use std::cell::Cell;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
@@ -133,14 +134,14 @@ impl State {
     fn buttons(&self) -> [THUMBBUTTON; 3] {
         let i = &self.icons;
         let (toggle_icon, toggle_tip) = if self.playing.get() {
-            (i.pause, "Пауза")
+            (i.pause, tr("Pause", "Пауза", "Пауза"))
         } else {
-            (i.play, "Играть")
+            (i.play, tr("Play", "Відтворити", "Играть"))
         };
         [
-            button(ID_PREVIOUS, i.previous, "Предыдущий"),
+            button(ID_PREVIOUS, i.previous, tr("Previous", "Попередній", "Предыдущий")),
             button(ID_TOGGLE, toggle_icon, toggle_tip),
-            button(ID_NEXT, i.next, "Следующий"),
+            button(ID_NEXT, i.next, tr("Next", "Наступний", "Следующий")),
         ]
     }
 

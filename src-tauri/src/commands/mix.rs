@@ -4,7 +4,7 @@
 use super::{CmdResult, blocking};
 use crate::commands::library::emit_changed;
 use crate::state::AppState;
-use mixtape_core::{AppError, ErrorKind, TrackId, TrackState};
+use mixtape_core::{AppError, ErrorKind, TrackId, TrackState, tr};
 use mixtape_library::views::ViewKind;
 use mixtape_library::{cache_lru, jobs, likes, repo};
 use mixtape_player::{MixChip, MixPage};
@@ -24,7 +24,14 @@ fn need_account(st: &AppState) -> CmdResult<()> {
     if st.yt.is_authenticated() {
         Ok(())
     } else {
-        Err(AppError::new(ErrorKind::Auth, "Миксы собирает YouTube Music — сначала подключите аккаунт"))
+        Err(AppError::new(
+            ErrorKind::Auth,
+            tr(
+                "Mixes are made by YouTube Music, connect the account first",
+                "Мікси збирає YouTube Music — спершу підключіть акаунт",
+                "Миксы собирает YouTube Music — сначала подключите аккаунт",
+            ),
+        ))
     }
 }
 
@@ -65,7 +72,14 @@ pub async fn mix_start(state: St<'_>, track_id: TrackId) -> CmdResult<()> {
     }
     let page = page_of(&st, radio).await?;
     if page.tracks.is_empty() {
-        return Err(AppError::new(ErrorKind::NotFound, "YouTube Music не собрал микс для этого трека"));
+        return Err(AppError::new(
+            ErrorKind::NotFound,
+            tr(
+                "YouTube Music didn't make a mix for this track",
+                "YouTube Music не зібрав мікс для цього треку",
+                "YouTube Music не собрал микс для этого трека",
+            ),
+        ));
     }
     blocking(move || {
         st.player.start_mix(track_id, page);
@@ -81,7 +95,7 @@ pub async fn mix_select_chip(state: St<'_>, chip_id: String) -> CmdResult<()> {
     let (seed, chip, generation) = st
         .player
         .mix_select_chip(&chip_id)
-        .ok_or_else(|| AppError::new(ErrorKind::NotFound, "Микс уже закончился"))?;
+        .ok_or_else(|| AppError::new(ErrorKind::NotFound, tr("The mix is already over", "Мікс уже закінчився", "Микс уже закончился")))?;
     let chip = RadioChip {
         id: chip.id,
         title: chip.title,
@@ -106,7 +120,10 @@ pub async fn mix_continue_local(state: St<'_>) -> CmdResult<()> {
         let queued = st.player.queued_ids();
         let ids = st.db.read(|c| repo::offline_mix_ids(c, &queued, OFFLINE_BATCH))?;
         if ids.is_empty() {
-            return Err(AppError::new(ErrorKind::NotFound, "В библиотеке нет скачанных треков"));
+            return Err(AppError::new(
+                ErrorKind::NotFound,
+                tr("No downloaded tracks in the library", "У бібліотеці немає завантажених треків", "В библиотеке нет скачанных треков"),
+            ));
         }
         st.player.edit_queue(|q| q.append_mix(ids));
         Ok(())

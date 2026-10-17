@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use mixtape_audio::SparseCacheFile;
+use mixtape_core::tr;
 use reqwest::StatusCode;
 use reqwest::header::CONTENT_RANGE;
 use tokio::sync::watch;
@@ -224,7 +225,9 @@ impl Job {
             }
         }
         if got == 0 {
-            return Err(FetchError::Network("сервер прислал пустой ответ".into()));
+            return Err(FetchError::Network(
+                tr("the server sent an empty answer", "сервер надіслав порожню відповідь", "сервер прислал пустой ответ").into(),
+            ));
         }
         Ok(())
     }

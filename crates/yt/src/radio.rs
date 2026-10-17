@@ -6,7 +6,7 @@ use crate::api::{VideoKind, YtTrack};
 use crate::innertube::InnerTube;
 use crate::parse::{self, find_all, find_first, text};
 use crate::{Result, YtError};
-use mixtape_core::TrackId;
+use mixtape_core::{TrackId, tr};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -179,7 +179,9 @@ impl InnerTube {
     pub async fn radio(&self, seed: &TrackId) -> Result<RadioPage> {
         let resp = self.call("next", radio_body(seed)).await?;
         let mut page = parse_page(&resp)
-            .ok_or_else(|| YtError::Unavailable("микс для этого трека недоступен".into()))?;
+            .ok_or_else(|| YtError::Unavailable(
+                tr("No mix for this track", "Мікс для цього треку недоступний", "микс для этого трека недоступен").into(),
+            ))?;
         page.playlist_id
             .get_or_insert_with(|| format!("RDAMVM{seed}"));
         Ok(page)
@@ -189,7 +191,7 @@ impl InnerTube {
     pub async fn radio_by_chip(&self, seed: &TrackId, chip: &RadioChip) -> Result<RadioPage> {
         let resp = self.call("next", chip_body(seed, chip)).await?;
         let mut page =
-            parse_page(&resp).ok_or_else(|| YtError::Unavailable("микс недоступен".into()))?;
+            parse_page(&resp).ok_or_else(|| YtError::Unavailable(tr("Mix unavailable", "Мікс недоступний", "микс недоступен").into()))?;
         if page.playlist_id.is_none() {
             page.playlist_id = chip
                 .playlist_id
@@ -204,7 +206,7 @@ impl InnerTube {
     pub async fn radio_playlist(&self, playlist_id: &str) -> Result<RadioPage> {
         let resp = self.call("next", playlist_body(playlist_id)).await?;
         let mut page =
-            parse_page(&resp).ok_or_else(|| YtError::Unavailable("микс недоступен".into()))?;
+            parse_page(&resp).ok_or_else(|| YtError::Unavailable(tr("Mix unavailable", "Мікс недоступний", "микс недоступен").into()))?;
         page.playlist_id
             .get_or_insert_with(|| playlist_id.to_owned());
         Ok(page)

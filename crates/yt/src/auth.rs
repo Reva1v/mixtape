@@ -4,6 +4,7 @@
 //! Values never reach logs: `Debug` prints cookie names only.
 
 use crate::{Result, YtError};
+use mixtape_core::{tr, trf};
 use sha1::{Digest, Sha1};
 use std::fmt;
 
@@ -44,7 +45,12 @@ impl Cookies {
         let cookies = Self { items };
         if cookies.sapisid().is_none() {
             return Err(YtError::Unavailable(
-                "в файле нет cookies входа YouTube (SAPISID) — экспортируйте их со страницы music.youtube.com".into(),
+                tr(
+                    "The file has no YouTube sign-in cookies (SAPISID), export them from the music.youtube.com page",
+                    "У файлі немає cookies входу YouTube (SAPISID) — експортуйте їх зі сторінки music.youtube.com",
+                    "в файле нет cookies входа YouTube (SAPISID) — экспортируйте их со страницы music.youtube.com",
+                )
+                .into(),
             ));
         }
         Ok(cookies)
@@ -160,7 +166,13 @@ fn parse_netscape(text: &str) -> Vec<Cookie> {
 /// EditThisCookie / Cookie-Editor export: `[{domain, path, secure, expirationDate, name, value}]`.
 fn parse_json(text: &str) -> Result<Vec<Cookie>> {
     let value: serde_json::Value =
-        serde_json::from_str(text).map_err(|e| YtError::Unavailable(format!("не получилось прочитать JSON cookies: {e}")))?;
+        serde_json::from_str(text).map_err(|e| {
+            YtError::Unavailable(trf!(
+                "Couldn't read the cookies JSON: {e}",
+                "Не вдалося прочитати JSON cookies: {e}",
+                "не получилось прочитать JSON cookies: {e}",
+            ))
+        })?;
     let list = match &value {
         serde_json::Value::Array(a) => a.as_slice(),
         serde_json::Value::Object(o) => o.get("cookies").and_then(|v| v.as_array()).map(|a| a.as_slice()).unwrap_or(&[]),

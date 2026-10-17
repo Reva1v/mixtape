@@ -527,7 +527,7 @@ pub fn playlist_track_ids(conn: &Connection, id: &PlaylistId) -> Result<Vec<Trac
 }
 
 pub fn ensure_found<T>(v: Option<T>, what: &str) -> Result<T> {
-    v.ok_or_else(|| Error::Other(format!("{what} не найден")))
+    v.ok_or_else(|| Error::Other(mixtape_core::trf!("{what} not found", "{what}: не знайдено", "{what} не найден")))
 }
 
 // ---------- home ----------

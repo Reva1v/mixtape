@@ -42,7 +42,7 @@ impl From<Error> for mixtape_core::AppError {
     fn from(e: Error) -> Self {
         mixtape_core::AppError::new(
             mixtape_core::ErrorKind::Storage,
-            format!("Ошибка библиотеки: {e}"),
+            mixtape_core::trf!("Library error: {e}", "Помилка бібліотеки: {e}", "Ошибка библиотеки: {e}"),
         )
     }
 }

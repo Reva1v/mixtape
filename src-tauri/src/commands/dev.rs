@@ -4,7 +4,7 @@
 use super::{CmdResult, blocking};
 use crate::commands::library::emit_changed;
 use crate::state::AppState;
-use mixtape_core::{AlbumId, AlbumRef, AlbumType, AppError, ArtistRef, ErrorKind, TrackId};
+use mixtape_core::{AlbumId, AlbumRef, AlbumType, AppError, ArtistRef, ErrorKind, TrackId, tr, trf};
 use mixtape_library::repo::{self, AlbumMeta, FileLocation, MediaFile, TrackMeta};
 use mixtape_library::views::ViewKind;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -65,15 +65,20 @@ pub fn import_dir(st: &AppState, path: &str) -> CmdResult<u32> {
     {
         let dir = PathBuf::from(path.trim().trim_matches('"'));
         let files = audio_files(&dir)
-            .map_err(|e| AppError::new(ErrorKind::Invalid, format!("Не удалось прочитать папку: {e}")))?;
+            .map_err(|e| {
+                AppError::new(
+                    ErrorKind::Invalid,
+                    trf!("Couldn't read the folder: {e}", "Не вдалося прочитати теку: {e}", "Не удалось прочитать папку: {e}"),
+                )
+            })?;
         let mut imported = 0u32;
         for file in files {
             let Ok(info) = mixtape_audio::probe(&file) else { continue };
             let full = file.to_string_lossy().into_owned();
-            let stem = file.file_stem().and_then(|s| s.to_str()).unwrap_or("Без названия");
+            let stem = file.file_stem().and_then(|s| s.to_str()).unwrap_or(tr("Untitled", "Без назви", "Без названия"));
             let (artist, title) = split_name(stem);
             let id = TrackId(format!("local{}", short_hash(&full)));
-            let artists = vec![ArtistRef { id: None, name: artist.unwrap_or_else(|| "Неизвестный исполнитель".into()) }];
+            let artists = vec![ArtistRef { id: None, name: artist.unwrap_or_else(|| tr("Unknown artist", "Невідомий виконавець", "Неизвестный исполнитель").into()) }];
             // Each file becomes a single with its own cover, which is what YouTube Music
             // gives for loose tracks too.
             let processed = sibling_cover(&file).and_then(|b| st.covers.process(id.as_str(), &b, mixtape_artwork::Detail::Full).ok());

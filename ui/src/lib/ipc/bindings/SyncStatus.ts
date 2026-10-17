@@ -2,7 +2,7 @@
 
 export type SyncStatus = { 
 /**
- * What is being read, in Russian: «Читаю лайки», «Скачиваю обложки»…
+ * What is being read, in the app language: "Reading likes", "Downloading covers"…
  */
 label: string, done: number, 
 /**

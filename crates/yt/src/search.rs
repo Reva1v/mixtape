@@ -536,7 +536,7 @@ fn playlist(row: &Row<'_>, id: &str) -> Option<YtPlaylistCard> {
         .map(|s| s.iter().map(run_text).collect::<String>())
         .find(|s| {
             let s = s.to_lowercase();
-            s.contains("трек") || s.contains("track") || s.contains("песн") || s.contains("song")
+            ["трек", "track", "песн", "песен", "пісн", "пісен", "song"].iter().any(|w| s.contains(w))
         })
         .and_then(|s| parse::leading_number(&s));
     Some(YtPlaylistCard {
@@ -875,6 +875,23 @@ mod tests {
         };
         assert_eq!(p.author.as_deref(), Some("YouTube Music"));
         assert_eq!(p.track_count, Some(35));
+        for (count, want) in [("12 пісень", 12), ("3 пісні", 3), ("1 пісня", 1), ("25 песен", 25), ("101 трек", 101), ("40 треків", 40)] {
+            let uk = row(
+                json!({"text": "Плейлист"}),
+                vec![
+                    json!({"text": "Плейлист"}),
+                    dot.clone(),
+                    json!({"text": "YouTube Music"}),
+                    dot.clone(),
+                    json!({"text": count}),
+                ],
+                json!({"navigationEndpoint": browse("VLRDCLAK5uy_y", "MUSIC_PAGE_TYPE_PLAYLIST")}),
+            );
+            let Some(SearchItem::Playlist(p)) = row_item(&uk, true, None) else {
+                panic!()
+            };
+            assert_eq!(p.track_count, Some(want), "{count}");
+        }
         let profile = row(
             json!({"text": "someone"}),
             vec![
