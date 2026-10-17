@@ -67,7 +67,8 @@
   </button>
 {/snippet}
 
-<footer
+<div
+  data-bar
   bind:this={bar}
   role="slider"
   tabindex="-1"
@@ -77,7 +78,7 @@
   aria-valuenow={player.state.positionMs}
   class="relative flex h-(--player-h) shrink-0 items-center overflow-hidden rounded-xl bg-panel pr-2.5"
   onpointerdown={(e) => {
-    if (!track || e.button !== 0 || (e.target as HTMLElement).closest("button, [data-no-seek], [role=slider]:not(footer)")) return;
+    if (!track || e.button !== 0 || (e.target as HTMLElement).closest("button, [data-no-seek], [role=slider]:not([data-bar])")) return;
     seeking = true;
     bar?.setPointerCapture(e.pointerId);
     seekAt(e);
@@ -161,4 +162,4 @@
     {@render capsuleButton(t.player.fullscreen, IconExpand, false, () => (layout.fullscreen = true), !track)}
     {@render capsuleButton(t.player.queue, IconQueue, layout.drawer === "queue", () => layout.toggleDrawer("queue"))}
   </div>
-</footer>
+</div>
