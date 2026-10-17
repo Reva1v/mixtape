@@ -24,8 +24,19 @@
   import IconNothing from "~icons/solar/magnifier-bug-linear";
   import IconOffline from "~icons/solar/wi-fi-router-minimalistic-linear";
   import IconPlay from "~icons/solar/play-bold";
+  import type { RecentItem } from "$lib/stores/recentSearch.svelte";
+  import type { Album } from "$lib/ipc/bindings/Album";
+  import type { Artist } from "$lib/ipc/bindings/Artist";
+  import type { Playlist } from "$lib/ipc/bindings/Playlist";
 
-  let { query }: { query: string } = $props();
+  let { query, onpick }: { query: string; onpick?: (item: RecentItem) => void } = $props();
+
+  // Remembered in «Недавнее» on the search page.
+  const names = (a: { name: string }[]) => a.map((x) => x.name).join(", ");
+  const pickTrack = (t: Track) => onpick?.({ kind: "track", id: t.id, title: t.title, subtitle: `Трек · ${names(t.artists)}`, coverKey: t.coverKey });
+  const pickAlbum = (a: Album) => onpick?.({ kind: "album", id: a.id, title: a.title, subtitle: `Альбом · ${names(a.artists)}`, coverKey: a.coverKey });
+  const pickArtist = (a: Artist) => onpick?.({ kind: "artist", id: a.id, title: a.name, subtitle: "Исполнитель", coverKey: a.imageKey });
+  const pickPlaylist = (p: Playlist) => onpick?.({ kind: "playlist", id: p.id, title: p.title, subtitle: "Плейлист", coverKey: p.coverKey });
 
   const KINDS: { id: CatalogKind; label: string }[] = [
     { id: "all", label: "Всё" },
@@ -95,6 +106,7 @@
 
   function playTrack(i: number) {
     if (!page) return;
+    if (page.tracks[i]) pickTrack(page.tracks[i]);
     void player.play({ kind: "tracks", trackIds: page.tracks.map((t) => t.id) }, i);
   }
 
@@ -137,6 +149,10 @@
           tabindex="0"
           class="group flex w-full max-w-[520px] cursor-pointer items-center gap-5 rounded-xl bg-fill-1 p-4 ring-1 ring-line transition-colors hover:bg-fill-2"
           onclick={() => {
+            if (top.kind === "track") pickTrack(top.track);
+            else if (top.kind === "album") pickAlbum(top.album);
+            else if (top.kind === "artist") pickArtist(top.artist);
+            else pickPlaylist(top.playlist);
             if (top.kind === "track") void player.play({ kind: "tracks", trackIds: [top.track.id] });
             else if (top.kind === "album") router.go({ name: "album", id: top.album.id });
             else if (top.kind === "artist") router.go({ name: "artist", id: top.artist.id });
@@ -195,7 +211,10 @@
         <h2 class="pb-4 text-[20px] font-bold">Исполнители</h2>
         <div class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-5">
           {#each page.artists.slice(0, limit) as a (a.id)}
-            <Card round coverKey={a.imageKey} title={a.name} onopen={() => router.go({ name: "artist", id: a.id })} menu={() => artistMenu(a)} />
+            <Card round coverKey={a.imageKey} title={a.name} onopen={() => {
+                pickArtist(a);
+                router.go({ name: "artist", id: a.id });
+              }} menu={() => artistMenu(a)} />
           {/each}
         </div>
       </section>
@@ -210,8 +229,14 @@
               title={a.title}
               artists={a.artists}
               meta={owned.has(a.id) ? "скачано" : (a.year ?? undefined)}
-              onopen={() => router.go({ name: "album", id: a.id })}
-              onplay={() => player.play({ kind: "album", id: a.id })}
+              onopen={() => {
+                pickAlbum(a);
+                router.go({ name: "album", id: a.id });
+              }}
+              onplay={() => {
+                pickAlbum(a);
+                void player.play({ kind: "album", id: a.id });
+              }}
               menu={() => albumMenu(a)}
               current={player.track?.album?.id === a.id}
             />
@@ -228,8 +253,14 @@
               coverKey={p.coverKey}
               title={p.title}
               subtitle={p.trackCount ? tracksLabel(p.trackCount) : "Плейлист"}
-              onopen={() => router.go({ name: "playlist", id: p.id })}
-              onplay={() => player.play({ kind: "playlist", id: p.id })}
+              onopen={() => {
+                pickPlaylist(p);
+                router.go({ name: "playlist", id: p.id });
+              }}
+              onplay={() => {
+                pickPlaylist(p);
+                void player.play({ kind: "playlist", id: p.id });
+              }}
               menu={() => playlistMenu(p)}
             />
           {/each}

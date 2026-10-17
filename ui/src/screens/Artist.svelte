@@ -19,6 +19,10 @@
   import type { ArtistCatalog } from "$lib/ipc/bindings/ArtistCatalog";
   import { downloads } from "$lib/stores/downloads.svelte";
   import { net } from "$lib/stores/net.svelte";
+  import type { ArtistSongs } from "$lib/ipc/bindings/ArtistSongs";
+  import { toasts } from "$lib/stores/overlay.svelte";
+  import IconSongs from "~icons/solar/music-notes-linear";
+  import IconRefresh from "~icons/solar/refresh-linear";
 
   let { id }: { id: string } = $props();
 
@@ -45,6 +49,50 @@
   const owned = $derived(new Set(page?.albums.map((a) => a.id) ?? []));
   const discography = $derived(catalog?.albums.filter((a) => !owned.has(a.id)) ?? []);
   const seed = $derived(page?.tracks[0]?.id ?? catalog?.top[0]?.id);
+
+  // «Загрузить все песни»: every album of the discography read into the library as
+  // streamable tracks (nothing is downloaded); remembered per artist.
+  let songs = $state.raw<ArtistSongs | null>(null);
+  const songRows = new Fixed<Track>([]);
+  let loading = $state<{ done: number; total: number } | null>(null);
+  $effect(() => {
+    const artist = id;
+    songs = null;
+    loading = null;
+    void invoke<ArtistSongs | null>("artist_songs", { id: artist, load: false }).then((s) => {
+      if (artist !== id || !s) return;
+      songs = s;
+      songRows.items = s.tracks;
+    });
+    const un = on<{ id: string; done: number; total: number }>("artist:loading", (e) => {
+      if (e.id === id) loading = { done: e.done, total: e.total };
+    });
+    return () => void un.then((f) => f());
+  });
+
+  async function loadSongs() {
+    const artist = id;
+    loading = { done: 0, total: 0 };
+    try {
+      const s = await invoke<ArtistSongs | null>("artist_songs", { id: artist, load: true });
+      if (artist !== id || !s) return;
+      songs = s;
+      songRows.items = s.tracks;
+    } catch (e) {
+      toasts.push(e instanceof Error ? e.message : "Не удалось загрузить песни", "error");
+    } finally {
+      if (artist === id) loading = null;
+    }
+  }
+
+  function playSongs(i: number) {
+    if (songs) void player.play({ kind: "tracks", trackIds: songs.tracks.map((t) => t.id) }, i);
+  }
+
+  const canLoad = $derived(id.startsWith("UC") && downloads.account.connected && net.online);
+  const loadLabel = $derived(
+    loading ? (loading.total ? `Загружаю ${loading.done} из ${loading.total}…` : "Загружаю…") : "Загрузить все песни",
+  );
 
   function playTop(i: number) {
     if (catalog) void player.play({ kind: "tracks", trackIds: catalog.top.map((t) => t.id) }, i);
@@ -104,6 +152,16 @@
       <span>{tracks(page!.tracks.length)} в библиотеке</span>
     {/snippet}
     {#snippet actions()}
+      {#if canLoad && !songs}
+        <button
+          type="button"
+          disabled={!!loading}
+          class="flex h-10 items-center gap-2 rounded-full bg-fill-2 px-4 text-[13px] font-medium backdrop-blur hover:bg-fill-3 disabled:opacity-60"
+          onclick={loadSongs}
+        >
+          <IconSongs class="size-4" />{loadLabel}
+        </button>
+      {/if}
       {#if discography.length}
         <DownloadButton kind="artist" {id} label="Скачать дискографию" />
       {/if}
@@ -138,6 +196,25 @@
             />
           {/each}
         </div>
+      </section>
+    {/if}
+    {#if songs}
+      <section>
+        <div class="flex items-baseline gap-3 px-7 pb-2">
+          <h2 class="text-[20px] font-bold">Все песни</h2>
+          <span class="text-[13px] text-ink-3">{tracks(songs.tracks.length)}</span>
+          {#if canLoad}
+            <button
+              type="button"
+              disabled={!!loading}
+              class="ml-auto flex items-center gap-1.5 text-[13px] font-medium text-ink-3 hover:text-ink disabled:opacity-60"
+              onclick={loadSongs}
+            >
+              <IconRefresh class="size-3.5" />{loading ? loadLabel : "Обновить"}
+            </button>
+          {/if}
+        </div>
+        <TrackList rows={songRows} onplay={playSongs} />
       </section>
     {/if}
     {#if catalog?.top.length}

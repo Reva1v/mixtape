@@ -453,6 +453,19 @@ pub fn artist_track_ids(conn: &Connection, id: &ArtistId) -> Result<Vec<TrackId>
     Ok(ids.collect::<std::result::Result<_, _>>()?)
 }
 
+/// Every known track of the artist, owned or not: newest albums first, album order inside.
+pub fn artist_all_track_ids(conn: &Connection, id: &ArtistId) -> Result<Vec<TrackId>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT t.id FROM tracks t
+         JOIN track_artists ta ON ta.track_id = t.id AND ta.artist_id = ?1
+         LEFT JOIN albums al ON al.id = t.album_id
+         GROUP BY t.id
+         ORDER BY al.year IS NULL, al.year DESC, al.title, t.track_no IS NULL, t.track_no, t.title",
+    )?;
+    let ids = stmt.query_map([id.as_str()], |r| Ok(TrackId(r.get(0)?)))?;
+    Ok(ids.collect::<std::result::Result<_, _>>()?)
+}
+
 /// Albums by this artist that have at least one library track or are saved.
 pub fn artist_album_ids(conn: &Connection, id: &ArtistId) -> Result<Vec<AlbumId>> {
     let mut stmt = conn.prepare_cached(

@@ -97,6 +97,7 @@ pub fn run() {
             commands::catalog::catalog_more,
             commands::catalog::catalog_suggest,
             commands::catalog::artist_catalog,
+            commands::catalog::artist_songs,
             commands::catalog::catalog_download,
             commands::mix::track_set_liked,
             commands::mix::track_download,

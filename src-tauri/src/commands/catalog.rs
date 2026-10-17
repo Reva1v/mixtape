@@ -9,6 +9,7 @@ use mixtape_library::repo;
 use mixtape_library::views::ViewKind;
 use mixtape_sync::{catalog, sources, url_import};
 use mixtape_yt::YtError;
+use mixtape_yt::api::YtMusic;
 use mixtape_yt::search::{SearchItem, SearchKind, SearchPage};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -255,4 +256,72 @@ pub async fn catalog_playlist(st: &AppState, id: &PlaylistId) -> CmdResult<(Play
         .await
         .map_err(|e| yt_error(st, e))?;
     Ok((playlist, tracks_of(st, &ids).await?))
+}
+
+/// Every song of an artist, owned or streamable. `load` reads all albums of the
+/// discography from YouTube Music first (metadata only, nothing is downloaded); without
+/// it the songs come only if they were loaded before.
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ArtistSongs {
+    pub tracks: Vec<Track>,
+    /// Unix ms of the last full load; absent = never loaded.
+    #[ts(optional, type = "number")]
+    pub loaded_at: Option<i64>,
+}
+
+/// `artist:loading` — progress of «Загрузить все песни».
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ArtistLoading {
+    id: String,
+    done: usize,
+    total: usize,
+}
+
+fn songs_key(id: &ArtistId) -> String {
+    format!("artist_songs_loaded:{id}")
+}
+
+#[tauri::command]
+pub async fn artist_songs(state: St<'_>, id: ArtistId, load: bool) -> CmdResult<Option<ArtistSongs>> {
+    let st = state.inner().clone();
+    let key = songs_key(&id);
+    let mut loaded_at: Option<i64> = mixtape_library::settings::get(&st.db, &key)?;
+    if load {
+        need_catalog(&st)?;
+        let artist = st.yt.artist(&id).await.map_err(|e| yt_error(&st, e))?;
+        let albums: Vec<AlbumId> = artist.discography.iter().map(|c| c.id.clone()).collect();
+        catalog::store_album_cards(st.yt.http(), &st.db, &st.covers, &artist.discography).await;
+        let total = albums.len();
+        let sem = Arc::new(tokio::sync::Semaphore::new(3));
+        let mut set = tokio::task::JoinSet::new();
+        for album in albums {
+            let (st, sem) = (st.clone(), sem.clone());
+            set.spawn(async move {
+                let _permit = sem.acquire().await.ok()?;
+                // Albums already read in full are not fetched again.
+                let (n, count) = st
+                    .db
+                    .read(|c| Ok((repo::album_track_ids(c, &album)?.len(), repo::album(c, &album)?.and_then(|a| a.track_count))))
+                    .ok()?;
+                if count.is_some_and(|c| c > 0 && n >= c as usize) {
+                    return Some(());
+                }
+                catalog::store_album(&*st.yt, st.yt.http(), &st.db, &st.covers, &album, false).await.ok().map(drop)
+            });
+        }
+        let mut done = 0;
+        while set.join_next().await.is_some() {
+            done += 1;
+            let _ = st.app.emit("artist:loading", ArtistLoading { id: id.to_string(), done, total });
+        }
+        let now = repo::now_ms();
+        mixtape_library::settings::set(&st.db, &key, &now)?;
+        loaded_at = Some(now);
+    }
+    let Some(loaded_at) = loaded_at else { return Ok(None) };
+    let tracks = st.db.read(|c| repo::tracks_by_ids(c, &repo::artist_all_track_ids(c, &id)?))?;
+    Ok(Some(ArtistSongs { tracks, loaded_at: Some(loaded_at) }))
 }
