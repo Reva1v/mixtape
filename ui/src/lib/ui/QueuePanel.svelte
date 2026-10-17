@@ -157,7 +157,14 @@
   $effect(() => {
     if (scrolledOnce || !view || !upEl) return;
     scrolledOnce = true;
-    queueMicrotask(() => upEl?.querySelector("[data-current]")?.scrollIntoView({ block: "center" }));
+    // Scroll only the list: scrollIntoView would also scroll every ancestor, including
+    // the full-screen player, and shift it under its fixed background.
+    queueMicrotask(() => {
+      const row = upEl?.querySelector<HTMLElement>("[data-current]");
+      if (!row || !listEl) return;
+      const top = row.getBoundingClientRect().top - listEl.getBoundingClientRect().top + listEl.scrollTop;
+      listEl.scrollTop = top - listEl.clientHeight / 2 + row.offsetHeight / 2;
+    });
   });
 
   function selectChip(id: string) {
