@@ -4,6 +4,7 @@
   import IconPlay from "~icons/solar/play-bold";
   import IconPause from "~icons/solar/pause-bold";
   import { player } from "$lib/stores/player.svelte";
+  import { t } from "$lib/i18n";
   import { liftable, pressable } from "$lib/motion";
   import IconMusic from "~icons/solar/music-note-2-linear";
   import ArtistLinks from "./ArtistLinks.svelte";
@@ -74,7 +75,7 @@
       {#if onplay}
         <button
           type="button"
-          aria-label={showPause ? "Пауза" : "Играть"}
+          aria-label={showPause ? t.player.pause : t.player.play}
           class="absolute right-2.5 bottom-2.5 grid size-11 translate-y-2 place-items-center rounded-full bg-ink text-black
             opacity-0 shadow-[0_6px_20px_-4px_rgb(0_0_0/0.7)] transition-[opacity,translate,background-color] duration-(--spring-smooth-ms) ease-out-soft
             group-hover:translate-y-0 group-hover:opacity-100 hover:bg-[#dcdcdc]

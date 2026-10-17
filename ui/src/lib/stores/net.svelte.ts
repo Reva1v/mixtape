@@ -3,6 +3,7 @@
 
 import { invoke, on } from "$lib/ipc";
 import { toasts } from "./overlay.svelte";
+import { t } from "$lib/i18n";
 
 class NetStore {
   online = $state(true);
@@ -11,8 +12,8 @@ class NetStore {
     this.online = await invoke<boolean>("net_status").catch(() => true);
     await on<{ online: boolean }>("net:status", ({ online }) => {
       this.online = online;
-      if (online) toasts.push("Сеть снова есть");
-      else toasts.push("Нет сети — играет только скачанное", "error", 6000);
+      if (online) toasts.push(t.net.online);
+      else toasts.push(t.net.offline, "error", 6000);
     }).catch(() => {});
   }
 }

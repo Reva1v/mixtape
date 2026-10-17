@@ -31,17 +31,17 @@
     playlistPicker.close();
     if (!trackIds) return;
     await invoke("playlist_edit", { edit: { op: "add", id, trackIds } });
-    toasts.push(`Добавлено в «${title}»`);
+    toasts.push(t.dialogs.addedTo(title));
   }
 
   async function createAndAdd() {
     const trackIds = playlistPicker.trackIds;
     playlistPicker.close();
-    const title = await prompt.ask("Новый плейлист");
+    const title = await prompt.ask(t.dialogs.newPlaylist);
     if (!title || !trackIds) return;
     const id = await invoke<string>("playlist_edit", { edit: { op: "create", title } });
     await invoke("playlist_edit", { edit: { op: "add", id, trackIds } });
-    toasts.push(`Добавлено в «${title}»`);
+    toasts.push(t.dialogs.addedTo(title));
   }
 </script>
 
@@ -70,7 +70,7 @@
   <div class="-mx-2 max-h-80 overflow-y-auto">
     <button type="button" class="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-fill-2" onclick={createAndAdd}>
       <div class="grid size-10 place-items-center rounded-sm bg-fill-2"><IconPlus class="size-5" /></div>
-      <span class="text-[14px] font-medium">Новый плейлист</span>
+      <span class="text-[14px] font-medium">{t.dialogs.newPlaylist}</span>
     </button>
     {#each playlists as p (p.id)}
       <button type="button" class="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-fill-2" onclick={() => addTo(p.id, p.title)}>

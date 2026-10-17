@@ -14,7 +14,7 @@
 
   type Item = { label: string; icon: Component; route: Route; match: Route["name"][] };
 
-  const items: Item[] = [
+  const items: Item[] = $derived([
     { label: t.nav.home, icon: IconHome, route: { name: "home" }, match: ["home"] },
     { label: t.nav.search, icon: IconSearch, route: { name: "search" }, match: ["search"] },
     {
@@ -24,12 +24,12 @@
       match: ["library", "album", "artist", "playlist"],
     },
     { label: t.nav.downloads, icon: IconDownloads, route: { name: "downloads" }, match: ["downloads"] },
-  ];
+  ]);
   // Download progress for the badge on the «Загрузки» icon.
   const dl = $derived(downloads.progress);
   const dlPercent = $derived(dl.total > 0 ? Math.min(100, (dl.done / dl.total) * 100) : 0);
 
-  const settings: Item = { label: t.nav.settings, icon: IconSettings, route: { name: "settings" }, match: ["settings"] };
+  const settings: Item = $derived({ label: t.nav.settings, icon: IconSettings, route: { name: "settings" }, match: ["settings"] });
 </script>
 
 {#snippet navItem(item: Item)}
@@ -37,7 +37,7 @@
   {@const badge = item.route.name === "downloads" && dl.running}
   <button
     type="button"
-    data-tip={badge ? `${item.label} · ${dl.done} из ${dl.total}${dl.paused ? ", пауза" : ""}` : item.label}
+    data-tip={badge ? `${item.label} · ${t.sidebar.progress(dl.done, dl.total)}${dl.paused ? t.sidebar.paused : ""}` : item.label}
     data-tip-pos="right"
     aria-label={item.label}
     aria-current={active ? "page" : undefined}
@@ -82,7 +82,7 @@
     {@html Logo}
   </button>
   <div class="flex flex-col items-center gap-3.5">
-    {#each items as item (item.label)}
+    {#each items as item (item.route.name)}
       {@render navItem(item)}
     {/each}
   </div>

@@ -9,6 +9,7 @@ import { Channel, invoke, on } from "$lib/ipc";
 import { toasts } from "./overlay.svelte";
 import { prefs } from "./prefs.svelte";
 import { layout } from "./layout.svelte";
+import { t } from "$lib/i18n";
 import type { Track } from "$lib/ipc/bindings/Track";
 import type { Repeat } from "$lib/ipc/bindings/Repeat";
 import type { PlaybackState } from "$lib/ipc/bindings/PlaybackState";
@@ -59,8 +60,8 @@ class Player {
     await on("library:changed", () => void this.refreshTrack());
     // The mix ran out and YouTube Music is out of reach.
     await on("mix:offline", () =>
-      toasts.push("Нет связи с YouTube Music — микс не продолжается", "error", 12000, {
-        label: "Продолжить из библиотеки",
+      toasts.push(t.playerToasts.mixOffline, "error", 12000, {
+        label: t.playerToasts.continueLocal,
         run: () => void invoke("mix_continue_local").catch(() => {}),
       }),
     );
@@ -129,14 +130,14 @@ class Player {
    * on, the full-screen player opens at once, not after the mix is fetched; if the mix
    * fails, it closes again (only if it was opened here). */
   async startMix(start: () => Promise<unknown>) {
-    toasts.push("Собираю микс…");
+    toasts.push(t.queue.building);
     const opened = prefs.value.mixFullscreen && !layout.fullscreen;
     if (opened) layout.fullscreen = true;
     try {
       await this.#building(start);
     } catch (e) {
       if (opened) layout.fullscreen = false;
-      toasts.push(e instanceof Error && e.message ? e.message : "Не удалось включить микс", "error");
+      toasts.push(e instanceof Error && e.message ? e.message : t.playerToasts.mixFailed, "error");
     }
   }
 

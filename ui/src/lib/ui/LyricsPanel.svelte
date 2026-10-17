@@ -31,6 +31,7 @@
   import { player } from "$lib/stores/player.svelte";
   import { visible } from "$lib/stores/visible.svelte";
   import { fadeSpring, springCss, springs } from "$lib/motion";
+  import { t } from "$lib/i18n";
   import IconMinus from "~icons/solar/minus-linear";
   import IconPlus from "~icons/solar/add-linear";
   import IconLyrics from "~icons/solar/microphone-2-linear";
@@ -42,7 +43,8 @@
     | { status: "loading" }
     | { status: "ready"; lyrics: Lyrics }
     | { status: "missing" }
-    | { status: "error"; message: string };
+    /** `message` null: LRCLIB is out of reach (worded at render time). */
+    | { status: "error"; message: string | null };
 
   let view = $state<View>({ status: "loading" });
   let retry = $state(0);
@@ -65,7 +67,7 @@
         if (!stale) view = show(l);
       },
       (e: IpcError) => {
-        const message = e.kind === "network" ? "Нет связи с LRCLIB, проверьте интернет" : e.message;
+        const message = e.kind === "network" ? null : e.message;
         if (!stale) view = { status: "error", message };
       },
     );
@@ -84,7 +86,7 @@
     offset = ms === 0 ? 0 : Math.round((offset + ms) / 100) * 100;
     offsets.set(trackId, offset);
   }
-  const offsetLabel = $derived(`${offset > 0 ? "+" : offset < 0 ? "−" : ""}${Math.abs(offset / 1000).toFixed(1)} с`);
+  const offsetLabel = $derived(t.lyrics.offset(`${offset > 0 ? "+" : offset < 0 ? "−" : ""}${Math.abs(offset / 1000).toFixed(1)}`));
 
   // Current line: worked out on every position/status change, then again by a timer set
   // for the moment the next line starts (no per-frame loop).
@@ -202,8 +204,8 @@
         <span class="mx-0.5 h-3.5 w-px bg-white/15"></span>
         <button
           type="button"
-          aria-label="Текст раньше на 0,1 с"
-          data-tip="Раньше на 0,1 с"
+          aria-label={t.lyrics.earlierLabel}
+          data-tip={t.lyrics.earlier}
           data-tip-pos="bottom"
           class="grid size-[26px] place-items-center rounded-md text-ink-2 transition-colors hover:bg-white/10 hover:text-ink"
           onclick={() => shift(-100)}
@@ -212,7 +214,7 @@
         </button>
         <button
           type="button"
-          data-tip={offset ? "Сдвиг текста · сбросить" : "Сдвиг текста"}
+          data-tip={offset ? t.lyrics.shiftReset : t.lyrics.shift}
           data-tip-pos="bottom"
           class="h-[26px] min-w-[52px] rounded-md px-1.5 tnum transition-colors hover:bg-white/10
             {offset ? 'font-semibold text-ink' : 'text-ink-2'}"
@@ -222,8 +224,8 @@
         </button>
         <button
           type="button"
-          aria-label="Текст позже на 0,1 с"
-          data-tip="Позже на 0,1 с"
+          aria-label={t.lyrics.laterLabel}
+          data-tip={t.lyrics.later}
           data-tip-pos="bottom"
           class="grid size-[26px] place-items-center rounded-md text-ink-2 transition-colors hover:bg-white/10 hover:text-ink"
           onclick={() => shift(100)}
@@ -231,7 +233,7 @@
           <IconPlus class="size-3.5" />
         </button>
       {:else}
-        <span class="pr-2 text-ink-3">без синхронизации</span>
+        <span class="pr-2 text-ink-3">{t.lyrics.unsynced}</span>
       {/if}
     </div>
   {/if}
@@ -243,7 +245,7 @@
       {/each}
     </div>
   {:else if view.status === "ready" && view.lyrics.instrumental}
-    {@render calm("Инструментал")}
+    {@render calm(t.lyrics.instrumental)}
   {:else if view.status === "ready" && view.lyrics.synced}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
@@ -273,9 +275,9 @@
       <p class="text-[24px] leading-[1.45] font-bold whitespace-pre-line text-ink-2 select-text">{view.lyrics.plain}</p>
     </div>
   {:else if view.status === "missing"}
-    {@render calm("Текст не найден")}
+    {@render calm(t.lyrics.missing)}
   {:else}
-    {@render calm("Не удалось загрузить текст", view.message)}
+    {@render calm(t.lyrics.failed, view.message ?? t.lyrics.offline)}
   {/if}
 </div>
 
@@ -290,7 +292,7 @@
         class="mt-1 rounded-full bg-white/8 px-3.5 py-1.5 text-[13px] text-ink transition-colors hover:bg-white/14"
         onclick={() => retry++}
       >
-        Повторить
+        {t.common.retry}
       </button>
     {/if}
   </div>

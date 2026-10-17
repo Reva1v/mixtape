@@ -20,8 +20,8 @@ import IconTrash from "~icons/solar/trash-bin-minimalistic-linear";
 
 export function setLiked(track: Track, liked: boolean, announce = false) {
   return invoke("track_set_liked", { id: track.id, liked }).then(
-    () => announce && toasts.push(liked ? "Добавлено в понравившиеся" : "Убрано из понравившихся"),
-    (e) => toasts.push(e instanceof Error ? e.message : "Не удалось изменить лайк", "error"),
+    () => announce && toasts.push(liked ? t.trackMenu.liked : t.trackMenu.unliked),
+    (e) => toasts.push(e instanceof Error ? e.message : t.trackMenu.likeFailed, "error"),
   );
 }
 
@@ -31,10 +31,10 @@ const downloading = new Set<string>();
 function download(track: Track) {
   downloading.add(track.id);
   void invoke("track_download", { id: track.id }).then(
-    () => toasts.push("Скачивается — появится в библиотеке, когда загрузится"),
+    () => toasts.push(t.trackMenu.downloadStarted),
     (e) => {
       downloading.delete(track.id);
-      toasts.push(e instanceof Error ? e.message : "Не удалось скачать", "error");
+      toasts.push(e instanceof Error ? e.message : t.trackMenu.downloadFailed, "error");
     },
   );
 }
@@ -49,12 +49,12 @@ export function trackMenu(track: Track, extra: MenuItem[] = []): MenuItem[] {
     {
       label: t.track.playNext,
       icon: IconNext,
-      action: () => void player.queueAdd([track.id], "next").then(() => toasts.push("Сыграет следующим")),
+      action: () => void player.queueAdd([track.id], "next").then(() => toasts.push(t.trackMenu.playsNext)),
     },
     {
       label: t.track.addToQueue,
       icon: IconQueue,
-      action: () => void player.queueAdd([track.id], "end").then(() => toasts.push("Добавлено в очередь")),
+      action: () => void player.queueAdd([track.id], "end").then(() => toasts.push(t.trackMenu.queued)),
     },
     { label: t.track.addToPlaylist, icon: IconPlaylist, action: () => playlistPicker.open([track.id]) },
     track.liked
@@ -78,7 +78,7 @@ export function trackMenu(track: Track, extra: MenuItem[] = []): MenuItem[] {
     owned
       ? { label: t.track.remove, icon: IconTrash, danger: true, disabled: true, action: () => {} }
       : downloading.has(track.id)
-        ? { label: "Скачивается…", icon: IconDownload, disabled: true, action: () => {} }
+        ? { label: t.trackMenu.downloading, icon: IconDownload, disabled: true, action: () => {} }
         : { label: t.track.download, icon: IconDownload, action: () => download(track) },
   ];
 }

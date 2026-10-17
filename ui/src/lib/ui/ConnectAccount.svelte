@@ -28,7 +28,7 @@
     // The `account:changed` listener may have closed the dialog and announced it already.
     if (!downloads.connectOpen) return;
     downloads.connectOpen = false;
-    toasts.push(downloads.account.name ? `Подключено: ${downloads.account.name}` : "YouTube Music подключён");
+    toasts.push(downloads.account.name ? t.connect.connected(downloads.account.name) : t.connect.connectedPlain);
   }
 
   async function signIn() {
@@ -39,8 +39,8 @@
       await downloads.signIn();
       done();
     } catch (err) {
-      const msg = err instanceof Error && err.message ? err.message : "Не удалось войти";
-      if (msg !== "Вход отменён") error = msg;
+      const msg = err instanceof Error && err.message ? err.message : t.connect.signInFailed;
+      if (msg !== t.connect.signInCancelled) error = msg;
     } finally {
       busy = false;
     }
@@ -52,7 +52,7 @@
     input.value = "";
     if (!file) return;
     if (file.size > 1024 * 1024) {
-      error = "Файл слишком большой — нужен экспорт cookies, а не что-то другое";
+      error = t.connect.tooBig;
       return;
     }
     text = await file.text();
@@ -68,17 +68,17 @@
       await downloads.connect(text);
       done();
     } catch (err) {
-      error = err instanceof Error && err.message ? err.message : "Не удалось подключить аккаунт";
+      error = err instanceof Error && err.message ? err.message : t.connect.failed;
     } finally {
       busy = false;
     }
   }
 </script>
 
-<Modal open={downloads.connectOpen} title="Подключение YouTube Music" onclose={() => (downloads.connectOpen = false)} width={440}>
+<Modal open={downloads.connectOpen} title={t.connect.title} onclose={() => (downloads.connectOpen = false)} width={440}>
   {#if !manual}
     <p class="text-[13px] leading-snug text-ink-2">
-      Откроется окно входа Google. Войдите в аккаунт — Mixtape подключится сам, когда откроется YouTube Music.
+      {t.connect.intro}
     </p>
     {#if error}
       <p class="mt-3 text-[13px] leading-snug text-danger">{error}</p>
@@ -90,11 +90,11 @@
         transition-[background-color,opacity] hover:bg-[#dcdcdc] disabled:opacity-60 disabled:hover:bg-ink"
       onclick={signIn}
     >
-      <IconGoogle class="size-4" />{busy ? "Ждём входа в окне Google…" : "Войти через Google"}
+      <IconGoogle class="size-4" />{busy ? t.connect.waiting : t.connect.signIn}
     </button>
     <div class="mt-3 flex items-center justify-between">
       <button type="button" class="text-[12.5px] text-ink-3 hover:text-ink" onclick={() => ((manual = true), (error = ""))}>
-        Не получается? Вставить cookies
+        {t.connect.manual}
       </button>
       <button type="button" class="h-8 rounded-full px-3 text-[13px] text-ink-2 hover:bg-fill-2" onclick={() => (downloads.connectOpen = false)}>
         {t.common.cancel}
@@ -102,12 +102,12 @@
     </div>
   {:else}
   <ol class="mb-4 list-decimal space-y-1.5 pl-5 text-[13px] leading-snug text-ink-2 marker:text-ink-3">
-    <li>Откройте окно инкогнито и войдите в <span class="text-ink">music.youtube.com</span>.</li>
+    <li>{t.connect.step1[0]} <span class="text-ink">music.youtube.com</span>{t.connect.step1[1]}</li>
     <li>
-      Экспортируйте cookies этого сайта расширением вроде <span class="text-ink">«Get cookies.txt LOCALLY»</span> или
-      <span class="text-ink">EditThisCookie</span>.
+      {t.connect.step2[0]} <span class="text-ink">{t.connect.step2[1]}</span> {t.connect.step2[2]}
+      <span class="text-ink">EditThisCookie</span>{t.connect.step2[3]}
     </li>
-    <li>Закройте окно инкогнито, не выходя из аккаунта, и вставьте текст ниже или выберите файл.</li>
+    <li>{t.connect.step3}</li>
   </ol>
   <form onsubmit={submit}>
     <textarea
@@ -123,7 +123,7 @@
     {#if error}
       <p class="mt-2 text-[13px] leading-snug text-danger">{error}</p>
     {/if}
-    <p class="mt-2 text-[12px] leading-snug text-ink-3">Cookies хранятся только на этом компьютере в зашифрованном виде.</p>
+    <p class="mt-2 text-[12px] leading-snug text-ink-3">{t.connect.stored}</p>
 
     <div class="mt-5 flex items-center gap-2">
       <button
@@ -131,18 +131,18 @@
         class="flex h-9 items-center gap-2 rounded-full bg-fill-2 px-4 text-[13px] font-medium text-ink transition-colors hover:bg-fill-3"
         onclick={() => fileInput?.click()}
       >
-        <IconFile class="size-4" />Выбрать файл…
+        <IconFile class="size-4" />{t.connect.chooseFile}
       </button>
       <div class="flex-1"></div>
       <button type="button" class="h-9 rounded-full px-4 text-[13px] text-ink-2 hover:bg-fill-2" onclick={() => ((manual = false), (error = ""))}>
-        Назад
+        {t.nav.back}
       </button>
       <button
         type="submit"
         disabled={!text.trim() || busy}
         class="h-9 rounded-full bg-ink px-5 text-[13px] font-semibold text-black transition-[background-color,opacity] hover:bg-[#dcdcdc] disabled:opacity-40 disabled:hover:bg-ink"
       >
-        {busy ? "Проверяем…" : "Подключить"}
+        {busy ? t.connect.checking : t.connect.connect}
       </button>
     </div>
   </form>

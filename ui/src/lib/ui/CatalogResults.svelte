@@ -33,18 +33,19 @@
 
   // Remembered in «Недавнее» on the search page.
   const names = (a: { name: string }[]) => a.map((x) => x.name).join(", ");
-  const pickTrack = (t: Track) => onpick?.({ kind: "track", id: t.id, title: t.title, subtitle: `Трек · ${names(t.artists)}`, coverKey: t.coverKey });
-  const pickAlbum = (a: Album) => onpick?.({ kind: "album", id: a.id, title: a.title, subtitle: `Альбом · ${names(a.artists)}`, coverKey: a.coverKey });
-  const pickArtist = (a: Artist) => onpick?.({ kind: "artist", id: a.id, title: a.name, subtitle: "Исполнитель", coverKey: a.imageKey });
-  const pickPlaylist = (p: Playlist) => onpick?.({ kind: "playlist", id: p.id, title: p.title, subtitle: "Плейлист", coverKey: p.coverKey });
+  const pickTrack = (tr: Track) =>
+    onpick?.({ kind: "track", id: tr.id, title: tr.title, subtitle: `${t.catalog.kind.track} · ${names(tr.artists)}`, coverKey: tr.coverKey });
+  const pickAlbum = (a: Album) => onpick?.({ kind: "album", id: a.id, title: a.title, subtitle: `${t.catalog.kind.album} · ${names(a.artists)}`, coverKey: a.coverKey });
+  const pickArtist = (a: Artist) => onpick?.({ kind: "artist", id: a.id, title: a.name, subtitle: t.catalog.kind.artist, coverKey: a.imageKey });
+  const pickPlaylist = (p: Playlist) => onpick?.({ kind: "playlist", id: p.id, title: p.title, subtitle: t.catalog.kind.playlist, coverKey: p.coverKey });
 
-  const KINDS: { id: CatalogKind; label: string }[] = [
-    { id: "all", label: "Всё" },
-    { id: "tracks", label: "Треки" },
-    { id: "albums", label: "Альбомы" },
-    { id: "artists", label: "Исполнители" },
-    { id: "playlists", label: "Плейлисты" },
-  ];
+  const KINDS: { id: CatalogKind; label: string }[] = $derived([
+    { id: "all", label: t.catalog.all },
+    { id: "tracks", label: t.library.tracks },
+    { id: "albums", label: t.library.albums },
+    { id: "artists", label: t.library.artists },
+    { id: "playlists", label: t.library.playlists },
+  ]);
   let kind = $state<CatalogKind>("all");
   let page = $state.raw<CatalogPage | null>(null);
   let error = $state<string | null>(null);
@@ -71,7 +72,7 @@
         page = r;
         tracks.items = r.tracks;
       } catch (e) {
-        if (mine === seq) error = e instanceof Error ? e.message : "Каталог не ответил";
+        if (mine === seq) error = e instanceof Error ? e.message : t.catalog.failed;
       } finally {
         if (mine === seq) loading = false;
       }
@@ -131,19 +132,19 @@
 </div>
 
 {#if !downloads.account.connected}
-  <EmptyState icon={IconCloud} title="Каталог YouTube Music" hint="Подключите аккаунт в настройках, чтобы искать за пределами библиотеки" />
+  <EmptyState icon={IconCloud} title={t.catalog.accountTitle} hint={t.catalog.accountHint} />
 {:else if !net.online}
-  <EmptyState icon={IconOffline} title="Нет сети" hint="Каталог вернётся, когда появится связь. Библиотека работает" />
+  <EmptyState icon={IconOffline} title={t.catalog.offlineTitle} hint={t.catalog.offlineHint} />
 {:else if error}
-  <EmptyState icon={IconNothing} title="Каталог не ответил" hint={error} />
+  <EmptyState icon={IconNothing} title={t.catalog.failed} hint={error} />
 {:else if empty}
-  <EmptyState icon={IconNothing} title="Ничего не найдено" hint={`По запросу «${query}» в YouTube Music ничего нет`} />
+  <EmptyState icon={IconNothing} title={t.catalog.emptyTitle} hint={t.catalog.emptyHint(query)} />
 {:else if page}
   <div class="space-y-9 transition-opacity duration-200 {loading ? 'opacity-50' : ''}">
     {#if page.top}
       {@const top = page.top}
       <section class="px-7">
-        <h2 class="pb-4 text-[20px] font-bold">Лучший результат</h2>
+        <h2 class="pb-4 text-[20px] font-bold">{t.catalog.top}</h2>
         <div
           role="button"
           tabindex="0"
@@ -186,10 +187,10 @@
               {top.kind === "track" ? top.track.title : top.kind === "album" ? top.album.title : top.kind === "artist" ? top.artist.name : top.playlist.title}
             </div>
             <div class="mt-1 truncate text-[13.5px] text-ink-3">
-              {#if top.kind === "track"}Трек · <ArtistLinks artists={top.track.artists} />
-              {:else if top.kind === "album"}Альбом · <ArtistLinks artists={top.album.artists} />{top.album.year ? ` · ${top.album.year}` : ""}
-              {:else if top.kind === "artist"}Исполнитель
-              {:else}Плейлист{/if}
+              {#if top.kind === "track"}{t.catalog.kind.track} · <ArtistLinks artists={top.track.artists} />
+              {:else if top.kind === "album"}{t.catalog.kind.album} · <ArtistLinks artists={top.album.artists} />{top.album.year ? ` · ${top.album.year}` : ""}
+              {:else if top.kind === "artist"}{t.catalog.kind.artist}
+              {:else}{t.catalog.kind.playlist}{/if}
             </div>
           </div>
           {#if top.kind === "track"}
@@ -202,13 +203,13 @@
     {/if}
     {#if page.tracks.length}
       <section>
-        <h2 class="px-7 pb-2 text-[20px] font-bold">Треки</h2>
+        <h2 class="px-7 pb-2 text-[20px] font-bold">{t.library.tracks}</h2>
         <TrackList rows={tracks} onplay={playTrack} />
       </section>
     {/if}
     {#if page.artists.length}
       <section class="px-7">
-        <h2 class="pb-4 text-[20px] font-bold">Исполнители</h2>
+        <h2 class="pb-4 text-[20px] font-bold">{t.library.artists}</h2>
         <div class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-5">
           {#each page.artists.slice(0, limit) as a (a.id)}
             <Card round coverKey={a.imageKey} title={a.name} onopen={() => {
@@ -221,14 +222,14 @@
     {/if}
     {#if page.albums.length}
       <section class="px-7">
-        <h2 class="pb-4 text-[20px] font-bold">Альбомы</h2>
+        <h2 class="pb-4 text-[20px] font-bold">{t.library.albums}</h2>
         <div class="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-5">
           {#each page.albums.slice(0, limit) as a (a.id)}
             <Card
               coverKey={a.coverKey}
               title={a.title}
               artists={a.artists}
-              meta={owned.has(a.id) ? "скачано" : (a.year ?? undefined)}
+              meta={owned.has(a.id) ? t.catalog.downloaded : (a.year ?? undefined)}
               onopen={() => {
                 pickAlbum(a);
                 router.go({ name: "album", id: a.id });
@@ -246,13 +247,13 @@
     {/if}
     {#if page.playlists.length}
       <section class="px-7">
-        <h2 class="pb-4 text-[20px] font-bold">Плейлисты</h2>
+        <h2 class="pb-4 text-[20px] font-bold">{t.library.playlists}</h2>
         <div class="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-5">
           {#each page.playlists.slice(0, limit) as p (p.id)}
             <Card
               coverKey={p.coverKey}
               title={p.title}
-              subtitle={p.trackCount ? t.count.tracks(p.trackCount) : "Плейлист"}
+              subtitle={p.trackCount ? t.count.tracks(p.trackCount) : t.catalog.kind.playlist}
               onopen={() => {
                 pickPlaylist(p);
                 router.go({ name: "playlist", id: p.id });
@@ -275,7 +276,7 @@
           disabled={more}
           onclick={loadMore}
         >
-          {more ? "Загружаю…" : "Показать ещё"}
+          {more ? t.catalog.loading : t.catalog.more}
         </button>
       </div>
     {/if}

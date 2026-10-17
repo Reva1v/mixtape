@@ -29,7 +29,7 @@ type Load = () => Promise<Track[]>;
 const ids = (tracks: Track[]) => tracks.map((x) => x.id);
 
 function failed(e: unknown) {
-  toasts.push(e instanceof Error && e.message ? e.message : "Не получилось", "error");
+  toasts.push(e instanceof Error && e.message ? e.message : t.trackMenu.failed, "error");
 }
 
 /** Play, shuffle, queue and playlist items shared by every collection. */
@@ -56,12 +56,12 @@ function common(source: PlaySource, load: Load, mix = true): MenuItem[] {
     {
       label: t.track.playNext,
       icon: IconNext,
-      action: () => void load().then((ts) => player.queueAdd(ids(ts), "next")).then(() => toasts.push("Сыграет следующим"), failed),
+      action: () => void load().then((ts) => player.queueAdd(ids(ts), "next")).then(() => toasts.push(t.trackMenu.playsNext), failed),
     },
     {
       label: t.track.addToQueue,
       icon: IconQueue,
-      action: () => void load().then((ts) => player.queueAdd(ids(ts), "end")).then(() => toasts.push("Добавлено в очередь"), failed),
+      action: () => void load().then((ts) => player.queueAdd(ids(ts), "end")).then(() => toasts.push(t.trackMenu.queued), failed),
     },
     {
       label: t.track.addToPlaylist,
@@ -110,6 +110,6 @@ export function playlistMenu(p: Playlist): MenuItem[] {
   return [
     ...common({ kind: "playlist", id: p.id }, load, false),
     "separator",
-    { label: "Открыть плейлист", icon: IconPlaylist, action: () => router.go({ name: "playlist", id: p.id }) },
+    { label: t.collectionMenu.openPlaylist, icon: IconPlaylist, action: () => router.go({ name: "playlist", id: p.id }) },
   ];
 }

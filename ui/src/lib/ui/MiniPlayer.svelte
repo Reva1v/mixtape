@@ -83,7 +83,7 @@
   bind:clientWidth={barWidth}
   role="slider"
   tabindex="-1"
-  aria-label="Позиция"
+  aria-label={t.miniPlayer.position}
   aria-valuemin={0}
   aria-valuemax={Math.round(player.state.durationMs / 1000)}
   aria-valuenow={Math.round(player.state.positionMs / 1000)}

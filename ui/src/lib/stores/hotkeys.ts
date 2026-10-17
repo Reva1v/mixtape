@@ -6,6 +6,7 @@ import { layout } from "./layout.svelte";
 import { router } from "./router.svelte";
 import { downloads } from "./downloads.svelte";
 import { setLiked } from "$lib/ui/trackMenu";
+import { t } from "$lib/i18n";
 
 let muteRestore = 0.8;
 
@@ -31,46 +32,49 @@ function toggleMute() {
   } else void player.setVolume(muteRestore || 0.8);
 }
 
-/** Shown in the shortcuts dialog, grouped. */
-export const shortcuts: { group: string; items: [keys: string, action: string][] }[] = [
-  {
-    group: "Воспроизведение",
-    items: [
-      ["Пробел  ·  K", "Играть / пауза"],
-      ["Ctrl + →  ·  Shift + →", "Следующий трек"],
-      ["Ctrl + ←  ·  Shift + ←", "Предыдущий трек"],
-      ["→  /  ←", "Перемотка на 5 секунд"],
-      ["J  /  ;", "Перемотка на 10 секунд"],
-      ["0 … 9", "Перейти к 0 % … 90 % трека"],
-      ["S", "Перемешать"],
-      ["R", "Повтор: выкл → всё → трек"],
-      ["L", "Нравится / убрать"],
-    ],
-  },
-  {
-    group: "Громкость",
-    items: [
-      ["↑  /  ↓", "Громче / тише на 5 %"],
-      ["M", "Без звука"],
-    ],
-  },
-  {
-    group: "Интерфейс",
-    items: [
-      ["F", "Полноэкранный плеер"],
-      ["Q", "Очередь"],
-      ["T", "Текст песни"],
-      ["Ctrl + K  ·  /", "Поиск"],
-      ["Ctrl + 1 … 4", "Главная, поиск, библиотека, загрузки"],
-      ["Ctrl + ,", "Настройки"],
-      ["Ctrl + L", "Добавить по ссылке"],
-      ["Ctrl + V", "Вставить ссылку YouTube — предложит скачать"],
-      ["Alt + ←  /  Alt + →", "Назад / вперёд"],
-      ["Esc", "Закрыть панель или полноэкранный режим"],
-      ["?", "Эта подсказка"],
-    ],
-  },
-];
+/** Shown in the shortcuts dialog, grouped. A function, so it is worded in the current language. */
+export function shortcuts(): { group: string; items: [keys: string, action: string][] }[] {
+  const h = t.hotkeys;
+  return [
+    {
+      group: h.playback,
+      items: [
+        [`${h.space}  ·  K`, h.playPause],
+        ["Ctrl + →  ·  Shift + →", h.nextTrack],
+        ["Ctrl + ←  ·  Shift + ←", h.prevTrack],
+        ["→  /  ←", h.seek5],
+        ["J  /  ;", h.seek10],
+        ["0 … 9", h.seekPercent],
+        ["S", t.player.shuffle],
+        ["R", h.repeat],
+        ["L", h.like],
+      ],
+    },
+    {
+      group: t.player.volume,
+      items: [
+        ["↑  /  ↓", h.volume],
+        ["M", t.player.mute],
+      ],
+    },
+    {
+      group: h.interface,
+      items: [
+        ["F", t.player.fullscreen],
+        ["Q", t.player.queue],
+        ["T", h.lyrics],
+        ["Ctrl + K  ·  /", t.nav.search],
+        ["Ctrl + 1 … 4", h.tabs],
+        ["Ctrl + ,", t.nav.settings],
+        ["Ctrl + L", t.importUrl.title],
+        ["Ctrl + V", h.pasteLink],
+        ["Alt + ←  /  Alt + →", h.backForward],
+        ["Esc", h.escape],
+        ["?", h.help],
+      ],
+    },
+  ];
+}
 
 export function handleHotkey(e: KeyboardEvent): boolean {
   const ctrl = e.ctrlKey || e.metaKey;

@@ -315,9 +315,9 @@
         {#if isCurrent}<Equalizer playing={player.playing} />{/if}
         <span class="truncate text-[13.5px] {isCurrent ? 'font-semibold text-ink' : 'text-ink'}">{e.track.title}</span>
         {#if e.track.state === "remote"}
-          <span class="shrink-0 text-ink-3" title="Играет из сети"><IconStream class="size-3.5" /></span>
+          <span class="shrink-0 text-ink-3" title={t.queuePanel.streaming}><IconStream class="size-3.5" /></span>
         {:else if e.track.state === "cached"}
-          <span class="shrink-0 text-ink-3" title="В кэше"><IconCached class="size-3.5" /></span>
+          <span class="shrink-0 text-ink-3" title={t.queuePanel.cached}><IconCached class="size-3.5" /></span>
         {/if}
       </div>
       <div class="truncate text-[12px] text-ink-3"><ArtistLinks artists={e.track.artists} /></div>
@@ -326,7 +326,7 @@
       <span class="text-[12px] text-ink-3 tnum">{formatTime(e.track.durationMs)}</span>
     {:else}
       <span class="text-[12px] text-ink-3 tnum group-hover:hidden">{formatTime(e.track.durationMs)}</span>
-      <IconButton label="Убрать из очереди" size="sm" class="hidden group-hover:inline-grid" onclick={() => invoke("queue_remove", { uid: e.uid })}>
+      <IconButton label={t.queuePanel.remove} size="sm" class="hidden group-hover:inline-grid" onclick={() => invoke("queue_remove", { uid: e.uid })}>
         <IconX />
       </IconButton>
     {/if}

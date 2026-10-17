@@ -20,6 +20,7 @@ import {
   type SyncPreview,
 } from "$lib/ipc/sync";
 import { toasts } from "./overlay.svelte";
+import { t } from "$lib/i18n";
 
 const idle: DownloadsProgress = { running: false, paused: false, done: 0, total: 0, failed: 0, bytesPerSec: 0 };
 
@@ -63,13 +64,13 @@ class Downloads {
       await this.refreshAccount();
       if (this.connectOpen && this.account.connected) {
         this.connectOpen = false;
-        toasts.push(this.account.name ? `Подключено: ${this.account.name}` : "YouTube Music подключён");
+        toasts.push(this.account.name ? t.connect.connected(this.account.name) : t.connect.connectedPlain);
       }
     }).catch(() => {});
     await on("account:expired", () => {
       this.account = { ...this.account, connected: false };
-      toasts.push("Сессия YouTube Music истекла — загрузки остановлены", "error", 10000, {
-        label: "Подключить",
+      toasts.push(t.account.expired, "error", 10000, {
+        label: t.connect.connect,
         run: () => (this.connectOpen = true),
       });
     }).catch(() => {});
@@ -106,7 +107,7 @@ class Downloads {
       if (JSON.stringify(next) !== JSON.stringify(this.preview)) this.preview = next;
       this.previewError = "";
     } catch (e) {
-      if (!this.preview) this.previewError = e instanceof Error && e.message ? e.message : "Не удалось получить список из YouTube Music";
+      if (!this.preview) this.previewError = e instanceof Error && e.message ? e.message : t.account.previewFailed;
     } finally {
       this.#previewLoading = false;
     }

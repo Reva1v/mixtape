@@ -3,6 +3,7 @@
   import { invoke } from "$lib/ipc";
   import type { DownloadKind } from "$lib/ipc/bindings/DownloadKind";
   import { toasts } from "$lib/stores/overlay.svelte";
+  import { t } from "$lib/i18n";
   import IconDownload from "~icons/solar/download-minimalistic-linear";
 
   let { kind, id, label }: { kind: DownloadKind; id: string; label: string } = $props();
@@ -12,9 +13,9 @@
     busy = true;
     try {
       await invoke("catalog_download", { kind, id });
-      toasts.push(kind === "artist" ? "Собираю дискографию — треки появятся в загрузках" : "Добавляю в загрузки…");
+      toasts.push(kind === "artist" ? t.downloadButton.discography : t.downloadButton.adding);
     } catch (e) {
-      toasts.push(e instanceof Error ? e.message : "Не получилось", "error");
+      toasts.push(e instanceof Error ? e.message : t.trackMenu.failed, "error");
     } finally {
       busy = false;
     }

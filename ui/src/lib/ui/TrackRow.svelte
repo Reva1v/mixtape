@@ -2,6 +2,7 @@
   import type { Track } from "$lib/ipc/bindings/Track";
   import { formatTime, player } from "$lib/stores/player.svelte";
   import { menu } from "$lib/stores/overlay.svelte";
+  import { t } from "$lib/i18n";
   import { router } from "$lib/stores/router.svelte";
   import ArtistLinks from "./ArtistLinks.svelte";
   import { trackMenu, setLiked } from "./trackMenu";
@@ -55,7 +56,7 @@
       <!-- On the current track the button pauses/resumes instead of restarting it. -->
       <button
         type="button"
-        aria-label={current && player.playing ? "Пауза" : "Играть"}
+        aria-label={current && player.playing ? t.player.pause : t.player.play}
         class="hidden text-ink group-hover:block"
         onclick={() => (current ? player.toggle() : onplay())}
       >
@@ -92,7 +93,7 @@
 
     <button
       type="button"
-      aria-label={track.liked ? "Убрать из понравившихся" : "Нравится"}
+      aria-label={track.liked ? t.track.unlike : t.track.like}
       class="grid place-items-center transition-opacity {track.liked ? 'text-ink' : 'text-ink-3 opacity-0 group-hover:opacity-100 hover:text-ink'}"
       onclick={() => setLiked(track!, !track!.liked)}
     >
@@ -103,7 +104,7 @@
 
     <button
       type="button"
-      aria-label="Ещё"
+      aria-label={t.trackRow.more}
       class="grid place-items-center text-ink-3 opacity-0 group-hover:opacity-100 hover:text-ink"
       onclick={(e) => menu.showAt(trackMenu(track!), e.currentTarget)}
     >

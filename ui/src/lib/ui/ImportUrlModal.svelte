@@ -8,7 +8,7 @@
   import { t } from "$lib/i18n";
   import Modal from "./Modal.svelte";
 
-  const kinds: Record<ImportKind, string> = { track: "Трек", album: "Альбом", playlist: "Плейлист", artist: "Дискография" };
+  const kinds: Record<ImportKind, string> = $derived(t.importUrl.kind);
 
   let value = $state("");
   let error = $state("");
@@ -39,10 +39,12 @@
       const r = await importUrl(parsed.url);
       close();
       toasts.push(
-        r.kind === "track" ? `«${r.title}» скачивается` : `${kinds[r.kind]} «${r.title}»: ${t.count.tracks(r.trackCount)} в загрузке`,
+        r.kind === "track"
+          ? t.importUrl.trackAdded(r.title)
+          : t.importUrl.collectionAdded(kinds[r.kind], r.title, t.count.tracks(r.trackCount)),
       );
     } catch (err) {
-      error = err instanceof Error && err.message ? err.message : "Не удалось добавить ссылку";
+      error = err instanceof Error && err.message ? err.message : t.importUrl.failed;
     } finally {
       busy = false;
     }
@@ -61,9 +63,9 @@
 
 <svelte:document onpaste={onPaste} />
 
-<Modal {open} title="Добавить по ссылке" onclose={close} width={480}>
+<Modal {open} title={t.importUrl.title} onclose={close} width={480}>
   <p class="mb-3 text-[13px] leading-snug text-ink-3">
-    Трек, альбом, плейлист или исполнитель с YouTube Music или YouTube — всё скачается в библиотеку.
+    {t.importUrl.intro}
   </p>
   <form onsubmit={submit}>
     <input
@@ -71,7 +73,7 @@
       bind:value
       spellcheck="false"
       placeholder="https://music.youtube.com/…"
-      aria-label="Ссылка"
+      aria-label={t.importUrl.link}
       class="h-10 w-full rounded-md bg-fill-2 px-3 text-[14px] outline-none ring-1 ring-line placeholder:text-ink-3 focus:ring-white/40"
     />
     <p class="mt-2 h-[18px] text-[13px] leading-[18px] {error || (value.trim() && !parsed) ? 'text-danger' : 'text-ink-3'}">
@@ -80,7 +82,7 @@
       {:else if parsed}
         {kinds[parsed.kind]}
       {:else if value.trim()}
-        Это не похоже на ссылку YouTube Music или YouTube
+        {t.importUrl.notALink}
       {/if}
     </p>
     <div class="mt-4 flex justify-end gap-2">
@@ -92,7 +94,7 @@
         disabled={!parsed || busy}
         class="h-9 rounded-full bg-ink px-5 text-[13px] font-semibold text-black transition-[background-color,opacity] hover:bg-[#dcdcdc] disabled:opacity-40 disabled:hover:bg-ink"
       >
-        {busy ? "Добавляем…" : t.track.download}
+        {busy ? t.importUrl.adding : t.track.download}
       </button>
     </div>
   </form>
