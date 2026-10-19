@@ -250,7 +250,7 @@ const homePage: HomePage = {
 const range = (from: number, n: number) => Array.from({ length: n }, (_, i) => from + i);
 const [quick, mixed, again, forYou, more] = SHELVES[lang];
 const homeShelves: HomeShelf[] = [
-  { title: quick, items: range(0, 16).map((n) => ({ kind: "track", track: track(n % 10, (n * 3) % 10) })) },
+  { title: quick, items: range(0, 16).map((n) => ({ kind: "track", track: track(n % 10, (n * 3 + (n >= 10 ? 1 : 0)) % 10) })) },
   {
     title: mixed,
     items: range(1, 6).map((n) => ({
@@ -516,6 +516,19 @@ mockIPC(
         const kind = rows === albums ? "albums" : (rows[0] as { imageKey?: string })?.imageKey ? "artists" : "tracks";
         return { kind, items: rows.slice(a.offset as number, (a.offset as number) + (a.limit as number)) };
       }
+      case "library_search": {
+        const q = String(a.query).toLowerCase();
+        const hit = (s: string) => s.toLowerCase().includes(q);
+        return {
+          tracks: allTracks.filter((t) => hit(t.title) || t.artists.some((x) => hit(x.name))).slice(0, a.limit as number),
+          albums: albums.filter((x) => hit(x.title) || x.artists.some((y) => hit(y.name))),
+          artists: ARTISTS.map((name, i) => ({ id: artist(i).id, name, imageKey: `demo-artist-${i}`, inLibrary: true, palette: [] })).filter((x) => hit(x.name)),
+          playlists: [],
+        };
+      }
+      case "queue_move":
+      case "queue_jump":
+        return null;
       case "stats_get":
         return demoStats(a.period as string);
       case "integrations_status":
