@@ -16,14 +16,15 @@
   import { menu } from "$lib/stores/overlay.svelte";
   import { t } from "$lib/i18n";
   import { fade } from "svelte/transition";
-  import { fadeSpring, pop, sheet, springs } from "$lib/motion";
-  import { trackMenu } from "$lib/ui/trackMenu";
+  import { fadeSpring, pop, pressable, sheet, springs } from "$lib/motion";
+  import { setLiked, trackMenu } from "$lib/ui/trackMenu";
   import Cover from "$lib/ui/Cover.svelte";
   import Transport from "$lib/ui/Transport.svelte";
   import Timeline from "$lib/ui/Timeline.svelte";
   import Volume from "$lib/ui/Volume.svelte";
   import IconCollapse from "~icons/solar/alt-arrow-down-linear";
-  import IconPlus from "~icons/lucide/plus";
+  import IconHeart from "~icons/solar/heart-bold";
+  import IconHeartLine from "~icons/solar/heart-linear";
   import IconLyrics from "~icons/solar/microphone-2-linear";
   import IconQueue from "~icons/solar/playlist-minimalistic-linear";
   import QueuePanel from "$lib/ui/QueuePanel.svelte";
@@ -149,12 +150,13 @@
           <Cover coverKey={track.coverKey} size={coverSize} rounded="lg" class="shadow-[0_30px_80px_-24px_rgb(0_0_0/0.95)]" />
           <button
             type="button"
-            aria-label={t.fullscreen.more}
-            data-tip={t.fullscreen.more}
+            aria-label={track.liked ? t.track.unlike : t.track.like}
+            data-tip={track.liked ? t.track.unlike : t.track.like}
             class="absolute right-2.5 bottom-2.5 grid size-7 place-items-center rounded-full bg-black/45 text-ink backdrop-blur transition-colors hover:bg-black/65"
-            onclick={(e) => menu.showAt(trackMenu(track), e.currentTarget)}
+            {@attach pressable(0.8)}
+            onclick={() => setLiked(track, !track.liked)}
           >
-            <IconPlus class="size-4" />
+            {#if track.liked}<IconHeart class="size-4" />{:else}<IconHeartLine class="size-4" />{/if}
           </button>
         </div>
 

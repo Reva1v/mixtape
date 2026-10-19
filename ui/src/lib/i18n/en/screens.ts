@@ -184,7 +184,6 @@ export const screens = {
   fullscreen: {
     collapse: "Collapse",
     collapseTip: "Collapse (Esc)",
-    more: "More",
   },
   app: {
     backTip: "Back · Alt + ←",

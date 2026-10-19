@@ -184,7 +184,6 @@ export const screens: typeof en = {
   fullscreen: {
     collapse: "Свернуть",
     collapseTip: "Свернуть (Esc)",
-    more: "Ещё",
   },
   app: {
     backTip: "Назад · Alt + ←",
