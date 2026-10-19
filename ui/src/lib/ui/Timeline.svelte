@@ -34,7 +34,7 @@
     oninput={(v) => (scrub = v)}
     onchange={(v) => {
       scrub = null;
-      if (duration) void player.seek(v);
+      if (duration) void player.scrubTo(v);
     }}
   />
   <span class="w-10 text-[11.5px] text-ink-3 tnum {compact ? 'hidden' : ''}">{formatTime(duration)}</span>

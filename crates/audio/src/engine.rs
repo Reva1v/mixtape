@@ -328,6 +328,9 @@ struct State {
     /// The last decode step had to wait for a download.
     starved: bool,
     transitions: Vec<Transition>,
+    /// Where the user last sought to: `(seq, out_pos)` of that head. A seek into the tail
+    /// that would already be in the automatic transition plays the track to its end instead.
+    seek_mark: Option<(u64, u64)>,
 }
 
 impl State {
@@ -371,6 +374,7 @@ impl State {
             waiting: None,
             starved: false,
             transitions: Vec::new(),
+            seek_mark: None,
         }
     }
 
@@ -804,6 +808,7 @@ impl State {
         let started = self.timeline.started();
         self.flush();
         self.reprime(ms, started);
+        self.mark_seek();
         self.primed_at = Instant::now();
         self.emit(EngineEvent::Position { id, ms });
     }
@@ -880,9 +885,21 @@ impl State {
             return false;
         };
         let started = self.timeline.started();
+        // Restarting the track the user sought in keeps it out of the transition.
+        let marked = self
+            .seek_mark
+            .is_some_and(|(seq, _)| self.slots.front().is_some_and(|p| p.seq == seq));
         self.flush();
         self.reprime(ms, started);
+        if marked {
+            self.mark_seek();
+        }
         true
+    }
+
+    /// Remembers that the user sought to where the head is now.
+    fn mark_seek(&mut self) {
+        self.seek_mark = self.slots.back().map(|p| (p.seq, p.out_pos()));
     }
 
     /// Restarts decoding of the audible track at `ms` into an empty ring. A successor that was
@@ -1108,6 +1125,10 @@ impl State {
         if !b.crossfade {
             return None;
         }
+        // Sought past where the transition starts: play to the end, then gapless.
+        let sought = self
+            .seek_mark
+            .and_then(|(seq, at)| (seq == a.seq).then_some(at));
         if let Some(plan) = self.smart_plan(a, b)
             && a.out_pos() <= plan.start
         {
@@ -1124,7 +1145,7 @@ impl State {
         let len = (self.rate() as u64 * self.crossfade_ms as u64 / 1000)
             .min(la / 2)
             .min(lb / 2);
-        (len > 0).then_some(AutoFade {
+        (len > 0 && sought.is_none_or(|at| at < la - len)).then_some(AutoFade {
             start: la - len,
             len,
             smart: None,
@@ -1532,6 +1553,13 @@ mod tests {
     /// A (2 s) at "480 BPM" — bars of 500 ms, outro from 1.5 s — into B (1 s) at "500 BPM"
     /// with its first beat at 20 ms.
     fn smart_run(crossfade_ms: u32, b: Source) -> Played {
+        let (mut st, rx) = smart_start(crossfade_ms, b);
+        let mut p = Played::default();
+        play(&mut st, &rx, &mut p, u64::MAX);
+        p
+    }
+
+    fn smart_start(crossfade_ms: u32, b: Source) -> (State, Receiver<EngineEvent>) {
         let (tx, rx) = crossbeam_channel::unbounded();
         let mut st = State::new(tx);
         st.crossfade_ms = crossfade_ms;
@@ -1541,9 +1569,7 @@ mod tests {
             .unwrap();
         st.start_head(a, 0, false);
         st.next_src = Some(b);
-        let mut p = Played::default();
-        play(&mut st, &rx, &mut p, u64::MAX);
-        p
+        (st, rx)
     }
 
     fn b_grid() -> TrackAnalysis {
@@ -1752,6 +1778,53 @@ mod tests {
         play(&mut st, &rx, &mut p, u64::MAX);
         assert_eq!(p.story(), ["+a", "+b", "-a", "-b"]);
         assert!((p.frames() - seeked).abs_diff(RATE * 8 / 10) <= FRAME);
+    }
+
+    /// Plays `st` to `RATE / 2`, seeks A to `ms` and plays the rest: frames played after the
+    /// seek.
+    fn seek_and_play(st: &mut State, rx: &Receiver<EngineEvent>, p: &mut Played, ms: u64) -> u64 {
+        play(st, rx, p, RATE / 2);
+        st.seek(ms);
+        let seeked = st.written;
+        play(st, rx, p, u64::MAX);
+        p.frames() - seeked
+    }
+
+    #[test]
+    fn seek_into_the_crossfade_tail_plays_to_the_end() {
+        // The 400 ms crossfade would start at 1.6 s: sought past it, A ends, then B, gapless.
+        let (mut st, rx) = start(400, A, Some(src(B, true)));
+        let mut p = Played::default();
+        let after = seek_and_play(&mut st, &rx, &mut p, 1800);
+        assert_eq!(p.story(), ["+a", "-a", "+b", "-b"]);
+        assert!(after.abs_diff(RATE * 12 / 10) <= FRAME, "{after}");
+        assert!(p.ended_ms(A).abs_diff(2000) <= 20);
+
+        // Before the tail: the crossfade as usual.
+        let (mut st, rx) = start(400, A, Some(src(B, true)));
+        let mut p = Played::default();
+        let after = seek_and_play(&mut st, &rx, &mut p, 1000);
+        assert_eq!(p.story(), ["+a", "+b", "-a", "-b"]);
+        assert!(after.abs_diff(RATE * 16 / 10) <= FRAME, "{after}");
+    }
+
+    #[test]
+    fn seek_into_the_smart_transition_plays_to_the_end() {
+        // The smart transition would start at 1.5 s, the 300 ms crossfade at 1.7 s.
+        let (mut st, rx) = smart_start(300, analysed(B, b_grid(), true));
+        let mut p = Played::default();
+        let after = seek_and_play(&mut st, &rx, &mut p, 1800);
+        assert_eq!(p.story(), ["+a", "-a", "+b", "-b"]);
+        assert!(after.abs_diff(RATE * 12 / 10) <= FRAME, "{after}");
+
+        // Before the smart start: the planned transition on its downbeat.
+        let (mut st, rx) = smart_start(300, analysed(B, b_grid(), true));
+        let mut p = Played::default();
+        seek_and_play(&mut st, &rx, &mut p, 1000);
+        assert_eq!(p.story(), ["+a", "+b", "-a", "-b"]);
+        let start_b = p.at(|e| matches!(e, EngineEvent::Started { id, .. } if id == B));
+        // Sought at 0.5 s played: 1 s → 1.5 s of A is another 0.5 s.
+        assert!(start_b.abs_diff(RATE) <= 2 * FRAME, "B starts at {start_b}");
     }
 
     /// A sparse file for fixture `name` with nothing downloaded, and the bytes to download.

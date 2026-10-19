@@ -95,6 +95,12 @@ class Player {
     this.#receivedAt = performance.now();
     return invoke("player_seek", { positionMs: Math.round(positionMs) });
   }
+  /** A seek picked on a timeline: never past the last second, so dragging to the very end
+   * still plays the end instead of moving on to the next track. */
+  scrubTo(positionMs: number) {
+    const last = Math.max(0, this.state.durationMs - 1000);
+    return this.seek(Math.min(Math.max(positionMs, 0), last));
+  }
   setVolume(volume: number) {
     this.state.volume = volume;
     return invoke("player_set_volume", { volume });

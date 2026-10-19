@@ -60,7 +60,7 @@
   function seekNow() {
     if (!scrub) return;
     lastSeek = performance.now();
-    void player.seek(scrub.ms);
+    void player.scrubTo(scrub.ms);
   }
 </script>
 
