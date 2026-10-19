@@ -221,6 +221,7 @@
     </EmptyState>
   {:else if loaded && rows && rows.count === 0}
     <EmptyState icon={IconLibrary} title={t.library.empty} hint={t.library.emptyHint}>
+      {#if import.meta.env.DEV}
       <button
         type="button"
         class="h-9 rounded-full bg-fill-2 px-4 text-[13px] font-medium text-ink-2 hover:bg-fill-3 hover:text-ink"
@@ -228,6 +229,7 @@
       >
         {t.libraryScreen.importFolder}
       </button>
+      {/if}
     </EmptyState>
   {:else if rows}
     {#key viewId}

@@ -187,7 +187,12 @@ fn trim(st: &AppState, limit: u64) -> CmdResult<()> {
 
 #[tauri::command]
 pub fn open_data_dir(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
-    std::process::Command::new("explorer")
+    // By full path, so an explorer.exe in the working directory or on PATH never runs.
+    let windows = std::env::var_os("SystemRoot")
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .unwrap_or_else(|| r"C:\Windows".into());
+    std::process::Command::new(windows.join("explorer.exe"))
         .arg(&state.paths.root)
         .spawn()
         .map(drop)

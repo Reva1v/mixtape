@@ -423,6 +423,8 @@
     </div>
   </section>
 
+  <!-- Folder import is a development helper; release builds do not have the command. -->
+  {#if import.meta.env.DEV}
   <section class="mt-8">
     <h2 class="mb-3 text-[13px] font-semibold tracking-wide text-ink-3 uppercase">{t.nav.library}</h2>
     <div class="divide-y divide-line overflow-hidden rounded-lg bg-white/[0.04]">
@@ -443,4 +445,5 @@
       )}
     </div>
   </section>
+  {/if}
 </div>

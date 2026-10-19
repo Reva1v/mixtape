@@ -1,5 +1,5 @@
 [env]
 # ts-rs writes generated TypeScript bindings here when `cargo test` runs.
 TS_RS_EXPORT_DIR = { value = "ui/src/lib/ipc/bindings", relative = true }
-# libopus (bundled via opusic-sys) needs cmake; use the one shipped with VS Build Tools.
-CMAKE = "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe"
+# libopus (bundled via opusic-sys) needs cmake: put it on PATH or set CMAKE to cmake.exe
+# (VS Build Tools ships one under Common7/IDE/CommonExtensions/Microsoft/CMake). See README.

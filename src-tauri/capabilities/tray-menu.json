@@ -1,12 +1,20 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "tray-menu",
-  "description": "The tray icon's menu: hears the player's events while open; actions are app commands",
+  "description": "The tray icon's menu: hears the player's events while open; may call only its own commands and the player buttons it shows",
   "windows": [
     "tray-menu"
   ],
   "permissions": [
     "core:event:allow-listen",
-    "core:event:allow-unlisten"
+    "core:event:allow-unlisten",
+    "allow-tray-menu-snapshot",
+    "allow-tray-menu-reveal",
+    "allow-tray-menu-hide",
+    "allow-tray-menu-action",
+    "allow-player-toggle",
+    "allow-player-prev",
+    "allow-player-next",
+    "allow-track-set-liked"
   ]
 }

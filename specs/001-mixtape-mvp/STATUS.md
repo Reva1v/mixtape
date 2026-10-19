@@ -19,8 +19,8 @@
     полноэкранный плеер, очередь (боковая и «шторка» в полноэкранном), горячие клавиши + «?».
   - Dev-импорт папки (Настройки → Библиотека → «Выбрать папку…»), обложка = картинка рядом.
 - Иконка: «Бургунди 3» (эквалайзер, `assets/logo.svg`).
-- **US2 (выкачка из YouTube Music) — сделан и проверен на аккаунте пользователя:** вход через
-  окно Google работает, синк плейлиста «Like» (277) скачан целиком (1 трек недоступен на YouTube).
+- **US2 (выкачка из YouTube Music) — сделан и проверен вживую:** вход через окно Google
+  работает, синк плейлиста лайков скачивается целиком (недоступные на YouTube треки пропускаются).
   - `crates/yt`: cookies (Netscape / EditThisCookie JSON) + SAPISIDHASH, свой InnerTube-клиент
     вместо RustyPipe (лайки, плейлисты, альбомы, подписки, страницы альбома/плейлиста/артиста,
     один трек через `next`), `StreamResolver` (yt-dlp пачками по 5, кэш URL), `Pacer`
@@ -40,11 +40,10 @@
     фото хранится (миграция 002) — шапка страницы исполнителя в его цветах.
   - При старте: тестовые локальные импорты (`local…`) сливаются с YTM-двойниками
     (`ytm::merge_local_twins`), имена без id привязываются к исполнителям
-    (`ytm::link_artists_by_name`, иначе создаётся `localart…`). Бэкап базы до слияния —
-    `%LOCALAPPDATA%\Mixtape\backup-2026-10-17-before-merge`.
+    (`ytm::link_artists_by_name`, иначе создаётся `localart…`).
   - Ссылка на исполнителя в «Добавить по ссылке» ставит в загрузки всю дискографию;
     синк повторяется сам раз в 12 ч с последним выбранным набором источников (`sync_plan`).
-  - Не сделано: замена клипа на аудио-версию (35 из 288 лайков — клипы без альбома;
+  - Не сделано: замена клипа на аудио-версию (часть лайков — клипы без альбома;
     нужна колонка «источник аудио» в tracks).
 
 - **US5 (тексты) — сделан:** `crates/sync::lyrics` (lrclib `/api/get` → `/api/search` ±2 с,
@@ -181,7 +180,8 @@
 - Языки: English, Українська, Русский (порядок в списке именно такой). Строки UI — только через `t` из `$lib/i18n` (словари `ui/src/lib/i18n/{en,uk,ru}/{base,screens,ui}.ts`, en — эталон формы); сообщения ядра — `mixtape_core::tr` / `trf!`. YouTube отвечает на языке приложения (`hl`), парсеры обязаны понимать en/uk/ru.
 - Скриншоты для README — только из демо-мока (`?mock&lang=..&scene=..`), никогда из реальной библиотеки.
 
-- Релиз: поднять версию в `src-tauri/tauri.conf.json` и `Cargo.toml`, затем `./scripts/release.ps1 -Notes <файл>` — подписанный установщик + `latest.json` в GitHub Releases. Ключ подписи обновлений — `.secrets/tauri-updater.key` (не в git, нужна резервная копия: без него установленные копии не примут новые версии). Обновления заработают у пользователей, когда репозиторий станет публичным.
+- Релиз: поднять версию в `src-tauri/tauri.conf.json` и `Cargo.toml`, затем `./scripts/release.ps1 -Notes <файл>` — сборка без ключа, потом подпись установщика (`tauri signer sign`, пароль ключа из `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` или запросом) + `latest.json` в GitHub Releases. Ключ подписи обновлений — `.secrets/tauri-updater.key` (не в git, нужна резервная копия: без него установленные копии не примут новые версии). Обычному `pnpm tauri build` ключ не нужен.
+- Безопасность (2026-10-19): yt-dlp всегда через `resolver::ytdlp_command` (`--ignore-config --no-plugin-dirs`, рабочая папка — tmp приложения, `--` перед ссылками, дерево процессов убивается и при отмене); ссылки из JSON yt-dlp проверяются (`external::safe_url`); `TrackId` из внешних данных — только `[A-Za-z0-9_-]{1,64}`; обложки — только https с известных CDN (`thumbs::is_allowed`), тела ответов ограничены (`innertube::read_limited`), декодер обложек с лимитами; окно входа ходит только по Google/YouTube; ACL Tauri: новые команды добавлять в `COMMANDS` в `src-tauri/build.rs` и в capability (`capabilities/default.json` — главное окно, `tray-menu.json` — меню трея); `dev_import_folder` только в debug-сборке.
 
 - Окно: window-state НЕ сохраняет/восстанавливает видимость (иначе мигание при скрытом автозапуске); мини-плеер — тот же главный webview в компактном режиме (второе окно не создаём ради памяти); оверлей snap-layouts плагина frame в мини-режиме скрыт. Автозапуск хранится только в реестре (HKCU Run), не в Prefs.
 - Меню значка в трее — своё, не системное: отдельное маленькое окно `tray-menu` (прозрачное, без рамки, поверх всех, без кнопки на панели задач) со страницей `ui/tray-menu.html` (свой вход Vite, не грузит приложение). Создаётся при первом правом клике, между открытиями скрыто, через 2 мин простоя закрывается (WM_CLOSE — плагин frame снимает свой snap-оверлей). Показ и скрытие ведёт страница (`tray_menu_snapshot` → `tray_menu_reveal`; перед `tray_menu_hide` рисует пустой кадр). Кнопки ⏮ ▶ ⏭ и лайк меню не закрывают, пункты окна — закрывают. Код: `src-tauri/src/tray_menu.rs`, `ui/src/lib/trayMenu/`; смотреть в браузере: `/tray-menu.html?mock` (`&idle`, `&paused`, `&shown`, `&mini`, `&lang=uk`).
@@ -194,13 +194,13 @@
 - Приложение: `pnpm tauri dev --no-watch` из корня (без слежения за Rust, чтобы пересборки
   не закрывали окно). После правок Rust — остановить `mixtape.exe` и запустить заново.
   UI обновляется на лету (Vite HMR); если «залип» — `touch ui/src/main.ts` или Ctrl+R.
-- Тесты: `cargo test --workspace`, `cargo clippy --workspace -- -D warnings`, `pnpm -C ui check`.
-- `.cargo/config.toml` задаёт `CMAKE` (libopus) и `TS_RS_EXPORT_DIR` (TS-типы из Rust).
-- Репозиторий: приватный https://github.com/Reva1v/mixtape (ветка main, пушить после коммитов по просьбе).
-- Секреты: `.secrets/cookies.txt` (YouTube Music cookies пользователя, в .gitignore).
-- Тестовая музыка: `C:\Users\Reva1v\AppData\Local\Temp\claude\D--Projects-liner\<session>\scratchpad\testmusic`
-  (16 треков из лайков с обложками); yt-dlp и deno — `src-tauri/binaries/` (скрипт
-  `scripts/fetch-sidecars.ps1`).
+- Тесты: `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `pnpm -C ui check`.
+- `.cargo/config.toml` задаёт `TS_RS_EXPORT_DIR` (TS-типы из Rust); cmake для libopus — из `PATH` или
+  переменной `CMAKE` (в репозитории пути нет, см. README).
+- Репозиторий: https://github.com/Reva1v/mixtape (ветка main, пушить после коммитов по просьбе).
+- Секреты: `.secrets/cookies.txt` (cookies YouTube Music для живых проверок, в .gitignore).
+- yt-dlp и deno — `src-tauri/binaries/` (скрипт `scripts/fetch-sidecars.ps1`: версии
+  зафиксированы, SHA-256 проверяется).
 - Не воспроизводить звук самому и не давать агентам открывать аудиоустройство — пользователь
   в наушниках.
 
@@ -242,12 +242,9 @@
    (discord.com/developers, приложение «Mixtape», ассет `mixtape`) → пересобрать.
 4. **Новый релиз 0.2.0**: поднять версию в `src-tauri/tauri.conf.json` и `Cargo.toml`,
    написать заметки, `./scripts/release.ps1 -Notes <файл>`. Установленная 0.1.0 без
-   апдейтера — 0.2.0 ставится вручную, дальше обновится сама, когда репозиторий станет
-   публичным (пользователь сделает это позже). Ключ `.secrets/tauri-updater.key` —
-   напомнить сделать резервную копию.
-5. Хвост: папка `.claude/worktrees/agent-a32da2f65a3100fb6` (Spotify, уже влит) не
-   удалилась — её держал процесс; удалить (`git worktree prune` + rm).
-6. Мелочи из отчётов агентов: Ctrl+1–4 не включает «Статистику»; в эмбеде Spotify
+   апдейтера — 0.2.0 ставится вручную, дальше обновляется сама. Ключ
+   `.secrets/tauri-updater.key` — напомнить сделать резервную копию.
+5. Мелочи из отчётов агентов: Ctrl+1–4 не включает «Статистику»; в эмбеде Spotify
    эпизоды могут сбить подсчёт 100; таймзона статистики берёт текущий сдвиг для всех
    событий; «Удалить из библиотеки» в меню трека неактивен.
 

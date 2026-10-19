@@ -1,8 +1,98 @@
 use std::path::Path;
 
+/// Every command in `generate_handler!` (`src/lib.rs`). Listing them gives each an
+/// `allow-<command>` permission and makes the ACL deny any command a window's capability
+/// (`capabilities/*.json`) does not grant: the tray menu window can call only the few it
+/// needs. A new command goes here and into a capability, or the UI gets "not allowed".
+const COMMANDS: &[&str] = &[
+    "app_ready",
+    "window_set_mini",
+    "window_is_mini",
+    "tray_menu_snapshot",
+    "tray_menu_reveal",
+    "tray_menu_hide",
+    "tray_menu_action",
+    "autostart_get",
+    "autostart_set",
+    "library_view",
+    "library_rows",
+    "library_search",
+    "track_get",
+    "album_get",
+    "artist_get",
+    "playlist_get",
+    "playlist_edit",
+    "catalog_search",
+    "catalog_more",
+    "catalog_suggest",
+    "artist_catalog",
+    "artist_songs",
+    "catalog_download",
+    "track_set_liked",
+    "track_download",
+    "mix_start",
+    "mix_select_chip",
+    "mix_continue_local",
+    "home_get",
+    "home_shelves",
+    "mix_start_playlist",
+    "player_subscribe",
+    "play",
+    "player_toggle",
+    "player_next",
+    "player_prev",
+    "player_seek",
+    "player_set_volume",
+    "player_set_repeat",
+    "player_set_shuffle",
+    "queue_get",
+    "queue_add",
+    "queue_remove",
+    "queue_move",
+    "queue_clear",
+    "queue_jump",
+    "lyrics_get",
+    "stats_get",
+    "dev_import_folder",
+    "prefs_get",
+    "prefs_set",
+    "storage_get",
+    "storage_set_cache_limit",
+    "storage_set_autosave",
+    "cache_clear",
+    "net_status",
+    "open_data_dir",
+    "integrations_status",
+    "lastfm_connect",
+    "lastfm_confirm",
+    "lastfm_disconnect",
+    "account_status",
+    "account_connect_cookies",
+    "account_connect_webview",
+    "account_disconnect",
+    "sync_preview",
+    "sync_start",
+    "import_url",
+    "spotify_import",
+    "spotify_cancel",
+    "spotify_download",
+    "downloads_pause",
+    "downloads_resume",
+    "download_retry",
+    "downloads_failed",
+    "downloads_subscribe",
+    "app_version",
+    "update_check",
+    "update_install",
+];
+
 fn main() {
     secrets();
-    tauri_build::build()
+    tauri_build::try_build(
+        tauri_build::Attributes::new()
+            .app_manifest(tauri_build::AppManifest::new().commands(COMMANDS)),
+    )
+    .expect("failed to run tauri-build");
 }
 
 /// Last.fm and Discord keys are not in the repository. They come from the environment at

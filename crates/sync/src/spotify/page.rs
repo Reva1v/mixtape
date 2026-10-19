@@ -12,6 +12,7 @@
 
 use super::{SourceTrack, SpotifyError, SpotifyKind, SpotifyLink};
 use serde_json::{Value, json};
+use mixtape_yt::innertube::{BodyError, MAX_JSON_BYTES, read_limited};
 
 /// Tracks the embed page lists at most.
 pub const EMBED_LIMIT: usize = 100;
@@ -192,7 +193,11 @@ fn pathfinder_body(id: &str, offset: usize) -> Value {
 async fn get_text(req: reqwest::RequestBuilder) -> Result<String, SpotifyError> {
     let resp = req.send().await?;
     match resp.status() {
-        s if s.is_success() => Ok(resp.text().await?),
+        s if s.is_success() => match read_limited(resp, MAX_JSON_BYTES).await {
+            Ok(body) => Ok(String::from_utf8_lossy(&body).into_owned()),
+            Err(BodyError::Http(e)) => Err(e.into()),
+            Err(e @ BodyError::TooLarge(_)) => Err(SpotifyError::Parse(e.to_string())),
+        },
         reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::FORBIDDEN => {
             Err(SpotifyError::NotFound)
         }

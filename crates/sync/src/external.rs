@@ -16,7 +16,7 @@
 //! album); a SoundCloud set becomes a local playlist, and its tracks are credited to it as an
 //! album when SoundCloud marks the set as an album or EP. Everything else is a single.
 
-use crate::url_import::{ExternalKind, ExternalLink, Site};
+use crate::url_import::{ExternalKind, ExternalLink, Site, parse_external};
 use md5::{Digest, Md5};
 use mixtape_artwork::{CoverStore, Detail};
 use mixtape_core::{
@@ -125,6 +125,32 @@ fn str_of<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
         .filter(|s| !s.is_empty())
 }
 
+/// Only https links on the site's own hosts go back to yt-dlp: the listing is remote data
+/// and could otherwise point it at any URL (and any of its extractors). Returns the URL
+/// normalised.
+pub fn safe_url(site: Site, raw: &str) -> Option<String> {
+    let u = url::Url::parse(raw).ok()?;
+    if u.scheme() != "https"
+        || !u.username().is_empty()
+        || u.password().is_some()
+        || u.port().is_some()
+    {
+        return None;
+    }
+    let host = u.host_str()?.to_ascii_lowercase();
+    let on_site = |domain: &str| {
+        host == domain
+            || host
+                .strip_suffix(domain)
+                .is_some_and(|sub| sub.ends_with('.') && sub.len() > 1)
+    };
+    let ok = match site {
+        Site::SoundCloud => on_site("soundcloud.com"),
+        Site::Bandcamp => on_site("bandcamp.com"),
+    };
+    ok.then(|| u.into())
+}
+
 /// yt-dlp ids are strings, but be lenient.
 fn id_of(v: &Value) -> Option<String> {
     match v.get("id")? {
@@ -153,7 +179,9 @@ pub fn parse_listing(link: &ExternalLink, v: &Value) -> Result<Listing, String> 
             .or(str_of(v, "title"))
             .unwrap_or_default()
             .to_owned();
-        let url = str_of(v, "webpage_url").unwrap_or(&link.url).to_owned();
+        let url = str_of(v, "webpage_url")
+            .and_then(|u| safe_url(site, u))
+            .unwrap_or_else(|| link.url.clone());
         return Ok(Listing {
             link: ExternalLink {
                 kind: ExternalKind::Track,
@@ -175,7 +203,11 @@ pub fn parse_listing(link: &ExternalLink, v: &Value) -> Result<Listing, String> 
         .flatten()
         .filter_map(|e| {
             let id = id_of(e)?;
-            let url = str_of(e, "url").or(str_of(e, "webpage_url"))?.to_owned();
+            let url = str_of(e, "url").or(str_of(e, "webpage_url"))?;
+            let Some(url) = safe_url(site, url) else {
+                tracing::warn!(url, "external import: entry link off the site, skipped");
+                return None;
+            };
             let id = track_id(site, &id);
             seen.insert(id.clone()).then_some(Entry { id, url })
         })
@@ -388,20 +420,26 @@ fn ytdlp_error(stderr: &str) -> String {
     trf!("yt-dlp: {reason}", "yt-dlp: {reason}", "yt-dlp: {reason}")
 }
 
-fn ytdlp_cmd(ytdlp: &Path) -> Command {
-    let mut cmd = Command::new(ytdlp);
+/// yt-dlp without config files or plugins, running in `work_dir` (see
+/// [`mixtape_yt::resolver::ytdlp_command`]).
+fn ytdlp_cmd(ytdlp: &Path, work_dir: &Path) -> Command {
+    let mut cmd = mixtape_yt::resolver::ytdlp_command(ytdlp, work_dir);
     cmd.args(["--no-warnings", "--no-progress", "--encoding", "utf-8"]);
     cmd
 }
 
-/// The link's title and tracks (one yt-dlp process).
+/// The link's title and tracks (one yt-dlp process). It writes nothing; it runs in the
+/// system temporary folder.
 pub async fn list(ytdlp: &Path, link: &ExternalLink) -> Result<Listing, String> {
-    let mut cmd = ytdlp_cmd(ytdlp);
+    let link = &parse_external(&link.url)
+        .filter(|l| l.site == link.site)
+        .ok_or_else(|| tr("Unsupported link", "Непідтримуване посилання", "Неподдерживаемая ссылка").to_owned())?;
+    let mut cmd = ytdlp_cmd(ytdlp, &std::env::temp_dir());
     cmd.args(["-J", "--flat-playlist"]);
     if link.kind == ExternalKind::Profile {
         cmd.arg("--playlist-end").arg(PROFILE_LIMIT.to_string());
     }
-    cmd.arg(&link.url);
+    cmd.arg("--").arg(&link.url);
     let (out, err) = mixtape_yt::resolver::run_capture(cmd, LIST_TIMEOUT).await?;
     let v: Value = serde_json::from_str(out.trim()).map_err(|_| ytdlp_error(&err))?;
     parse_listing(link, &v)
@@ -414,11 +452,17 @@ async fn download(
     id: &TrackId,
     url: &str,
 ) -> Result<(Value, PathBuf), String> {
+    if !id.is_safe() {
+        return Err(format!("invalid track id {:?}", id.as_str()));
+    }
     let dir = root.join("library");
-    tokio::fs::create_dir_all(&dir)
-        .await
-        .map_err(|e| e.to_string())?;
-    let mut cmd = ytdlp_cmd(ytdlp);
+    let work = root.join("tmp");
+    for d in [&dir, &work] {
+        tokio::fs::create_dir_all(d)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    let mut cmd = ytdlp_cmd(ytdlp, &work);
     cmd.args([
         "-f",
         FORMATS,
@@ -430,6 +474,7 @@ async fn download(
     ])
     .args(["--no-mtime", "--print", "after_move:%()j", "-o"])
     .arg(dir.join(format!("{id}.%(ext)s")))
+    .arg("--")
     .arg(url);
     let (out, err) = mixtape_yt::resolver::run_capture(cmd, TRACK_TIMEOUT).await?;
     let info: Value = out
@@ -441,7 +486,22 @@ async fn download(
         .map(PathBuf::from)
         .filter(|p| p.is_file())
         .ok_or_else(|| ytdlp_error(&err))?;
+    // The path comes from yt-dlp's output; it is rewritten and deleted later, so it must be
+    // the file this call asked for.
+    let file = library_file(&dir, id, &file).ok_or_else(|| {
+        format!("yt-dlp wrote an unexpected file: {}", file.display())
+    })?;
     Ok((info, file))
+}
+
+/// `file` resolved, when it is `<dir>/<id>.<ext>` (no links or `..` leading elsewhere).
+fn library_file(dir: &Path, id: &TrackId, file: &Path) -> Option<PathBuf> {
+    let dir = std::fs::canonicalize(dir).ok()?;
+    let file = std::fs::canonicalize(file).ok()?;
+    let name = file.file_name()?.to_str()?;
+    let ext = name.strip_prefix(id.as_str())?.strip_prefix('.')?;
+    let plain_ext = !ext.is_empty() && ext.len() <= 8 && ext.bytes().all(|b| b.is_ascii_alphanumeric());
+    (file.parent()? == dir && plain_ext && file.is_file()).then_some(file)
 }
 
 /// Downloads the listing's tracks one by one and stores them; `progress(done, total)` after
@@ -610,7 +670,6 @@ fn save_playlist(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::url_import::parse_external;
 
     fn fixture(name: &str) -> Value {
         let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
@@ -806,6 +865,63 @@ mod tests {
         assert!(parse_listing(&link, &v).is_err());
         let v: Value = serde_json::json!({"_type": "playlist", "entries": [{"id": "1", "url": "https://soundcloud.com/u/a"}, {"id": "1", "url": "https://soundcloud.com/u/a"}, {"title": "no id"}]});
         assert_eq!(parse_listing(&link, &v).unwrap().entries.len(), 1);
+    }
+
+    #[test]
+    fn entry_links_must_stay_on_the_site() {
+        let sc = Site::SoundCloud;
+        assert_eq!(
+            safe_url(sc, "https://api-v2.soundcloud.com/tracks/1?secret_token=s-x").as_deref(),
+            Some("https://api-v2.soundcloud.com/tracks/1?secret_token=s-x")
+        );
+        for bad in [
+            "http://soundcloud.com/u/a",
+            "https://evil.com/soundcloud.com",
+            "https://soundcloud.com.evil.com/u/a",
+            "https://evilsoundcloud.com/u/a",
+            "https://user@soundcloud.com/u/a",
+            "https://soundcloud.com:8443/u/a",
+            "file:///C:/Windows/win.ini",
+            "--exec=calc",
+        ] {
+            assert_eq!(safe_url(sc, bad), None, "{bad}");
+        }
+        assert!(safe_url(Site::Bandcamp, "https://artist.bandcamp.com/track/x").is_some());
+        assert!(safe_url(Site::Bandcamp, "https://soundcloud.com/u/a").is_none());
+
+        let link = parse_external("https://soundcloud.com/u/sets/mix").unwrap();
+        let v = serde_json::json!({"_type": "playlist", "title": "Mix", "entries": [
+            {"id": "1", "url": "https://example.com/a"},
+            {"id": "2", "url": "https://soundcloud.com/u/b"}
+        ]});
+        let l = parse_listing(&link, &v).unwrap();
+        assert_eq!(l.entries.len(), 1);
+        assert_eq!(l.entries[0].url, "https://soundcloud.com/u/b");
+
+        let track = parse_external("https://soundcloud.com/u/b").unwrap();
+        let v = serde_json::json!({"id": "2", "title": "B", "webpage_url": "https://example.com/b"});
+        assert_eq!(parse_listing(&track, &v).unwrap().entries[0].url, "https://soundcloud.com/u/b");
+    }
+
+    #[test]
+    fn downloaded_file_must_be_the_requested_one() {
+        let root = std::env::temp_dir().join(format!("mixtape-ext-{}", std::process::id()));
+        let lib = root.join("library");
+        std::fs::create_dir_all(&lib).unwrap();
+        let id = track_id(Site::SoundCloud, "1");
+        let good = lib.join(format!("{id}.m4a"));
+        std::fs::write(&good, b"x").unwrap();
+        let other = lib.join("other.m4a");
+        std::fs::write(&other, b"x").unwrap();
+        let outside = root.join(format!("{id}.m4a"));
+        std::fs::write(&outside, b"x").unwrap();
+
+        assert!(library_file(&lib, &id, &good).is_some());
+        assert!(library_file(&lib, &id, &lib.join("..").join("library").join(format!("{id}.m4a"))).is_some());
+        assert!(library_file(&lib, &id, &other).is_none());
+        assert!(library_file(&lib, &id, &outside).is_none());
+        assert!(library_file(&lib, &id, &lib.join(format!("{id}.m4a.part"))).is_none());
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]

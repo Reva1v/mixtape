@@ -8,6 +8,7 @@ use mixtape_core::{AppError, ErrorKind, Track, tr, trf};
 use mixtape_library::{Db, lyrics as cache};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use mixtape_yt::innertube::{BodyError, MAX_JSON_BYTES, read_limited};
 use ts_rs::TS;
 
 const BASE: &str = "https://lrclib.net";
@@ -167,7 +168,12 @@ impl Lrclib {
             .expect("lrclib URL is valid");
         let resp = self.http.get(url).send().await?;
         match resp.status().as_u16() {
-            200 => Ok(Some(resp.bytes().await?.to_vec())),
+            200 => match read_limited(resp, MAX_JSON_BYTES).await {
+                Ok(body) => Ok(Some(body)),
+                Err(BodyError::Http(e)) => Err(e.into()),
+                // 413 Content Too Large: a lyrics answer is never anywhere near the cap.
+                Err(BodyError::TooLarge(_)) => Err(LyricsError::Http(413)),
+            },
             404 => Ok(None),
             code => Err(LyricsError::Http(code)),
         }

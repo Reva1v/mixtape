@@ -7,6 +7,7 @@
 //!   `maxresdefault`/`sddefault` are missing for many videos, so they are tried first and
 //!   `hqdefault` is the safe fallback.
 
+use crate::innertube::{BodyError, MAX_IMAGE_BYTES, read_limited};
 use crate::{Result, YtError};
 use mixtape_core::{tr, trf};
 
@@ -32,13 +33,50 @@ enum Shape<'a> {
     Other,
 }
 
+/// Image hosts covers are fetched from: YouTube / Google, and the CDNs of the other sources
+/// (Spotify, SoundCloud, Bandcamp). A host matches itself and its subdomains.
+const IMAGE_HOSTS: [&str; 8] = [
+    "googleusercontent.com",
+    "ggpht.com",
+    "ytimg.com",
+    "img.youtube.com",
+    "scdn.co",
+    "spotifycdn.com",
+    "sndcdn.com",
+    "bcbits.com",
+];
+
+fn on_domain(host: &str, domain: &str) -> bool {
+    host == domain
+        || host
+            .strip_suffix(domain)
+            .is_some_and(|sub| sub.len() > 1 && sub.ends_with('.'))
+}
+
+/// Whether a cover URL may be fetched: https, no credentials or odd port, and a known image
+/// host. Cover URLs come from remote JSON (YouTube, yt-dlp), so anything else is refused
+/// rather than requested.
+pub fn is_allowed(url: &str) -> bool {
+    let Ok(u) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    let Some(host) = u.host_str().map(str::to_ascii_lowercase) else {
+        return false;
+    };
+    u.scheme() == "https"
+        && u.username().is_empty()
+        && u.password().is_none()
+        && u.port().is_none()
+        && IMAGE_HOSTS.iter().any(|d| on_domain(&host, d))
+}
+
 fn shape(url: &str) -> Shape<'_> {
     let Some((_, rest)) = url.split_once("://") else {
         return Shape::Other;
     };
     let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
     let host = host.to_ascii_lowercase();
-    if host.ends_with("googleusercontent.com") || host.ends_with("ggpht.com") {
+    if on_domain(&host, "googleusercontent.com") || on_domain(&host, "ggpht.com") {
         let last_slash = url.rfind('/').unwrap_or(0);
         let base = match url.rfind('=') {
             Some(eq) if eq > last_slash => &url[..eq],
@@ -46,7 +84,7 @@ fn shape(url: &str) -> Shape<'_> {
         };
         return Shape::Google { base };
     }
-    if host.ends_with("ytimg.com") || host == "img.youtube.com" {
+    if on_domain(&host, "ytimg.com") || host == "img.youtube.com" {
         let path = path.split(['?', '#']).next().unwrap_or_default();
         let mut parts = path.split('/');
         if let (Some("vi" | "vi_webp"), Some(id), Some(file), None) =
@@ -85,9 +123,13 @@ pub fn hi_res(url: &str) -> String {
     }
 }
 
-/// URLs to try in order, largest first; the original URL is always among them.
+/// URLs to try in order, largest first; the original URL is always among them. None when
+/// the URL is not [allowed](is_allowed).
 pub fn candidates(url: &str) -> Vec<String> {
     let url = absolute(url);
+    if !is_allowed(&url) {
+        return Vec::new();
+    }
     let mut out = match shape(&url) {
         Shape::Google { base } => vec![format!("{base}={HI_RES_OPTIONS}")],
         Shape::Ytimg { id, name } => {
@@ -112,6 +154,9 @@ pub fn candidates(url: &str) -> Vec<String> {
 /// video frames have no small letterbox-free name, so they go the [`candidates`] way.
 pub fn small_candidates(url: &str) -> Vec<String> {
     let url = absolute(url);
+    if !is_allowed(&url) {
+        return Vec::new();
+    }
     let mut out = match shape(&url) {
         Shape::Google { base } => vec![format!("{base}={SMALL_OPTIONS}")],
         Shape::Ytimg { .. } => return candidates(&url),
@@ -157,10 +202,11 @@ async fn fetch_first(client: &reqwest::Client, urls: &[String]) -> Result<Vec<u8
             )));
             continue;
         }
-        match resp.bytes().await {
-            Ok(body) if !body.is_empty() => return Ok(body.to_vec()),
+        match read_limited(resp, MAX_IMAGE_BYTES).await {
+            Ok(body) if !body.is_empty() => return Ok(body),
             Ok(_) => last = Some(YtError::Unavailable(tr("Cover is empty", "Обкладинка порожня", "Обложка пустая").into())),
-            Err(e) => last = Some(YtError::from(e)),
+            Err(BodyError::Http(e)) => last = Some(YtError::from(e)),
+            Err(e @ BodyError::TooLarge(_)) => last = Some(YtError::Unavailable(e.to_string())),
         }
     }
     Err(last.unwrap_or_else(|| YtError::Unavailable(tr("No cover link", "Немає посилання на обкладинку", "Нет ссылки на обложку").into())))
@@ -262,12 +308,32 @@ mod tests {
     #[test]
     fn other_urls_are_left_alone() {
         for url in [
-            "https://example.com/a.jpg",
-            "not a url",
             "https://i.ytimg.com/an_webp/x/y/z.webp",
+            "https://i.scdn.co/image/ab67616d0000b273",
+            "https://i1.sndcdn.com/artworks-000067273316-smsiqx-t500x500.jpg",
+            "https://f4.bcbits.com/img/a1270682128_5.jpg",
         ] {
             assert_eq!(hi_res(url), url);
             assert_eq!(candidates(url), [url]);
+            assert_eq!(small_candidates(url), [url]);
+        }
+    }
+
+    #[test]
+    fn only_known_image_hosts_are_fetched() {
+        for url in [
+            "https://example.com/a.jpg",
+            "not a url",
+            "http://lh3.googleusercontent.com/AbC=s120",
+            "https://evilgoogleusercontent.com/AbC=s120",
+            "https://lh3.googleusercontent.com.evil.com/AbC=s120",
+            "https://user@i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+            "https://i.ytimg.com:8443/vi/dQw4w9WgXcQ/hqdefault.jpg",
+            "file:///C:/Windows/win.ini",
+            "https://127.0.0.1/a.jpg",
+        ] {
+            assert!(candidates(url).is_empty(), "{url}");
+            assert!(small_candidates(url).is_empty(), "{url}");
         }
     }
 
@@ -290,9 +356,12 @@ mod tests {
                         "/limited.jpg" => ("429 Too Many Requests", ""),
                         _ => ("404 Not Found", "placeholder"),
                     };
+                    // `/huge.jpg` announces more than an image may be.
+                    let huge = path == "/huge.jpg";
+                    let len = if huge { MAX_IMAGE_BYTES + 1 } else { body.len() };
+                    let status = if huge { "200 OK" } else { status };
                     let resp = format!(
-                        "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                        body.len()
+                        "HTTP/1.1 {status}\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n{body}"
                     );
                     let _ = sock.write_all(resp.as_bytes()).await;
                 });
@@ -320,5 +389,9 @@ mod tests {
             fetch_first(&client, &limited).await,
             Err(YtError::RateLimited)
         ));
+
+        let huge = [format!("{base}/huge.jpg")];
+        let err = fetch_first(&client, &huge).await.unwrap_err();
+        assert!(matches!(err, YtError::Unavailable(ref s) if s.contains("larger")), "{err:?}");
     }
 }

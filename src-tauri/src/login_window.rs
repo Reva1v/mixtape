@@ -38,7 +38,16 @@ pub async fn sign_in(st: &AppState) -> Result<AccountStatus, AppError> {
                 .inner_size(480.0, 720.0)
                 .center()
                 .focused(true)
-                .incognito(true);
+                .incognito(true)
+                // Only Google's sign-in and YouTube; links elsewhere and pop-ups go nowhere.
+                .on_navigation(|url| {
+                    let ok = allowed_navigation(url);
+                    if !ok {
+                        tracing::info!(host = ?url.host_str(), "sign-in window: navigation blocked");
+                    }
+                    ok
+                })
+                .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny);
             // Owned by the main window, so it always stays above it.
             if let Some(main) = st.app.get_webview_window("main") {
                 builder = builder.parent(&main).map_err(|e| AppError::new(ErrorKind::Internal, e.to_string()))?;
@@ -93,6 +102,34 @@ pub async fn sign_in(st: &AppState) -> Result<AccountStatus, AppError> {
 
 type Url = tauri::Url;
 
+/// Pages the sign-in window may open: https on Google's sign-in hosts (`accounts.google.com`
+/// and the rest of `google.com`, plus the country domains Google hops through to set its
+/// session, e.g. `accounts.google.co.uk`) and on YouTube (`accounts.youtube.com`,
+/// `consent.youtube.com`, `music.youtube.com`), and `about:blank`.
+fn allowed_navigation(url: &Url) -> bool {
+    if url.as_str() == "about:blank" {
+        return true;
+    }
+    if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
+        return false;
+    }
+    let Some(host) = url.host_str().map(str::to_ascii_lowercase) else { return false };
+    let on = |domain: &str| {
+        host == domain || host.strip_suffix(domain).is_some_and(|sub| sub.len() > 1 && sub.ends_with('.'))
+    };
+    if on("google.com") || on("youtube.com") {
+        return true;
+    }
+    // google.<cc>, google.co.<cc>, google.com.<cc> and their subdomains.
+    let labels: Vec<&str> = host.split('.').collect();
+    let cc = |l: &str| l.len() == 2 && l.bytes().all(|b| b.is_ascii_lowercase());
+    match labels.as_slice() {
+        [.., "google", tld] => cc(tld),
+        [.., "google", "co" | "com", tld] => cc(tld),
+        _ => false,
+    }
+}
+
 fn netscape(cookies: &[Cookie<'static>]) -> String {
     let mut out = String::from("# Netscape HTTP Cookie File\n");
     for c in cookies {
@@ -103,4 +140,43 @@ fn netscape(cookies: &[Cookie<'static>]) -> String {
         let _ = writeln!(out, "{domain}\tTRUE\t{}\t{secure}\t{expires}\t{}\t{}", c.path().unwrap_or("/"), c.name(), c.value());
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sign_in_window_stays_on_google_and_youtube() {
+        for ok in [
+            "https://accounts.google.com/ServiceLogin?service=youtube",
+            "https://accounts.google.com/v3/signin/challenge/pwd",
+            "https://myaccount.google.com/",
+            "https://accounts.youtube.com/accounts/SetSID",
+            "https://consent.youtube.com/m",
+            "https://music.youtube.com/",
+            "https://www.youtube.com/signin",
+            "https://accounts.google.co.uk/accounts/SetSID",
+            "https://www.google.com.ua/",
+            "https://google.de/",
+            "about:blank",
+        ] {
+            assert!(allowed_navigation(&ok.parse().unwrap()), "{ok}");
+        }
+        for bad in [
+            "http://accounts.google.com/",
+            "https://evil.com/",
+            "https://google.com.evil.com/",
+            "https://accounts.google.com.evil.io/",
+            "https://evilgoogle.com/",
+            "https://notyoutube.com/",
+            "https://user@accounts.google.com/",
+            "https://google.example/",
+            "file:///C:/Windows/win.ini",
+            "javascript:alert(1)",
+            "data:text/html,hi",
+        ] {
+            assert!(!allowed_navigation(&bad.parse().unwrap()), "{bad}");
+        }
+    }
 }

@@ -261,6 +261,22 @@ impl StreamResolver {
     }
 
     async fn run_batch(&self, ids: &[TrackId]) -> Vec<(TrackId, Result<ResolvedStream>)> {
+        // Ids go into yt-dlp's arguments; one that is not a plain id never gets there.
+        if ids.iter().any(|id| !id.is_safe()) {
+            let (safe, bad): (Vec<TrackId>, Vec<TrackId>) =
+                ids.iter().cloned().partition(TrackId::is_safe);
+            let mut out: Vec<(TrackId, Result<ResolvedStream>)> = bad
+                .into_iter()
+                .map(|id| {
+                    let reason = trf!("invalid id {id}", "неправильний id {id}", "неверный id {id}");
+                    (id, Err(YtError::Unavailable(reason)))
+                })
+                .collect();
+            if !safe.is_empty() {
+                out.extend(Box::pin(self.run_batch(&safe)).await);
+            }
+            return out;
+        }
         let started = Instant::now();
         let cookies = match self.write_cookie_copy().await {
             Ok(c) => c,
@@ -317,7 +333,14 @@ impl StreamResolver {
     }
 
     async fn run_ytdlp(&self, ids: &[TrackId], cookies: Option<&Path>) -> RunOutput {
-        let mut cmd = Command::new(&self.ytdlp);
+        if let Err(e) = tokio::fs::create_dir_all(&self.tmp_dir).await {
+            return RunOutput::failed(trf!(
+                "couldn't create the temporary folder: {e}",
+                "не вдалося створити тимчасову папку: {e}",
+                "не удалось создать временную папку: {e}",
+            ));
+        }
+        let mut cmd = ytdlp_command(&self.ytdlp, &self.tmp_dir);
         if let Some(path) = cookies {
             cmd.arg("--cookies").arg(path);
         }
@@ -333,7 +356,7 @@ impl StreamResolver {
                 "--no-playlist",
                 "--ignore-errors",
             ])
-            .args(["--encoding", "utf-8"])
+            .args(["--encoding", "utf-8", "--"])
             .args(
                 ids.iter()
                     .map(|id| format!("https://www.youtube.com/watch?v={id}")),
@@ -356,6 +379,7 @@ impl StreamResolver {
             }
         };
         let pid = child.id();
+        let mut guard = TreeGuard(pid);
         let mut stdout = child.stdout.take();
         let mut stderr = child.stderr.take();
         let mut out = Vec::new();
@@ -369,6 +393,7 @@ impl StreamResolver {
             status
         })
         .await;
+        guard.disarm();
         let failure = match finished {
             Ok(Ok(_)) => None,
             Ok(Err(e)) => Some(trf!("wait failed: {e}", "помилка очікування: {e}", "ошибка ожидания yt-dlp: {e}")),
@@ -476,12 +501,66 @@ async fn read_all<R: AsyncRead + Unpin>(src: &mut Option<R>, buf: &mut Vec<u8>) 
     }
 }
 
+/// A yt-dlp command hardened against the user's environment: no config files
+/// (a `yt-dlp.conf` next to the exe, in `%APPDATA%` or in the working directory could add
+/// `--exec` or change output paths) and no plugins, run in `work_dir` (the app's own
+/// temporary folder, which must exist) instead of whatever directory the app started in.
+/// Callers put `--` before URLs and ids.
+pub fn ytdlp_command(exe: &Path, work_dir: &Path) -> Command {
+    let mut cmd = Command::new(exe);
+    cmd.args(["--ignore-config", "--no-plugin-dirs"])
+        .current_dir(work_dir);
+    cmd
+}
+
+/// `%SystemRoot%\System32\<name>`, so a same-named program in the working directory or on
+/// `PATH` never runs instead.
+#[cfg(windows)]
+pub fn system32(name: &str) -> PathBuf {
+    let root = std::env::var_os("SystemRoot")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+    root.join("System32").join(name)
+}
+
+/// Kills the child's whole process tree if dropped while armed: when the future that runs
+/// yt-dlp is cancelled, `kill_on_drop` alone would stop only the PyInstaller launcher and
+/// leave Python (and deno) running.
+struct TreeGuard(Option<u32>);
+
+impl TreeGuard {
+    /// The process has exited or is handled elsewhere: its PID may be reused, never kill by it.
+    fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for TreeGuard {
+    fn drop(&mut self) {
+        #[cfg(windows)]
+        if let Some(pid) = self.0.take() {
+            use std::os::windows::process::CommandExt as _;
+            // Waits (taskkill takes tens of milliseconds): the tree must be walked before
+            // `kill_on_drop` takes the launcher down and orphans its children. Only cancelled
+            // calls get here.
+            let _ = std::process::Command::new(system32("taskkill.exe"))
+                .args(["/T", "/F", "/PID", &pid.to_string()])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .creation_flags(CREATE_NO_WINDOW)
+                .status();
+        }
+    }
+}
+
 /// yt-dlp.exe is a PyInstaller bundle that runs Python (and deno) as child processes,
 /// so the whole tree is killed by PID, not just the launcher.
 async fn kill_tree(pid: Option<u32>, child: &mut Child) {
     #[cfg(windows)]
     if let Some(pid) = pid {
-        let mut taskkill = Command::new("taskkill.exe");
+        let mut taskkill = Command::new(system32("taskkill.exe"));
         taskkill
             .args(["/T", "/F", "/PID", &pid.to_string()])
             .stdin(Stdio::null())
@@ -495,8 +574,9 @@ async fn kill_tree(pid: Option<u32>, child: &mut Child) {
     let _ = child.kill().await;
 }
 
-/// Runs a prepared sidecar command without a console window and collects its output.
-/// After `timeout` the whole process tree is killed. `Err` carries a reason in the app
+/// Runs a prepared sidecar command (see [`ytdlp_command`]) without a console window and
+/// collects its output. After `timeout`, or when the returned future is dropped, the whole
+/// process tree is killed. `Err` carries a reason in the app
 /// language when the process did not start or did not finish; the exit code is not checked.
 pub async fn run_capture(mut cmd: Command, timeout: Duration) -> std::result::Result<(String, String), String> {
     cmd.stdin(Stdio::null())
@@ -509,6 +589,7 @@ pub async fn run_capture(mut cmd: Command, timeout: Duration) -> std::result::Re
         .spawn()
         .map_err(|e| trf!("couldn't start yt-dlp: {e}", "не вдалося запустити yt-dlp: {e}", "не удалось запустить yt-dlp: {e}"))?;
     let pid = child.id();
+    let mut guard = TreeGuard(pid);
     let mut stdout = child.stdout.take();
     let mut stderr = child.stderr.take();
     let mut out = Vec::new();
@@ -518,6 +599,9 @@ pub async fn run_capture(mut cmd: Command, timeout: Duration) -> std::result::Re
         status
     })
     .await;
+    // From here on the timeout branch kills the tree itself, and an exited process's PID
+    // could soon belong to someone else.
+    guard.disarm();
     match finished {
         Ok(Ok(_)) => Ok((String::from_utf8_lossy(&out).into_owned(), String::from_utf8_lossy(&err).into_owned())),
         Ok(Err(e)) => Err(trf!("yt-dlp wait failed: {e}", "помилка очікування yt-dlp: {e}", "ошибка ожидания yt-dlp: {e}")),
@@ -1066,7 +1150,7 @@ mod tests {
     #[tokio::test]
     async fn runs_process_with_temporary_cookie_copy() {
         let (dir, script) = fake_ytdlp(
-            "copy /y \"%~2\" \"%~dp0seen.txt\" >nul\r\n\
+            "copy /y \"%~4\" \"%~dp0seen.txt\" >nul\r\n\
              type \"%~dp0batch.jsonl\"\r\n\
              echo ERROR: [youtube] xxxxxxxxxxx: Private video. Sign in 1>&2\r\n\
              exit /b 1",
@@ -1143,6 +1227,39 @@ mod tests {
         assert!(first.is_err(), "the first call is cut off");
         assert_eq!(waited.unwrap().itag, 251);
         assert!(lock(&r.inflight).is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The script starts a grandchild that writes `late.txt` after ~3 s; dropping the call
+    /// must kill it too, not only the direct child (`kill_on_drop`).
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn dropped_call_kills_the_process_tree() {
+        let (dir, script) = fake_ytdlp(
+            "start \"\" /b cmd /c \"ping -n 4 127.0.0.1 >nul & echo late > \"%~dp0late.txt\"\"\r\n\
+             ping -n 30 127.0.0.1 >nul",
+        );
+        let r = StreamResolver::new(script, "deno.exe".into(), dir.join("tmp"));
+        let id = TrackId::new("dQw4w9WgXcQ");
+        let call = tokio::time::timeout(Duration::from_millis(700), r.resolve_one(&id));
+        assert!(call.await.is_err(), "the call is cut off");
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        assert!(!dir.join("late.txt").exists(), "a grandchild outlived the call");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn hardened_arguments_and_bad_ids() {
+        let (dir, script) = fake_ytdlp(SLOW_LOGGING);
+        let r = StreamResolver::new(script, "deno.exe".into(), dir.join("tmp"));
+        let res = r.resolve(&ids(&["dQw4w9WgXcQ", "../evil"])).await;
+        assert_eq!(res[0].1.as_ref().unwrap().itag, 251);
+        assert!(matches!(res[1].1, Err(YtError::Unavailable(_))), "{:?}", res[1].1);
+        let calls = std::fs::read_to_string(dir.join("calls.txt")).unwrap();
+        assert!(calls.starts_with("--ignore-config --no-plugin-dirs "), "{calls}");
+        assert!(calls.contains(" -- \"https://www.youtube.com/watch?v=dQw4w9WgXcQ\""), "{calls}");
+        assert!(!calls.contains("evil"), "{calls}");
         std::fs::remove_dir_all(&dir).ok();
     }
 

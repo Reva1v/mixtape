@@ -47,6 +47,10 @@
       "binaries/yt-dlp",
       "binaries/deno"
     ],
+    "resources": {
+      "../LICENSE": "LICENSE.txt",
+      "../THIRD-PARTY-NOTICES.md": "THIRD-PARTY-NOTICES.md"
+    },
     "publisher": "Reva1v",
     "shortDescription": "YouTube Music player",
     "longDescription": "Mixtape is a YouTube Music player for Windows: an offline library, mixes and lyrics.",

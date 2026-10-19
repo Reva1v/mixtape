@@ -293,9 +293,11 @@
 
   {#if empty}
     <EmptyState icon={IconLibrary} title={t.library.empty} hint={t.library.emptyHint}>
-      <button type="button" class="h-9 rounded-full bg-fill-2 px-4 text-[13px] font-medium text-ink-2 hover:bg-fill-3 hover:text-ink" onclick={importFolder}>
+      {#if import.meta.env.DEV}
+        <button type="button" class="h-9 rounded-full bg-fill-2 px-4 text-[13px] font-medium text-ink-2 hover:bg-fill-3 hover:text-ink" onclick={importFolder}>
         {t.libraryScreen.importFolder}
       </button>
+      {/if}
     </EmptyState>
   {:else if page}
     <div class="mb-12 grid grid-cols-3 gap-x-3 gap-y-2.5 px-8">

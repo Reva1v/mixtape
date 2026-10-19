@@ -101,7 +101,8 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == window::MAIN && window::close_to_tray(window.app_handle()) {
                     api.prevent_close();
-                } else if window.label() != tray_menu::LABEL
+                } else if window.label() == window::MAIN
+                    // Only the main window closes the app; the login and tray windows do not.
                     && let Some(st) = window.app_handle().try_state::<Arc<state::AppState>>()
                 {
                     st.player.save_snapshot(true);
@@ -158,6 +159,8 @@ pub fn run() {
             commands::player::queue_jump,
             commands::lyrics::lyrics_get,
             commands::stats::stats_get,
+            // A development helper (imports any folder by path): never in release builds.
+            #[cfg(debug_assertions)]
             commands::dev::dev_import_folder,
             commands::settings::prefs_get,
             commands::settings::prefs_set,

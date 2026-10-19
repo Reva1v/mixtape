@@ -126,15 +126,19 @@ impl InnerTube {
             401 | 403 => return Err(YtError::Auth),
             429 => return Err(YtError::RateLimited),
             _ => {
-                let msg = resp.text().await.unwrap_or_default();
-                let msg = serde_json::from_str::<Value>(&msg)
+                let msg = read_limited(resp, MAX_ERROR_BYTES).await.unwrap_or_default();
+                let msg = serde_json::from_slice::<Value>(&msg)
                     .ok()
                     .and_then(|v| v.pointer("/error/message").and_then(Value::as_str).map(str::to_owned))
                     .unwrap_or_else(|| status.to_string());
                 return Err(YtError::Network(format!("{endpoint}: {msg}")));
             }
         }
-        resp.json().await.map_err(|e| YtError::Parse(format!("{endpoint}: {e}")))
+        let body = read_limited(resp, MAX_JSON_BYTES).await.map_err(|e| match e {
+            BodyError::Http(e) => YtError::from(e),
+            e @ BodyError::TooLarge(_) => YtError::Parse(format!("{endpoint}: {e}")),
+        })?;
+        serde_json::from_slice(&body).map_err(|e| YtError::Parse(format!("{endpoint}: {e}")))
     }
 
     pub async fn browse(&self, browse_id: &str) -> Result<Value> {
@@ -157,6 +161,43 @@ impl InnerTube {
         }
         Ok(page)
     }
+}
+
+/// Largest JSON answer read into memory: a long library page is a few megabytes.
+pub const MAX_JSON_BYTES: usize = 20 * 1024 * 1024;
+/// Largest image read into memory.
+pub const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
+/// Largest error page read for its message.
+const MAX_ERROR_BYTES: usize = 256 * 1024;
+
+#[derive(Debug, thiserror::Error)]
+pub enum BodyError {
+    #[error(transparent)]
+    Http(#[from] reqwest::Error),
+    #[error("response is larger than {0} bytes")]
+    TooLarge(usize),
+}
+
+/// The response body, refused as soon as it grows past `max` bytes (or announces more), so
+/// a broken or hostile server cannot make the app hold an unbounded answer in memory.
+pub async fn read_limited(
+    mut resp: reqwest::Response,
+    max: usize,
+) -> std::result::Result<Vec<u8>, BodyError> {
+    if resp
+        .content_length()
+        .is_some_and(|n| n > max as u64)
+    {
+        return Err(BodyError::TooLarge(max));
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = resp.chunk().await? {
+        if body.len() + chunk.len() > max {
+            return Err(BodyError::TooLarge(max));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
 }
 
 /// `responseContext.serviceTrackingParams[*].params[logged_in]`.

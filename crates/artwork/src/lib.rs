@@ -71,6 +71,23 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Largest cover edge accepted, in pixels; covers come from the network.
+pub const MAX_EDGE: u32 = 8192;
+/// Most memory the decoder may allocate for one cover.
+pub const MAX_DECODE_ALLOC: u64 = 128 * 1024 * 1024;
+
+/// Decodes a downloaded cover with size and memory limits, so a hostile or broken image
+/// (a tiny file claiming 100 000 × 100 000 px) fails instead of exhausting memory.
+fn decode(bytes: &[u8]) -> Result<DynamicImage> {
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format()?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_EDGE);
+    limits.max_image_height = Some(MAX_EDGE);
+    limits.max_alloc = Some(MAX_DECODE_ALLOC);
+    reader.limits(limits);
+    Ok(reader.decode()?)
+}
+
 /// Thumbnails live in `<root>/<key>/<size>.jpg`.
 #[derive(Debug, Clone)]
 pub struct CoverStore {
@@ -142,7 +159,7 @@ impl CoverStore {
         if !Self::valid_key(key) {
             return Err(Error::InvalidKey);
         }
-        let img = square(image::load_from_memory(bytes)?.to_rgb8());
+        let img = square(decode(bytes)?.to_rgb8());
         let dir = self.root.join(key);
         std::fs::create_dir_all(&dir)?;
         let mut resizer = Resizer::new();
@@ -275,6 +292,18 @@ mod tests {
         let mut out = std::io::Cursor::new(Vec::new());
         img.write_to(&mut out, ImageFormat::Png).unwrap();
         out.into_inner()
+    }
+
+    #[test]
+    fn oversized_images_are_refused() {
+        let img = RgbImage::new(MAX_EDGE + 1, 1);
+        let mut png = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut png, ImageFormat::Png).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let store = CoverStore::new(dir.path());
+        let err = store.process("big", png.get_ref(), Detail::Small).unwrap_err();
+        assert!(matches!(err, Error::Image(image::ImageError::Limits(_))), "{err:?}");
+        assert!(!store.exists("big"));
     }
 
     #[test]

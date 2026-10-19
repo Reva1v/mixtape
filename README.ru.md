@@ -67,22 +67,52 @@
 
 ## Приватность
 
-- Cookies YouTube после входа шифруются Windows DPAPI (`account.bin`) и отправляются только на YouTube.
-- Всё остальное лежит в `%LOCALAPPDATA%\Mixtape`: база SQLite, скачанные треки, кэш стриминга (5 ГБ по умолчанию, меняется в **Настройки → Хранилище**) и обложки.
-- Тексты песен ищутся на LRCLIB по названию, исполнителю, альбому и длительности.
+У Mixtape нет своего сервера и нет телеметрии. Ваши данные лежат в `%LOCALAPPDATA%\Mixtape`: база SQLite, скачанные треки, кэш стриминга (5 ГБ по умолчанию, меняется в **Настройки → Хранилище**) и обложки. Cookies YouTube после входа шифруются Windows DPAPI (`account.bin`) и отправляются только на YouTube.
+
+Приложение обращается к этим сервисам, и только ради указанной функции:
+
+| Сервис | Когда | Что отправляется |
+|---|---|---|
+| YouTube Music (`music.youtube.com`, `googlevideo.com`, серверы картинок Google) | просмотр, воспроизведение, загрузки, лайки | ваши cookies YouTube, что вы открываете, ищете и слушаете |
+| Вход Google (`accounts.google.com`) | **Подключить** в настройках | ваш логин — в приватном окне приложения |
+| LRCLIB (`lrclib.net`) | открытие текста песни | название, исполнитель, альбом и длительность трека |
+| Last.fm (`ws.audioscrobbler.com`) | только после подключения Last.fm | что вы слушаете (скробблы, «сейчас играет») |
+| Discord (локальный Rich Presence, без сети из приложения) | только с включённым статусом Discord и запущенным Discord | название, исполнитель, ссылка на обложку и время — вашему клиенту Discord |
+| Spotify (`open.spotify.com` и его публичный веб-API) | импорт ссылки Spotify | id плейлиста или альбома; аккаунт не используется |
+| SoundCloud, Bandcamp (через yt-dlp) | импорт такой ссылки | вставленная ссылка |
+| GitHub (`github.com`) | проверка обновлений раз в день, пока она включена в настройках | запрос последнего релиза |
 
 ## Сборка из исходников
 
-Нужно: Windows 10/11 с WebView2 (в Windows 11 уже есть), [Rust](https://rustup.rs) 1.89+, [Node.js](https://nodejs.org) с [pnpm](https://pnpm.io).
+Нужно:
+
+- Windows 10/11 с WebView2 (в Windows 11 уже есть);
+- [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) с набором **Desktop development with C++** (MSVC и Windows SDK);
+- [Rust](https://rustup.rs) 1.89+ (`x86_64-pc-windows-msvc`);
+- [Node.js](https://nodejs.org) с [pnpm](https://pnpm.io);
+- [CMake](https://cmake.org) для встроенного libopus: в `PATH` или через переменную окружения `CMAKE` с путём к `cmake.exe` (в Build Tools он лежит в `Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin`).
 
 ```powershell
 git clone https://github.com/Reva1v/mixtape.git
 cd mixtape
 pnpm install                       # Tauri CLI и интерфейс (pnpm workspace)
-./scripts/fetch-sidecars.ps1       # yt-dlp и deno в src-tauri/binaries
+./scripts/fetch-sidecars.ps1       # yt-dlp и deno фиксированных версий в src-tauri/binaries, с проверкой SHA-256
 pnpm tauri dev                     # запуск в режиме разработки
 pnpm tauri build                   # установщик в target/release/bundle/nsis
 ```
+
+Обычному `pnpm tauri build` ключ подписи не нужен: установщик просто не подписан для встроенного обновления. Релизы собирает `scripts/release.ps1`, который подписывает установщик ключом автора уже после сборки.
+
+### Необязательно: Last.fm и Discord
+
+Скробблингу и статусу в Discord нужны ключи, которых нет в репозитории; без них эти функции скрыты. Они берутся при сборке из переменных окружения, а если тех нет — из папки `.secrets` (она в .gitignore):
+
+| Функция | Переменные окружения | Или файл |
+|---|---|---|
+| Last.fm | `MIXTAPE_LASTFM_KEY`, `MIXTAPE_LASTFM_SECRET` ([создать API-аккаунт](https://www.last.fm/api/account/create)) | `.secrets/lastfm.json`: `{"key": "…", "secret": "…"}` |
+| Discord | `MIXTAPE_DISCORD_APP_ID` | `.secrets/discord.json`: `{"appId": "…"}` |
+
+Настройка приложения Discord: [`docs/discord-app.md`](docs/discord-app.md) (на английском).
 
 ## Архитектура
 
@@ -139,3 +169,12 @@ pnpm -C ui dev                               # только интерфейс: 
 ## Документация
 
 - [`specs/001-mixtape-mvp/`](specs/001-mixtape-mvp) — спецификация, план, задачи и [`STATUS.md`](specs/001-mixtape-mvp/STATUS.md).
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — как предложить изменения; [`SECURITY.md`](SECURITY.md) — как сообщить об уязвимости (оба на английском).
+
+## Отказ от ответственности
+
+Mixtape — независимый проект. Он не связан с Google, YouTube, Spotify, SoundCloud и Bandcamp, не одобрен и не спонсируется ими; их названия используются только чтобы сказать, с чем работает приложение. Оно предназначено для личного использования с вашим собственным аккаунтом. Соблюдение условий использования этих сервисов и авторского права вашей страны, в том числе для всего, что вы скачиваете, — ваша ответственность.
+
+## Лицензия
+
+Mixtape — свободное ПО под [GNU General Public License v3.0 или более поздней версии](LICENSE). Используемые и поставляемые сторонние компоненты и их лицензии перечислены в [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).

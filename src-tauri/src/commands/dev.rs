@@ -1,5 +1,7 @@
 //! Development helpers (T037): import a local folder of audio files as library tracks,
-//! so playback can be tried before YouTube Music sync exists.
+//! so playback can be tried before YouTube Music sync exists. Debug builds only: release
+//! builds neither register the command nor read `MIXTAPE_DEV_IMPORT`.
+#![cfg_attr(not(debug_assertions), allow(dead_code, unused_imports))]
 
 use super::{CmdResult, blocking};
 use crate::commands::library::emit_changed;
@@ -51,6 +53,7 @@ fn audio_files(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
     Ok(out)
 }
 
+/// Registered in debug builds only (see `lib.rs`).
 #[tauri::command]
 pub async fn dev_import_folder(app: AppHandle, state: State<'_, Arc<AppState>>, path: String) -> CmdResult<u32> {
     let st = state.inner().clone();

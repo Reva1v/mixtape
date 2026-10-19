@@ -67,22 +67,52 @@ Download `Mixtape_0.1.0_x64-setup.exe` from **[Releases](https://github.com/Reva
 
 ## Privacy
 
-- YouTube cookies from the sign-in are encrypted with Windows DPAPI (`account.bin`) and are sent only to YouTube.
-- Everything else stays in `%LOCALAPPDATA%\Mixtape`: the SQLite database, downloaded tracks, the streaming cache (5 GB by default, adjustable in **Settings → Storage**) and covers.
-- Lyrics are looked up on LRCLIB by title, artist, album and duration.
+Mixtape has no server of its own and no telemetry. Your data stays in `%LOCALAPPDATA%\Mixtape`: the SQLite database, downloaded tracks, the streaming cache (5 GB by default, adjustable in **Settings → Storage**) and covers. YouTube cookies from the sign-in are encrypted with Windows DPAPI (`account.bin`) and are sent only to YouTube.
+
+The app talks to these services, and only for the feature named:
+
+| Service | When | What is sent |
+|---|---|---|
+| YouTube Music (`music.youtube.com`, `googlevideo.com`, Google image hosts) | browsing, playback, downloads, likes | your YouTube cookies, what you open, search and play |
+| Google sign-in (`accounts.google.com`) | **Connect** in Settings | your login, in a private window of the app |
+| LRCLIB (`lrclib.net`) | opening lyrics | title, artist, album and duration of the track |
+| Last.fm (`ws.audioscrobbler.com`) | only once you connect Last.fm | the tracks you play (scrobbles, «now playing») |
+| Discord (local Rich Presence, no network from the app) | only with the Discord status turned on and Discord running | title, artist, cover link and time, to your Discord client |
+| Spotify (`open.spotify.com` and its public web API) | importing a Spotify link | the playlist or album id; no account is used |
+| SoundCloud, Bandcamp (through yt-dlp) | importing such a link | the link you pasted |
+| GitHub (`github.com`) | the update check, once a day while it is on in Settings | a request for the latest release |
 
 ## Building from source
 
-Requirements: Windows 10/11 with WebView2 (preinstalled on Windows 11), [Rust](https://rustup.rs) 1.89+, [Node.js](https://nodejs.org) with [pnpm](https://pnpm.io).
+Requirements:
+
+- Windows 10/11 with WebView2 (preinstalled on Windows 11);
+- [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the **Desktop development with C++** workload (MSVC and the Windows SDK);
+- [Rust](https://rustup.rs) 1.89+ (`x86_64-pc-windows-msvc`);
+- [Node.js](https://nodejs.org) with [pnpm](https://pnpm.io);
+- [CMake](https://cmake.org) for the bundled libopus: on `PATH`, or point the `CMAKE` environment variable at `cmake.exe` (Build Tools ship one under `Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin`).
 
 ```powershell
 git clone https://github.com/Reva1v/mixtape.git
 cd mixtape
 pnpm install                       # Tauri CLI and the interface (pnpm workspace)
-./scripts/fetch-sidecars.ps1       # yt-dlp and deno into src-tauri/binaries
+./scripts/fetch-sidecars.ps1       # pinned yt-dlp and deno into src-tauri/binaries, checked by SHA-256
 pnpm tauri dev                     # run in development
 pnpm tauri build                   # installer in target/release/bundle/nsis
 ```
+
+A plain `pnpm tauri build` needs no signing key: the installer just isn't signed for the in-app updater. Release builds are made with `scripts/release.ps1`, which signs the installer afterwards with the maintainer's key.
+
+### Optional: Last.fm and Discord
+
+Scrobbling and the Discord status need keys that are not in the repository; without them these features are hidden. They are read at compile time from environment variables or, when those are unset, from the gitignored `.secrets` folder:
+
+| Feature | Environment variables | Or file |
+|---|---|---|
+| Last.fm | `MIXTAPE_LASTFM_KEY`, `MIXTAPE_LASTFM_SECRET` ([create an API account](https://www.last.fm/api/account/create)) | `.secrets/lastfm.json`: `{"key": "…", "secret": "…"}` |
+| Discord | `MIXTAPE_DISCORD_APP_ID` | `.secrets/discord.json`: `{"appId": "…"}` |
+
+Setting up the Discord application: [`docs/discord-app.md`](docs/discord-app.md).
 
 ## Architecture
 
@@ -139,3 +169,12 @@ pnpm -C ui dev                               # interface alone, open http://loca
 ## Documentation
 
 - [`specs/001-mixtape-mvp/`](specs/001-mixtape-mvp) — specification, plan, tasks and [`STATUS.md`](specs/001-mixtape-mvp/STATUS.md) (in Russian).
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to send changes; [`SECURITY.md`](SECURITY.md) — how to report a vulnerability.
+
+## Disclaimer
+
+Mixtape is an independent project. It is not affiliated with, endorsed or sponsored by Google, YouTube, Spotify, SoundCloud or Bandcamp; their names are used only to say what the app works with. It is meant for personal use with your own account. You are responsible for following the terms of service of these services and the copyright laws of your country, including for anything you download.
+
+## License
+
+Mixtape is free software under the [GNU General Public License v3.0 or later](LICENSE). Bundled and used third-party components and their licenses are listed in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).

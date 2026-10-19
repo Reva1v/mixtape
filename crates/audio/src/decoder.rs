@@ -81,37 +81,57 @@ pub fn probe(path: &Path) -> Result<ProbeInfo> {
 /// after the first segment, so when there is more than one, every `sidx` is retyped to `free`
 /// in place (the fragments still describe themselves). Returns how many were retyped.
 pub fn drop_segment_indexes(path: &Path) -> std::io::Result<u32> {
-    let mut file = std::fs::OpenOptions::new().read(true).write(true).open(path)?;
-    let len = file.metadata()?.len();
-    let mut found = Vec::new();
-    let mut at = 0u64;
-    let mut head = [0u8; 16];
-    while at + 8 <= len {
-        file.seek(SeekFrom::Start(at))?;
-        file.read_exact(&mut head[..8])?;
-        let kind = [head[4], head[5], head[6], head[7]];
-        if at == 0 && &kind != b"ftyp" {
-            return Ok(0);
-        }
-        let size = match u32::from_be_bytes([head[0], head[1], head[2], head[3]]) as u64 {
-            0 => break,
-            1 => {
-                file.read_exact(&mut head[8..16])?;
-                be_u64(&head[8..16])
+    /// Top-level boxes looked at before giving up: a real file has a few per segment.
+    const MAX_BOXES: u32 = 200_000;
+    /// More indexes than that is not a joined download.
+    const MAX_INDEXES: usize = 50_000;
+    let found = {
+        let mut file = std::fs::File::open(path)?;
+        let len = file.metadata()?.len();
+        let mut found = Vec::new();
+        let mut at = 0u64;
+        let mut head = [0u8; 16];
+        let mut boxes = 0u32;
+        while at.checked_add(8).is_some_and(|end| end <= len) {
+            boxes += 1;
+            if boxes > MAX_BOXES || found.len() > MAX_INDEXES {
+                return Ok(0);
             }
-            n => n,
-        };
-        if size < 8 {
-            break;
+            file.seek(SeekFrom::Start(at))?;
+            file.read_exact(&mut head[..8])?;
+            let kind = [head[4], head[5], head[6], head[7]];
+            if at == 0 && &kind != b"ftyp" {
+                return Ok(0);
+            }
+            let (size, header) = match u32::from_be_bytes([head[0], head[1], head[2], head[3]]) {
+                0 => break,
+                1 => {
+                    if at.checked_add(16).is_none_or(|end| end > len) {
+                        break;
+                    }
+                    file.read_exact(&mut head[8..16])?;
+                    (be_u64(&head[8..16]), 16)
+                }
+                n => (u64::from(n), 8),
+            };
+            if size < header {
+                break;
+            }
+            if &kind == b"sidx" {
+                found.push(at);
+            }
+            // `size` ≥ 8, so `at` strictly grows; a box claiming more than the file ends the walk.
+            match at.checked_add(size) {
+                Some(next) if next <= len => at = next,
+                _ => break,
+            }
         }
-        if &kind == b"sidx" {
-            found.push(at);
-        }
-        at += size;
-    }
+        found
+    };
     if found.len() < 2 {
         return Ok(0);
     }
+    let mut file = std::fs::OpenOptions::new().write(true).open(path)?;
     for at in &found {
         file.seek(SeekFrom::Start(at + 4))?;
         file.write_all(b"free")?;
@@ -859,6 +879,43 @@ pub(crate) mod tests {
         assert_eq!(drop_segment_indexes(&plain).unwrap(), 0);
         assert_eq!(std::fs::read(&plain).unwrap(), std::fs::read(fixture("sine_aac.m4a")).unwrap());
         assert_eq!(drop_segment_indexes(&fixture("sine_mp3.mp3")).unwrap(), 0);
+    }
+
+    /// Hostile box sizes: a 64-bit size that would overflow, sizes below the header, a
+    /// `largesize` cut off by the end of the file. Nothing is rewritten and the walk ends.
+    #[test]
+    fn segment_index_walk_survives_bad_sizes() {
+        let dir = tempfile::tempdir().unwrap();
+        let bx = |size: u32, kind: &[u8; 4]| {
+            let mut b = size.to_be_bytes().to_vec();
+            b.extend_from_slice(kind);
+            b
+        };
+        let ftyp = bx(8, b"ftyp");
+        let cases: Vec<Vec<u8>> = vec![
+            // sidx, then a largesize box claiming u64::MAX bytes, then another sidx.
+            [ftyp.clone(), bx(8, b"sidx"), bx(1, b"mdat"), u64::MAX.to_be_bytes().to_vec(), bx(8, b"sidx")].concat(),
+            // largesize smaller than its own header.
+            [ftyp.clone(), bx(8, b"sidx"), bx(1, b"mdat"), 9u64.to_be_bytes().to_vec(), bx(8, b"sidx")].concat(),
+            // size 4.
+            [ftyp.clone(), bx(8, b"sidx"), bx(4, b"free"), bx(8, b"sidx")].concat(),
+            // largesize header cut off.
+            [ftyp.clone(), bx(8, b"sidx"), bx(1, b"mdat"), vec![0, 0]].concat(),
+        ];
+        for (i, bytes) in cases.iter().enumerate() {
+            let path = dir.path().join(format!("bad{i}.m4a"));
+            std::fs::write(&path, bytes).unwrap();
+            assert_eq!(drop_segment_indexes(&path).unwrap(), 0, "case {i}");
+            assert_eq!(&std::fs::read(&path).unwrap(), bytes, "case {i}");
+        }
+        // Many tiny boxes: bounded, and well-formed ones still work.
+        let mut many = ftyp.clone();
+        for _ in 0..1000 {
+            many.extend(bx(8, b"sidx"));
+        }
+        let path = dir.path().join("many.m4a");
+        std::fs::write(&path, &many).unwrap();
+        assert_eq!(drop_segment_indexes(&path).unwrap(), 1000);
     }
 
     /// How far (seconds, within ±half a period) the audio in `pcm` is from `sin(2π·440·t)` at

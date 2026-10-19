@@ -192,6 +192,10 @@ impl AppStreams {
     }
 
     async fn begin(&self, id: &TrackId) -> Result<Arc<Active>, String> {
+        // The id becomes a file name under `cache/`: never let a stray one escape it.
+        if !id.is_safe() {
+            return Err(format!("invalid track id {:?}", id.as_str()));
+        }
         let reason = |e: mixtape_yt::YtError| AppError::from(e).message;
         let mut stream = self.resolver.resolve_one(id).await.map_err(reason)?;
         let len = match fetch::exact_len(&self.http, &stream.url).await {
