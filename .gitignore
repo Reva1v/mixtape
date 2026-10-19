@@ -9,3 +9,7 @@ src-tauri/binaries/*.exe
 
 # Agent worktrees
 .claude/worktrees/
+
+# Listening bench: downloaded music and rendered clips stay local
+tools/mixbench/music/
+tools/mixbench/out/

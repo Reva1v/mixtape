@@ -287,6 +287,23 @@ fn at(v: &[f32], x: f64) -> f64 {
 
 /// Tempo (BPM) and the time of a beat (ms, within the first period), if the beat is steady.
 fn tempo(x: &[f32], rate: f64) -> Option<(f64, f64)> {
+    let t = tempo_detail(x, rate)?;
+    (t.periodicity >= MIN_PERIODICITY && t.strength >= MIN_BEAT_STRENGTH)
+        .then_some((t.bpm, t.beat_ms))
+}
+
+/// The best beat grid and how steady it is, before the steadiness thresholds.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TempoDetail {
+    pub bpm: f64,
+    pub beat_ms: f64,
+    /// Autocorrelation at the beat period relative to lag 0 (a steady beat needs ≥ 0.15).
+    pub periodicity: f64,
+    /// Onset strength on the fitted grid relative to the average (a steady beat needs ≥ 1.5).
+    pub strength: f64,
+}
+
+fn tempo_detail(x: &[f32], rate: f64) -> Option<TempoDetail> {
     let raw = onsets(x, rate);
     let fr = rate / HOP as f64;
     let n = raw.len();
@@ -333,9 +350,6 @@ fn tempo(x: &[f32], rate: f64) -> Option<(f64, f64)> {
     }
     // A steady beat repeats: its lag must keep a good part of the zero-lag energy.
     let periodicity = at(&acf, 60.0 * fr / best.0) / acf[0].max(1e-12) as f64;
-    if periodicity < MIN_PERIODICITY {
-        return None;
-    }
     let mut period = 60.0 * fr / best.0;
 
     // Phase of the grid, then a least-squares fit of the onset peaks near each beat.
@@ -407,16 +421,44 @@ fn tempo(x: &[f32], rate: f64) -> Option<(f64, f64)> {
         .map(|t| at(&o, t))
         .collect();
     let strength = beats.iter().sum::<f64>() / beats.len().max(1) as f64 / mean;
-    if strength < MIN_BEAT_STRENGTH {
-        return None;
-    }
     let bpm = 60.0 * fr / period;
     let period_ms = 60_000.0 / bpm;
     // With log compression the flux jumps as soon as an onset enters the window, which is
     // three quarters of a window after the frame start (calibrated on synthetic clicks; the
     // bias is the same for every track, so beat matching does not depend on it).
     let beat_ms = ((phase * HOP as f64 + WIN as f64 * 0.75) / rate * 1000.0).rem_euclid(period_ms);
-    Some((bpm, beat_ms))
+    Some(TempoDetail {
+        bpm,
+        beat_ms,
+        periodicity,
+        strength,
+    })
+}
+
+/// Listening bench only: the tempo estimate of a file with its steadiness measures, also
+/// when [`analyze_file`] would reject the beat.
+#[cfg(feature = "bench")]
+#[doc(hidden)]
+pub fn tempo_detail_file(path: &Path) -> Result<Option<TempoDetail>> {
+    let hint = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase);
+    let mut dec = Decoder::open(SourceOpener::File(path.to_path_buf()), hint.as_deref())?;
+    let mut down = Decimator::new(dec.rate());
+    let mut pcm = Vec::new();
+    loop {
+        pcm.clear();
+        let more = dec.next_chunk(&mut pcm)?;
+        for f in pcm.chunks_exact(2) {
+            down.push((f[0] + f[1]) * 0.5);
+        }
+        if !more {
+            break;
+        }
+    }
+    let rate = down.rate;
+    Ok(tempo_detail(&down.out, rate))
 }
 
 /// Krumhansl–Schmuckler key profiles (C major, C minor).

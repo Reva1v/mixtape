@@ -6,6 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# Offline rendering hooks for the listening bench (tools/mixbench); the app does not use them.
+bench = []
+
 [dependencies]
 symphonia = { version = "0.6.1", default-features = false, features = ["mkv", "isomp4", "aac", "ogg", "mp3"] }
 symphonia-adapter-libopus = "0.3"

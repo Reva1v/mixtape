@@ -2554,6 +2554,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mixbench"
+version = "0.1.0"
+dependencies = [
+ "mixtape-audio",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "mixtape"
 version = "0.1.0"
 dependencies = [

@@ -1381,6 +1381,133 @@ impl State {
     }
 }
 
+/// Listening bench (`tools/mixbench`): renders an automatic transition offline through the
+/// engine's own decode/mix path, without an output device.
+#[cfg(feature = "bench")]
+#[doc(hidden)]
+pub mod bench {
+    use super::*;
+
+    /// A smart plan as the engine would run it (frames at [`RATE`]).
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct BenchPlan {
+        /// Frame of the outgoing track where the overlap starts.
+        pub start: u64,
+        pub len: u64,
+        pub b_start_ms: u64,
+        pub speed: f64,
+        pub ramp: u64,
+        pub swap_at: u64,
+        pub swap_len: u64,
+    }
+
+    impl From<SmartPlan> for BenchPlan {
+        fn from(p: SmartPlan) -> Self {
+            Self {
+                start: p.start,
+                len: p.len,
+                b_start_ms: p.b_start_ms,
+                speed: p.speed,
+                ramp: p.ramp,
+                swap_at: p.swap_at,
+                swap_len: p.swap_len,
+            }
+        }
+    }
+
+    /// The engine's output rate without a device.
+    pub const RATE: u32 = FALLBACK_RATE;
+
+    /// [`smart::plan`] for two analyses at [`RATE`].
+    pub fn plan(a: &TrackAnalysis, b: &TrackAnalysis, a_ms: u64, b_ms: u64) -> Option<BenchPlan> {
+        smart::plan(a, b, a_ms, b_ms, RATE).map(Into::into)
+    }
+
+    pub struct Rendered {
+        pub rate: u32,
+        /// Interleaved stereo.
+        pub pcm: Vec<f32>,
+        /// Where in the outgoing track the clip starts.
+        pub a_from_ms: u64,
+        /// Clip frame where the overlap starts, and its length (0: a gapless join).
+        pub transition_at: u64,
+        pub overlap: u64,
+        /// The smart plan the engine ran, `None` for the plain crossfade.
+        pub smart: Option<BenchPlan>,
+    }
+
+    fn state(smart: bool, crossfade_ms: u32) -> (State, Receiver<EngineEvent>) {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let mut st = State::new(tx);
+        // Never a device: everything decoded counts as played at once.
+        st.open_output = Box::new(|_, _| Err(Error::Output("offline bench".into())));
+        st.smart = smart;
+        st.crossfade_ms = crossfade_ms;
+        (st, rx)
+    }
+
+    /// Plays `a` into `b` the way the engine does at the end of `a` (smart transitions on or
+    /// off, `crossfade_ms` for the plain crossfade), keeping `pre_ms` before the overlap and
+    /// `post_ms` after it.
+    pub fn render_transition(
+        a: Source,
+        b: Source,
+        smart: bool,
+        crossfade_ms: u32,
+        pre_ms: u64,
+        post_ms: u64,
+    ) -> Result<Rendered> {
+        // Where the transition starts, planned with both tracks open.
+        let (mut st, _rx) = state(smart, crossfade_ms);
+        let p = st.open_pipeline(a.clone())?;
+        st.start_head(p, 0, false);
+        st.next_src = Some(b.clone());
+        st.open_next();
+        let rate = st.rate();
+        let (start, len, plan) = match st.auto_fade() {
+            Some(f) => (f.start, f.len, f.smart),
+            None => {
+                let end = st.slots.back().and_then(|p| p.out_len()).unwrap_or(0);
+                (end, 0, None)
+            }
+        };
+
+        // The same again from shortly before it.
+        let (mut st, rx) = state(smart, crossfade_ms);
+        let mut p = st.open_pipeline(a)?;
+        let a_from_ms = (start * 1000 / rate as u64).saturating_sub(pre_ms);
+        if a_from_ms > 0 {
+            p.seek(a_from_ms)?;
+        }
+        let clip_start = p.out_pos();
+        st.start_head(p, a_from_ms, false);
+        st.next_src = Some(b);
+        st.open_next();
+        let transition_at = start.saturating_sub(clip_start);
+        let until = transition_at + len + post_ms * rate as u64 / 1000;
+        let mut pcm = Vec::new();
+        while ((pcm.len() / 2) as u64) < until {
+            st.tick();
+            let more = st.produce();
+            st.written += (st.pending.len() / 2) as u64;
+            pcm.append(&mut st.pending);
+            rx.try_iter().for_each(drop);
+            if !more && st.fade.is_none() && st.head_done && st.next.is_none() {
+                break;
+            }
+        }
+        pcm.truncate(until as usize * 2);
+        Ok(Rendered {
+            rate,
+            pcm,
+            a_from_ms,
+            transition_at,
+            overlap: len,
+            smart: plan.map(Into::into),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -24,6 +24,9 @@ use std::sync::Arc;
 
 pub use analysis::{ANALYSIS_VERSION, Key, TrackAnalysis, analyze_file};
 pub use decoder::{ProbeInfo, drop_segment_indexes, probe};
+#[cfg(feature = "bench")]
+#[doc(hidden)]
+pub use engine::bench;
 pub use engine::{Engine, EngineEvent};
 pub use gain::gain_for;
 pub use loudness::{Loudness, measure_loudness};

@@ -1,0 +1,195 @@
+{
+  "tracks": [
+    {
+      "id": "phonk_fury",
+      "file": "phonk_fury.m4a",
+      "title": "FURY (Intense Phonk Drift)",
+      "artist": "Alex-Productions",
+      "genre": "drift phonk",
+      "expected_bpm": null,
+      "page": "https://soundcloud.com/alexproductionsmusic/fury",
+      "download": { "ytdlp": "https://soundcloud.com/alexproductionsmusic/fury" },
+      "licence": "CC BY 3.0 (SoundCloud), credit Alex-Productions"
+    },
+    {
+      "id": "phonk_nightdrive",
+      "file": "phonk_nightdrive.m4a",
+      "title": "Night Drive (Dreamy Drift Phonk)",
+      "artist": "Alex-Productions",
+      "genre": "drift phonk",
+      "expected_bpm": null,
+      "page": "https://soundcloud.com/alexproductionsmusic/phonk-dreamy-drift-phonk-gaming-music-no-copyright-music-night-drive-by-alex-productions",
+      "download": { "ytdlp": "https://soundcloud.com/alexproductionsmusic/phonk-dreamy-drift-phonk-gaming-music-no-copyright-music-night-drive-by-alex-productions" },
+      "licence": "CC BY 3.0 (SoundCloud), credit Alex-Productions"
+    },
+    {
+      "id": "phonk_cyber",
+      "file": "phonk_cyberphonk.m4a",
+      "title": "Cyberphonk",
+      "artist": "Infraction",
+      "genre": "phonk (midtempo)",
+      "expected_bpm": null,
+      "page": "https://soundcloud.com/infraction-ivan/infraction-cyberphonk-no-copyright-phonk-music",
+      "download": { "ytdlp": "https://soundcloud.com/infraction-ivan/infraction-cyberphonk-no-copyright-phonk-music" },
+      "licence": "CC BY-NC-SA 3.0 (SoundCloud)"
+    },
+    {
+      "id": "funk_urbana",
+      "file": "funk_urbana_metronica.mp3",
+      "title": "Urbana-Metronica (wooh-yeah mix)",
+      "artist": "spinningmerkaba",
+      "genre": "funk",
+      "expected_bpm": 100,
+      "page": "https://ccmixter.org/files/jlbrock44/33345",
+      "download": { "url": "https://ccmixter.org/content/jlbrock44/jlbrock44_-_Urbana-Metronica_(wooh-yeah_mix).mp3" },
+      "licence": "CC BY 3.0"
+    },
+    {
+      "id": "pop_allwoman",
+      "file": "pop_all_woman.mp3",
+      "title": "All Woman",
+      "artist": "Loveshadow",
+      "genre": "pop / disco",
+      "expected_bpm": 120,
+      "page": "https://ccmixter.org/files/Loveshadow/50327",
+      "download": { "url": "https://ccmixter.org/content/Loveshadow/Loveshadow_-_All_Woman.mp3" },
+      "licence": "CC BY-NC 3.0"
+    },
+    {
+      "id": "pop_botheyes",
+      "file": "pop_both_eyes_closed.mp3",
+      "title": "Both Eyes Closed",
+      "artist": "State Shirt",
+      "genre": "pop",
+      "expected_bpm": 127,
+      "page": "https://ccmixter.org/files/stateshirt/25911",
+      "download": { "url": "https://ccmixter.org/content/stateshirt/stateshirt_-_Both_Eyes_Closed.mp3" },
+      "licence": "CC BY-NC 3.0"
+    },
+    {
+      "id": "house_ifyoucant",
+      "file": "house_if_you_cant.mp3",
+      "title": "If you cant (deeper mix)",
+      "artist": "Kojo Akusa",
+      "genre": "deep house",
+      "expected_bpm": 125,
+      "page": "https://ccmixter.org/files/Kojo_Akusa/23074",
+      "download": { "url": "https://ccmixter.org/content/Kojo_Akusa/Kojo_Akusa_-_If_you_cant_(deeper_mix)_1.mp3" },
+      "licence": "CC BY 2.5"
+    },
+    {
+      "id": "house_nadeya",
+      "file": "house_nadeya.mp3",
+      "title": "Nadeya",
+      "artist": "mentorrecords",
+      "genre": "house",
+      "expected_bpm": 125,
+      "page": "https://ccmixter.org/files/mentorrecords/12984",
+      "download": { "url": "https://ccmixter.org/content/mentorrecords/mentorrecords_-_Nadeya.mp3" },
+      "licence": "CC BY-NC 3.0"
+    },
+    {
+      "id": "edm_again",
+      "file": "edm_again_once_again.mp3",
+      "title": "Again, Once Again",
+      "artist": "fluffy",
+      "genre": "EDM",
+      "expected_bpm": 128,
+      "page": "https://ccmixter.org/files/fluffy/53739",
+      "download": { "url": "https://ccmixter.org/content/fluffy/fluffy_-_Again_Once_Again_1.mp3" },
+      "licence": "CC BY 3.0"
+    },
+    {
+      "id": "disco_damage",
+      "file": "disco_damage_is_done.mp3",
+      "title": "Damage Is Done",
+      "artist": "Alex Beroza",
+      "genre": "disco / dance",
+      "expected_bpm": 126,
+      "page": "https://ccmixter.org/files/AlexBeroza/32573",
+      "download": { "url": "https://ccmixter.org/content/AlexBeroza/AlexBeroza_-_Damage_Is_Done.mp3" },
+      "licence": "CC BY-NC 3.0"
+    },
+    {
+      "id": "hiphop_idunno",
+      "file": "hiphop_i_dunno.mp3",
+      "title": "I dunno",
+      "artist": "grapes",
+      "genre": "hip-hop",
+      "expected_bpm": 90,
+      "page": "https://ccmixter.org/files/grapes/16626",
+      "download": { "url": "https://ccmixter.org/content/grapes/grapes_-_I_dunno.mp3" },
+      "licence": "CC BY 3.0"
+    },
+    {
+      "id": "trap_aries",
+      "file": "trap_chill_trap.mp3",
+      "title": "Chill Trap",
+      "artist": "Aries Beats",
+      "genre": "trap",
+      "expected_bpm": null,
+      "page": "https://archive.org/details/ariesbeatschilltrap",
+      "download": { "url": "https://archive.org/download/ariesbeatschilltrap/Aries_Beats_-_Chill_Trap.mp3" },
+      "licence": "CC BY 4.0"
+    },
+    {
+      "id": "dnb_certaindeath",
+      "file": "dnb_certain_death.mp3",
+      "title": "Certain Death (Still Alive Remix)",
+      "artist": "Blackberry",
+      "genre": "drum & bass",
+      "expected_bpm": 174,
+      "page": "https://ccmixter.org/files/Blackberry/17059",
+      "download": { "url": "https://ccmixter.org/content/Blackberry/Blackberry_-_Certain_Death_(Still_Alive_Remix).mp3" },
+      "licence": "CC BY-NC 3.0"
+    },
+    {
+      "id": "dnb_horizons",
+      "file": "dnb_horizons.mp3",
+      "title": "Horizons",
+      "artist": "Tekno_Eddy",
+      "genre": "drum & bass",
+      "expected_bpm": 170,
+      "page": "https://ccmixter.org/files/Tekno_Eddy/19461",
+      "download": { "url": "https://ccmixter.org/content/Tekno_Eddy/Tekno_Eddy_-_Horizons.mp3" },
+      "licence": "CC BY-NC 2.5"
+    },
+    {
+      "id": "rock_wearefree",
+      "file": "rock_we_are_free.mp3",
+      "title": "We Are Free",
+      "artist": "Zep Hurme",
+      "genre": "rock",
+      "expected_bpm": 120,
+      "page": "https://ccmixter.org/files/zep_hurme/31607",
+      "download": { "url": "https://ccmixter.org/content/zep_hurme/zep_hurme_-_We_Are_Free.mp3" },
+      "licence": "CC BY-SA 3.0"
+    },
+    {
+      "id": "lofi_lushlife",
+      "file": "lofi_lush_life.mp3",
+      "title": "Lush Life",
+      "artist": "Poldoore",
+      "genre": "lo-fi hip-hop",
+      "expected_bpm": null,
+      "page": "https://archive.org/details/DWK155",
+      "download": { "url": "https://archive.org/download/DWK155/Poldoore_-_01_-_Lush_Life.mp3" },
+      "licence": "CC BY-NC-ND 3.0 (Dusted Wax Kingdom netlabel)"
+    }
+  ],
+  "pairs": [
+    ["phonk_fury", "phonk_nightdrive"],
+    ["phonk_nightdrive", "phonk_cyber"],
+    ["house_ifyoucant", "house_nadeya"],
+    ["dnb_certaindeath", "dnb_horizons"],
+    ["edm_again", "disco_damage"],
+    ["funk_urbana", "pop_allwoman"],
+    ["pop_allwoman", "house_ifyoucant"],
+    ["pop_botheyes", "edm_again"],
+    ["rock_wearefree", "pop_allwoman"],
+    ["phonk_cyber", "trap_aries"],
+    ["trap_aries", "hiphop_idunno"],
+    ["hiphop_idunno", "lofi_lushlife"],
+    ["dnb_horizons", "house_nadeya"]
+  ]
+}

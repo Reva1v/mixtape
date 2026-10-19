@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "src-tauri"]
+members = ["crates/*", "src-tauri", "tools/mixbench"]
 
 [workspace.package]
 version = "0.1.0"
@@ -46,6 +46,13 @@ lto = "thin"
 opt-level = 3
 panic = "abort"
 strip = true
+
+# Listening bench (tools/mixbench): optimised, but quick to build.
+[profile.mixbench]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true
 
 [profile.dev.package."*"]
 opt-level = 2
