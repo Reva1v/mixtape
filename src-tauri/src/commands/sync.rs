@@ -8,11 +8,12 @@ use mixtape_core::{AppError, ErrorKind, Playlist, PlaylistId, PlaylistOrigin, tr
 use mixtape_library::jobs::{self, FailedJob};
 use mixtape_library::views::ViewKind;
 use mixtape_sync::downloader::{DownloadsProgress, SyncStatus};
+use mixtape_sync::external::{self, Target};
 use mixtape_sync::sources::{self, ImportResult, SyncPlan, SyncStage};
-use mixtape_sync::url_import;
+use mixtape_sync::url_import::{self, ExternalLink};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::ipc::Channel;
 use tauri::{Emitter, State};
 use ts_rs::TS;
@@ -118,7 +119,7 @@ fn sync_status(stage: &SyncStage) -> SyncStatus {
         }
         SyncStage::Saving => (tr("Saving to the library", "Зберігаю в бібліотеку", "Сохраняю в библиотеку"), 0, 0),
     };
-    SyncStatus { label: label.into(), done: done as u32, total: total as u32 }
+    SyncStatus { label: label.into(), done: done as u32, total: total as u32, import: false }
 }
 
 const PLAN_KEY: &str = "sync_plan";
@@ -245,15 +246,19 @@ pub fn spawn_auto_sync(st: Arc<AppState>) {
 #[tauri::command]
 pub async fn import_url(state: State<'_, Arc<AppState>>, url: String) -> CmdResult<ImportResult> {
     let st = state.inner().clone();
+    // SoundCloud and Bandcamp need no account.
+    if let Some(link) = url_import::parse_external(&url) {
+        return import_external(st, link).await;
+    }
     need_account(&st)?;
     let link = url_import::parse_link(&url)
         .ok_or_else(|| {
             AppError::new(
                 ErrorKind::Invalid,
                 tr(
-                    "This isn't a link to a YouTube Music track, album, playlist or artist",
-                    "Це не посилання на трек, альбом, плейлист чи виконавця YouTube Music",
-                    "Это не ссылка на трек, альбом, плейлист или исполнителя YouTube Music",
+                    "This isn't a link to a YouTube Music, SoundCloud or Bandcamp track, album, playlist or artist",
+                    "Це не посилання на трек, альбом, плейлист чи виконавця YouTube Music, SoundCloud або Bandcamp",
+                    "Это не ссылка на трек, альбом, плейлист или исполнителя YouTube Music, SoundCloud или Bandcamp",
                 ),
             )
         })?;
@@ -262,6 +267,105 @@ pub async fn import_url(state: State<'_, Arc<AppState>>, url: String) -> CmdResu
         .map_err(|e| yt_error(&st, e))?;
     emit_changed(&st.app, &[ViewKind::Playlists]);
     st.downloads.wake();
+    Ok(result)
+}
+
+/// One SoundCloud / Bandcamp import at a time.
+static EXTERNAL_IMPORT: AtomicBool = AtomicBool::new(false);
+
+/// Clears [`EXTERNAL_IMPORT`] however the import ends.
+struct ExternalSlot;
+
+impl Drop for ExternalSlot {
+    fn drop(&mut self) {
+        EXTERNAL_IMPORT.store(false, Ordering::SeqCst);
+    }
+}
+
+/// The import's line on the downloads screen; a running YouTube Music sync keeps its own.
+fn external_status(st: &AppState, status: Option<SyncStatus>) {
+    if !st.syncing.load(Ordering::SeqCst) {
+        st.downloads.set_sync(status);
+    }
+}
+
+/// A SoundCloud / Bandcamp link: reads it with yt-dlp, answers with its title, then downloads
+/// the tracks one by one in the background (`mixtape_sync::external`). Progress shows on the
+/// downloads screen like the sync's; the end is a toast.
+async fn import_external(st: Arc<AppState>, link: ExternalLink) -> CmdResult<ImportResult> {
+    if EXTERNAL_IMPORT.swap(true, Ordering::SeqCst) {
+        return Err(AppError::new(
+            ErrorKind::Invalid,
+            tr(
+                "Another link is still being added. Try again when it's done",
+                "Ще додається інше посилання. Спробуйте, коли воно завершиться",
+                "Ещё добавляется другая ссылка. Попробуйте, когда она закончится",
+            ),
+        ));
+    }
+    let slot = ExternalSlot;
+    let site = external::site_name(link.site);
+    let status = |label: String, done: u32, total: u32| Some(SyncStatus { label, done, total, import: true });
+    external_status(&st, status(trf!("Reading {site}", "Читаю {site}", "Читаю {site}"), 0, 0));
+    let listing = match external::list(st.resolver.ytdlp(), &link).await {
+        Ok(l) => l,
+        Err(e) => {
+            external_status(&st, None);
+            return Err(AppError::new(
+                ErrorKind::Network,
+                trf!("Couldn't read the {site} link: {e}", "Не вдалося прочитати посилання {site}: {e}", "Не удалось прочитать ссылку {site}: {e}"),
+            ));
+        }
+    };
+    let result = ImportResult {
+        kind: listing.kind_name().into(),
+        title: listing.title.clone(),
+        track_count: listing.entries.len() as u32,
+    };
+    tauri::async_runtime::spawn(async move {
+        let _slot = slot;
+        let target = Target {
+            ytdlp: st.resolver.ytdlp(),
+            root: &st.paths.root,
+            http: st.yt.http(),
+            db: &st.db,
+            covers: &st.covers,
+        };
+        let label = trf!("Downloading from {site}", "Завантажую з {site}", "Скачиваю с {site}");
+        let report = external::import(&target, &listing, |done, total| {
+            external_status(&st, status(label.clone(), done, total));
+        })
+        .await;
+        external_status(&st, None);
+        tracing::info!(site, added = report.added, present = report.present, failed = report.failed.len(), "external import done");
+        emit_changed(&st.app, &[ViewKind::Tracks, ViewKind::Albums, ViewKind::Artists, ViewKind::Playlists]);
+        let title = &listing.title;
+        let total = listing.entries.len();
+        match report.failed.first() {
+            None => {
+                let n = crate::events::tracks_word(total);
+                crate::events::toast_info(
+                    &st.app,
+                    trf!("“{title}” is in the library: {n}", "«{title}» у бібліотеці: {n}", "«{title}» в библиотеке: {n}"),
+                );
+            }
+            Some((_, reason)) if report.failed.len() >= total => crate::events::toast_error(
+                &st.app,
+                trf!("Couldn't add “{title}”: {reason}", "Не вдалося додати «{title}»: {reason}", "Не удалось добавить «{title}»: {reason}"),
+            ),
+            Some((_, reason)) => {
+                let n = report.failed.len();
+                crate::events::toast_error(
+                    &st.app,
+                    trf!(
+                        "“{title}”: {n} of {total} tracks weren't added ({reason})",
+                        "«{title}»: {n} з {total} треків не додано ({reason})",
+                        "«{title}»: {n} из {total} треков не добавлено ({reason})"
+                    ),
+                );
+            }
+        }
+    });
     Ok(result)
 }
 

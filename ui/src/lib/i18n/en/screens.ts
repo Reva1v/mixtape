@@ -78,6 +78,8 @@ export const screens = {
     },
     sync: "Sync",
     syncReading: "Reading YouTube Music. The download starts right after",
+    linkImport: "Adding from link",
+    linkImportHint: "Tracks are downloaded one by one and appear in the library as they finish",
     of: (done: number, total: number) => `${done} of ${total}`,
     failedCount: (n: number) => `${n} failed`,
     size: (done: string, total: string | null) => (total ? `${done} of ${total} MB` : `${done} MB`),

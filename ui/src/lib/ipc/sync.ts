@@ -30,8 +30,9 @@ export type DownloadsProgress = {
   failed: number;
   current?: { trackId: TrackId; title: string; bytesDone: number; bytesTotal?: number };
   bytesPerSec: number;
-  /** Reading sources from YouTube Music before downloads start; `total` 0 = unknown. */
-  sync?: { label: string; done: number; total: number };
+  /** Reading sources from YouTube Music before downloads start, or a SoundCloud / Bandcamp
+   * link being added (`import`); `total` 0 = unknown. */
+  sync?: { label: string; done: number; total: number; import?: boolean };
 };
 
 /** A download that gave up; `error` is a Russian, human-readable reason. */
@@ -54,6 +55,42 @@ export const downloadRetry = (jobId: number | "all-failed") => invoke<void>("dow
 export const downloadsFailed = () => invoke<FailedJob[]>("downloads_failed");
 /** Progress summary at ≤4 Hz. */
 export const downloadsSubscribe = (channel: Channel<DownloadsProgress>) => invoke<void>("downloads_subscribe", { channel });
+
+/** Recognises a SoundCloud track / set / profile or a Bandcamp track / album link; mirrors
+ * `mixtape_sync::url_import::parse_external`. These are imported without an account. */
+export function parseExternalUrl(text: string): { url: string; kind: ImportKind } | null {
+  const s = text.trim();
+  if (!s || /\s/.test(s)) return null;
+  let u: URL;
+  try {
+    u = new URL(/^[a-z]+:\/\//i.test(s) ? s : `https://${s}`);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+  const segs = u.pathname.split("/").filter(Boolean);
+  if (!segs.every((p) => /^[\w-]+$/.test(p))) return null;
+  const host = u.hostname.toLowerCase();
+  if (host === "soundcloud.com" || host === "www.soundcloud.com" || host === "m.soundcloud.com") {
+    const [user, second, third, fourth] = segs;
+    if (!user || SC_RESERVED.has(user.toLowerCase())) return null;
+    const token = (x?: string) => !!x && x.startsWith("s-") && x.length > 2;
+    if (segs.length === 1 || (segs.length === 2 && second === "tracks")) return { url: u.href, kind: "artist" };
+    if (second === "sets" && (segs.length === 3 || (segs.length === 4 && token(fourth)))) return { url: u.href, kind: "playlist" };
+    if (!SC_TABS.has(second) && (segs.length === 2 || (segs.length === 3 && token(third)))) return { url: u.href, kind: "track" };
+    return null;
+  }
+  const artist = host.endsWith(".bandcamp.com") ? host.slice(0, -".bandcamp.com".length) : "";
+  if (!artist || artist.includes(".") || ["www", "daily", "m"].includes(artist) || segs.length !== 2) return null;
+  if (segs[0] === "track") return { url: u.href, kind: "track" };
+  if (segs[0] === "album") return { url: u.href, kind: "album" };
+  return null;
+}
+
+const SC_RESERVED = new Set(
+  "discover search stream feed you upload charts settings messages notifications pages terms-of-use mobile people jobs popular signin signup logout imprint connect home tags tracks playlists sets artists creators premium go pro help community-guidelines".split(" "),
+);
+const SC_TABS = new Set("albums popular-tracks likes reposts followers following comments spotlight sets tracks".split(" "));
 
 /** Recognises a YouTube / YouTube Music link to a track, album, playlist or artist. */
 export function parseMusicUrl(text: string): { url: string; kind: ImportKind } | null {

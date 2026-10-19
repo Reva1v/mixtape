@@ -8,4 +8,8 @@ label: string, done: number,
 /**
  * 0 when the amount is not known yet.
  */
-total: number, };
+total: number, 
+/**
+ * A SoundCloud / Bandcamp link being added, not the YouTube Music sync.
+ */
+import: boolean, };

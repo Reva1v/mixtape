@@ -79,6 +79,8 @@ export const screens: typeof en = {
     },
     sync: "Синхронізація",
     syncReading: "Читаю YouTube Music — завантаження почнеться одразу після цього",
+    linkImport: "Додаю за посиланням",
+    linkImportHint: "Треки завантажуються по одному й з’являються в бібліотеці, щойно готові",
     of: (done: number, total: number) => `${done} з ${total}`,
     failedCount: (n: number) => `з помилкою ${n}`,
     size: (done: string, total: string | null) => (total ? `${done} з ${total} МБ` : `${done} МБ`),

@@ -1,0 +1,37 @@
+{
+ "_type": "playlist",
+ "uploader_id": "blazo",
+ "id": "jazz-format-mixtape-vol-1",
+ "title": "Jazz Format Mixtape vol.1",
+ "entries": [
+  {
+   "ie_key": "Bandcamp",
+   "id": "1353101989",
+   "title": "Intro",
+   "_type": "url",
+   "url": "https://blazo.bandcamp.com/track/intro"
+  },
+  {
+   "ie_key": "Bandcamp",
+   "id": "38097443",
+   "title": "Kero One - Keep It Alive (Blazo remix)",
+   "_type": "url",
+   "url": "https://blazo.bandcamp.com/track/kero-one-keep-it-alive-blazo-remix"
+  },
+  {
+   "ie_key": "Bandcamp",
+   "id": "3371307469",
+   "title": "Shinsight Trio - Heart",
+   "_type": "url",
+   "url": "https://blazo.bandcamp.com/track/shinsight-trio-heart"
+  }
+ ],
+ "webpage_url": "https://blazo.bandcamp.com/album/jazz-format-mixtape-vol-1",
+ "original_url": "https://blazo.bandcamp.com/album/jazz-format-mixtape-vol-1",
+ "webpage_url_basename": "jazz-format-mixtape-vol-1",
+ "webpage_url_domain": "blazo.bandcamp.com",
+ "extractor": "Bandcamp:album",
+ "extractor_key": "BandcampAlbum",
+ "release_year": null,
+ "playlist_count": 22
+}

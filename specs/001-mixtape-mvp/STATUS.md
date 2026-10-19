@@ -101,6 +101,20 @@
   событие `spotify:progress`. Живая проверка без БД: `cargo run -p mixtape-sync --example
   spotify_match -- .secrets/cookies.txt <ссылка | файл со строками> [лимит]`.
 
+- **SoundCloud и Bandcamp в «Добавить по ссылке» (2026-10-19):** без аккаунта, через тот же
+  yt-dlp, без ffmpeg и без фоновой работы вне импорта. Ссылки: SC трек / сет / профиль
+  (`/<user>`, `/<user>/tracks`, до 100 последних треков), BC `*.bandcamp.com/track|album/…`
+  (`url_import::parse_external`, зеркало в UI — `parseExternalUrl` в `ipc/sync.ts`).
+  `crates/sync::external`: `yt-dlp -J --flat-playlist` → треки по одному (`-f FORMATS`, без
+  перекодирования) прямо в `library/<id>.<ext>`; id `sc`/`bc` + md5 id сайта (повторный импорт
+  ничего не качает), BC-альбом → альбом, SC-сет → локальный плейлист (повторно — тот же),
+  сет-альбом/EP → ещё и альбом; «Исполнитель - Название» в SC делится. Go+ превью (30 с)
+  отклоняются. Прогресс — строка синка на экране «Загрузки» (`SyncStatus.import`), итог — тост.
+  Попутно: symphonia `mp3`; склеенные HLS-сегменты SC (`sidx` на каждый сегмент) чинит
+  `mixtape_audio::drop_segment_indexes` (иначе играли бы первые 10 с); миграция 008 разрешает
+  `container` mp3/ogg. Живая проверка без БД приложения и без звука: `cargo run -p mixtape-sync
+  --example external_e2e -- src-tauri/binaries/yt-dlp-x86_64-pc-windows-msvc.exe <папка> <ссылка> [лимит]`.
+
 ## Дизайн-решения пользователя (соблюдать)
 
 - Интерфейс 1:1 как у Liner: чёрное окно, отдельные скруглённые панели `#0a0a0a` с отступом
@@ -203,7 +217,7 @@
 громкости (−14 LUFS, R128 файла или loudness из InnerTube `player`), статистика (экран
 «Статистика», `play_events`), Last.fm + Discord, импорт из Spotify (ссылка в `Ctrl+L`),
 центровка плей/паузы в круглых кнопках (`PlayGlyph`/`PauseGlyph`).
-Миграции по порядку слияния: 004 play_events, 005 scrobble_outbox, 006 track_loudness, 007 track_analysis.
+Миграции по порядку слияния: 004 play_events, 005 scrobble_outbox, 006 track_loudness, 007 track_analysis, 008 media_containers.
 
 **Следующее по плану (в таком порядке):**
 1. **«Умные переходы (бета)»** — сделано (2026-10-19), проверить на слух: анализ

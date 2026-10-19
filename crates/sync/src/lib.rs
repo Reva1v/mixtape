@@ -6,6 +6,7 @@ pub mod artists;
 pub mod catalog;
 pub mod disk;
 pub mod downloader;
+pub mod external;
 pub mod fetch;
 pub mod lastfm;
 pub mod likes;

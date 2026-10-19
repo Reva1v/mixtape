@@ -7,7 +7,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-symphonia = { version = "0.6.1", default-features = false, features = ["mkv", "isomp4", "aac", "ogg"] }
+symphonia = { version = "0.6.1", default-features = false, features = ["mkv", "isomp4", "aac", "ogg", "mp3"] }
 symphonia-adapter-libopus = "0.3"
 cpal = "0.18.2"
 rtrb = "0.4"

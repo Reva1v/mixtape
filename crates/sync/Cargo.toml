@@ -17,7 +17,7 @@ serde_json.workspace = true
 rusqlite.workspace = true
 ts-rs.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["io-util"] }
+tokio = { workspace = true, features = ["io-util", "process"] }
 tracing.workspace = true
 reqwest = { version = "0.13", default-features = false, features = ["native-tls", "http2", "stream"] }
 url = "2.5"

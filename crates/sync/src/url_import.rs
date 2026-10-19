@@ -14,6 +14,15 @@
 //! - `/browse/MPREb_…` or a bare `MPREb_…` → [`Link::Album`].
 //! - `/channel/UC…`, `/browse/UC…` or a bare `UC…` → [`Link::Artist`]. `@handle` links
 //!   need a network lookup and are rejected.
+//!
+//! SoundCloud and Bandcamp links ([`parse_external`]) are imported through yt-dlp without
+//! an account (`crate::external`):
+//! - `soundcloud.com/<user>/<track>` (a private `/s-…` token is kept) → [`ExternalKind::Track`],
+//!   `/<user>/sets/<set>` → [`ExternalKind::Set`], `/<user>` and `/<user>/tracks` →
+//!   [`ExternalKind::Profile`] (the user's uploads). Other profile tabs, site pages and
+//!   `on.soundcloud.com` short links (need a redirect) are rejected.
+//! - `<artist>.bandcamp.com/track/<slug>` → [`ExternalKind::Track`], `/album/<slug>` →
+//!   [`ExternalKind::Album`]. Custom domains are not recognised.
 
 use mixtape_core::{AlbumId, ArtistId, PlaylistId, TrackId};
 use url::Url;
@@ -137,6 +146,100 @@ fn playlist(id: &str) -> Option<Link> {
     (known && id.len() >= 12 && id_chars(id)).then(|| Link::Playlist(PlaylistId::from(id)))
 }
 
+/// Where an [`ExternalLink`] points.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Site {
+    SoundCloud,
+    Bandcamp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExternalKind {
+    Track,
+    /// A Bandcamp album.
+    Album,
+    /// A SoundCloud set (playlist, EP or album).
+    Set,
+    /// A SoundCloud user's uploads.
+    Profile,
+}
+
+/// A SoundCloud or Bandcamp link; `url` is the canonical `https://` form without the query.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExternalLink {
+    pub site: Site,
+    pub kind: ExternalKind,
+    pub url: String,
+}
+
+/// First path segments that are SoundCloud pages, not users.
+const SC_RESERVED: &[&str] = &[
+    "discover", "search", "stream", "feed", "you", "upload", "charts", "settings", "messages",
+    "notifications", "pages", "terms-of-use", "mobile", "people", "jobs", "popular", "signin",
+    "signup", "logout", "imprint", "connect", "home", "tags", "tracks", "playlists", "sets",
+    "artists", "creators", "premium", "go", "pro", "help", "community-guidelines",
+];
+
+/// Profile tabs that are not a single track.
+const SC_TABS: &[&str] = &[
+    "albums", "popular-tracks", "likes", "reposts", "followers", "following", "comments",
+    "spotlight", "sets", "tracks",
+];
+
+/// Recognizes a SoundCloud or Bandcamp link (see the module docs).
+pub fn parse_external(s: &str) -> Option<ExternalLink> {
+    let s = s.trim();
+    if s.is_empty() || s.contains(char::is_whitespace) {
+        return None;
+    }
+    let with_scheme = if s.contains("://") { s.to_owned() } else { format!("https://{s}") };
+    let url = Url::parse(&with_scheme).ok()?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return None;
+    }
+    let host = url.host_str()?.to_ascii_lowercase();
+    let segs: Vec<&str> = url.path_segments()?.filter(|s| !s.is_empty()).collect();
+    if !segs.iter().all(|s| slug(s)) {
+        return None;
+    }
+    if matches!(host.as_str(), "soundcloud.com" | "www.soundcloud.com" | "m.soundcloud.com") {
+        return soundcloud(&segs);
+    }
+    let artist = host.strip_suffix(".bandcamp.com")?;
+    if artist.is_empty() || artist.contains('.') || matches!(artist, "www" | "daily" | "m") {
+        return None;
+    }
+    let kind = match segs.as_slice() {
+        ["track", _] => ExternalKind::Track,
+        ["album", _] => ExternalKind::Album,
+        _ => return None,
+    };
+    Some(ExternalLink { site: Site::Bandcamp, kind, url: format!("https://{host}/{}", segs.join("/")) })
+}
+
+fn soundcloud(segs: &[&str]) -> Option<ExternalLink> {
+    let user = *segs.first()?;
+    if SC_RESERVED.contains(&user.to_ascii_lowercase().as_str()) {
+        return None;
+    }
+    let token = |t: &str| t.starts_with("s-") && t.len() > 2;
+    let (kind, path) = match segs {
+        [_] | [_, "tracks"] => (ExternalKind::Profile, format!("{user}/tracks")),
+        [_, "sets", set] => (ExternalKind::Set, format!("{user}/sets/{set}")),
+        [_, "sets", set, t] if token(t) => (ExternalKind::Set, format!("{user}/sets/{set}/{t}")),
+        [_, track] if !SC_TABS.contains(track) => (ExternalKind::Track, format!("{user}/{track}")),
+        [_, track, t] if !SC_TABS.contains(track) && token(t) => {
+            (ExternalKind::Track, format!("{user}/{track}/{t}"))
+        }
+        _ => return None,
+    };
+    Some(ExternalLink { site: Site::SoundCloud, kind, url: format!("https://soundcloud.com/{path}") })
+}
+
+fn slug(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,5 +361,82 @@ mod tests {
         assert!(parse_link(OLAK).unwrap().is_album_playlist());
         assert!(!parse_link(PL).unwrap().is_album_playlist());
         assert!(!parse_link(V).unwrap().is_album_playlist());
+    }
+
+    #[test]
+    fn external_table() {
+        use ExternalKind::*;
+        let sc = |kind, url: &str| Some(ExternalLink { site: Site::SoundCloud, kind, url: url.into() });
+        let bc = |kind, url: &str| Some(ExternalLink { site: Site::Bandcamp, kind, url: url.into() });
+        let cases: Vec<(&str, Option<ExternalLink>)> = vec![
+            // SoundCloud tracks.
+            ("https://soundcloud.com/forss/flickermood", sc(Track, "https://soundcloud.com/forss/flickermood")),
+            (
+                "https://soundcloud.com/forss/flickermood?si=abc&utm_source=clipboard",
+                sc(Track, "https://soundcloud.com/forss/flickermood"),
+            ),
+            ("soundcloud.com/forss/flickermood", sc(Track, "https://soundcloud.com/forss/flickermood")),
+            ("https://m.soundcloud.com/forss/flickermood/", sc(Track, "https://soundcloud.com/forss/flickermood")),
+            ("https://www.soundcloud.com/forss/flickermood#t=1:00", sc(Track, "https://soundcloud.com/forss/flickermood")),
+            (
+                "https://soundcloud.com/a-user/secret-track/s-AbC123",
+                sc(Track, "https://soundcloud.com/a-user/secret-track/s-AbC123"),
+            ),
+            // Sets.
+            (
+                "https://soundcloud.com/the-concept-band/sets/the-royal-concept-ep",
+                sc(Set, "https://soundcloud.com/the-concept-band/sets/the-royal-concept-ep"),
+            ),
+            ("https://soundcloud.com/u/sets/s1/s-tok3n?in=x", sc(Set, "https://soundcloud.com/u/sets/s1/s-tok3n")),
+            // Profiles.
+            ("https://soundcloud.com/forss", sc(Profile, "https://soundcloud.com/forss/tracks")),
+            ("https://soundcloud.com/forss/tracks", sc(Profile, "https://soundcloud.com/forss/tracks")),
+            // Bandcamp.
+            (
+                "https://benprunty.bandcamp.com/track/lanius-battle",
+                bc(Track, "https://benprunty.bandcamp.com/track/lanius-battle"),
+            ),
+            (
+                "benprunty.bandcamp.com/track/lanius-battle?from=embed",
+                bc(Track, "https://benprunty.bandcamp.com/track/lanius-battle"),
+            ),
+            (
+                "https://Blazo.Bandcamp.com/album/jazz-format-mixtape-vol-1",
+                bc(Album, "https://blazo.bandcamp.com/album/jazz-format-mixtape-vol-1"),
+            ),
+            (
+                "http://blazo.bandcamp.com/album/jazz-format-mixtape-vol-1/",
+                bc(Album, "https://blazo.bandcamp.com/album/jazz-format-mixtape-vol-1"),
+            ),
+            // Rejected.
+            ("", None),
+            ("https://soundcloud.com/", None),
+            ("https://soundcloud.com/discover", None),
+            ("https://soundcloud.com/search?q=forss", None),
+            ("https://soundcloud.com/forss/likes", None),
+            ("https://soundcloud.com/forss/sets", None),
+            ("https://soundcloud.com/forss/albums", None),
+            ("https://soundcloud.com/forss/flickermood/comments", None),
+            ("https://on.soundcloud.com/AbCdEf", None),
+            ("https://api.soundcloud.com/tracks/293", None),
+            ("https://notsoundcloud.com/forss/flickermood", None),
+            ("ftp://soundcloud.com/forss/flickermood", None),
+            ("https://bandcamp.com/track/x", None),
+            ("https://daily.bandcamp.com/album/x", None),
+            ("https://blazo.bandcamp.com/", None),
+            ("https://blazo.bandcamp.com/music", None),
+            ("https://blazo.bandcamp.com/album", None),
+            ("https://blazo.bandcamp.com/merch/shirt", None),
+            ("https://music.blazo.com/album/x", None),
+            ("https://x.y.bandcamp.com/album/x", None),
+            ("https://music.youtube.com/watch?v=dQw4w9WgXcQ", None),
+            ("soundcloud forss", None),
+        ];
+        for (input, want) in cases {
+            assert_eq!(parse_external(input), want, "input: {input:?}");
+        }
+        // Neither parser claims the other's links.
+        assert_eq!(parse_link("https://soundcloud.com/forss/flickermood"), None);
+        assert_eq!(parse_link("https://blazo.bandcamp.com/album/jazz-format-mixtape-vol-1"), None);
     }
 }

@@ -72,10 +72,10 @@ export const ui = {
   },
   importUrl: {
     title: "Add from link",
-    intro: "A track, album, playlist or artist from YouTube Music or YouTube. It all gets downloaded to your library.",
+    intro: "A track, album, playlist or artist from YouTube Music or YouTube, or a track, album, set or profile from SoundCloud or Bandcamp (no account needed for these two). It all gets downloaded to your library.",
     kind: { track: "Track", album: "Album", playlist: "Playlist", artist: "Discography" },
     link: "Link",
-    notALink: "This doesn't look like a YouTube Music or YouTube link",
+    notALink: "This doesn't look like a YouTube Music, YouTube, SoundCloud or Bandcamp link",
     adding: "Adding…",
     failed: "Couldn't add the link",
     trackAdded: (title: string) => `Downloading “${title}”`,

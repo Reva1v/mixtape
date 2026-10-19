@@ -9,7 +9,7 @@
 //! into one) leaves the decoder waiting at its position, and once the bytes are there it reopens
 //! the stream and seeks back exactly, since symphonia's state after a failed read is undefined.
 
-use std::io::{ErrorKind, Read, Seek, SeekFrom};
+use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::sync::OnceLock;
 
@@ -74,6 +74,50 @@ pub fn probe(path: &Path) -> Result<ProbeInfo> {
         container: dec.container.clone(),
         codec: dec.decoder.codec_info().short_name.to_string(),
     })
+}
+
+/// Joined HLS/DASH segments (SoundCloud through yt-dlp's native HLS downloader) carry a
+/// `sidx` per segment. symphonia takes the first one for the index of the whole file and stops
+/// after the first segment, so when there is more than one, every `sidx` is retyped to `free`
+/// in place (the fragments still describe themselves). Returns how many were retyped.
+pub fn drop_segment_indexes(path: &Path) -> std::io::Result<u32> {
+    let mut file = std::fs::OpenOptions::new().read(true).write(true).open(path)?;
+    let len = file.metadata()?.len();
+    let mut found = Vec::new();
+    let mut at = 0u64;
+    let mut head = [0u8; 16];
+    while at + 8 <= len {
+        file.seek(SeekFrom::Start(at))?;
+        file.read_exact(&mut head[..8])?;
+        let kind = [head[4], head[5], head[6], head[7]];
+        if at == 0 && &kind != b"ftyp" {
+            return Ok(0);
+        }
+        let size = match u32::from_be_bytes([head[0], head[1], head[2], head[3]]) as u64 {
+            0 => break,
+            1 => {
+                file.read_exact(&mut head[8..16])?;
+                be_u64(&head[8..16])
+            }
+            n => n,
+        };
+        if size < 8 {
+            break;
+        }
+        if &kind == b"sidx" {
+            found.push(at);
+        }
+        at += size;
+    }
+    if found.len() < 2 {
+        return Ok(0);
+    }
+    for at in &found {
+        file.seek(SeekFrom::Start(at + 4))?;
+        file.write_all(b"free")?;
+    }
+    file.flush()?;
+    Ok(found.len() as u32)
 }
 
 fn codecs() -> &'static CodecRegistry {
@@ -764,6 +808,57 @@ pub(crate) mod tests {
         let info = probe(&fixture("sine_aac.m4a")).unwrap();
         assert_eq!((info.sample_rate, info.container.as_str()), (44_100, "m4a"));
         assert!(info.duration_ms.abs_diff(2000) <= 30, "{info:?}");
+    }
+
+    /// Bandcamp serves MP3 (often with an ID3v2 tag in front); SoundCloud's HLS AAC lands as
+    /// fragmented MP4, covered by `decodes_fragmented_aac`.
+    #[test]
+    fn decodes_mp3_with_id3() {
+        let info = probe(&fixture("sine_mp3.mp3")).unwrap();
+        assert_eq!((info.sample_rate, info.channels, info.codec.as_str()), (44_100, 2, "mp3"), "{info:?}");
+        assert!(info.duration_ms.abs_diff(2000) <= 60, "{info:?}");
+        let mut dec = open("sine_mp3.mp3");
+        let pcm = decode_all(&mut dec);
+        let ms = pcm.len() as u64 / 2 * 1000 / 44_100;
+        assert!(ms.abs_diff(2000) <= 60, "{ms} ms");
+        assert!(rms(&pcm) > 0.05, "silent: {}", rms(&pcm));
+        // Seeking works too (the player seeks on resume and on scrubbing).
+        let mut dec = open("sine_mp3.mp3");
+        dec.seek(1250).unwrap();
+        let mut tail = Vec::new();
+        while dec.next_chunk(&mut tail).unwrap() {}
+        let tail_ms = tail.len() as u64 / 2 * 1000 / 44_100;
+        assert!(tail_ms.abs_diff(ms - 1250) <= 30, "tail {tail_ms} ms of {ms} ms");
+    }
+
+    /// SoundCloud's HLS AAC as yt-dlp joins it: init + `styp`/`sidx`/`moof`/`mdat` per segment.
+    #[test]
+    fn joined_hls_segments_play_in_full() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("hls.m4a");
+        std::fs::copy(fixture("sine_hls_aac.m4a"), &path).unwrap();
+        // Without the fix symphonia sees the first 0.5 s segment only.
+        assert!(probe(&path).unwrap().duration_ms < 1000);
+        assert_eq!(drop_segment_indexes(&path).unwrap(), 5);
+        assert_eq!(drop_segment_indexes(&path).unwrap(), 0, "idempotent");
+        let info = probe(&path).unwrap();
+        assert!(info.duration_ms.abs_diff(2000) <= 30, "{info:?}");
+        let ext = Some("m4a");
+        let mut dec = Decoder::open(SourceOpener::File(path.clone()), ext).unwrap();
+        let ms = decode_all(&mut dec).len() as u64 / 2 * 1000 / 44_100;
+        assert!(ms.abs_diff(2000) <= 30, "{ms} ms");
+        let mut dec = Decoder::open(SourceOpener::File(path), ext).unwrap();
+        dec.seek(1250).unwrap();
+        let mut tail = Vec::new();
+        while dec.next_chunk(&mut tail).unwrap() {}
+        let tail_ms = tail.len() as u64 / 2 * 1000 / 44_100;
+        assert!(tail_ms.abs_diff(ms - 1250) <= 30, "tail {tail_ms} ms of {ms} ms");
+        // Files without several indexes are left alone.
+        let plain = dir.path().join("plain.m4a");
+        std::fs::copy(fixture("sine_aac.m4a"), &plain).unwrap();
+        assert_eq!(drop_segment_indexes(&plain).unwrap(), 0);
+        assert_eq!(std::fs::read(&plain).unwrap(), std::fs::read(fixture("sine_aac.m4a")).unwrap());
+        assert_eq!(drop_segment_indexes(&fixture("sine_mp3.mp3")).unwrap(), 0);
     }
 
     /// How far (seconds, within ±half a period) the audio in `pcm` is from `sin(2π·440·t)` at

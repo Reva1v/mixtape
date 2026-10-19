@@ -23,7 +23,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 pub use analysis::{ANALYSIS_VERSION, Key, TrackAnalysis, analyze_file};
-pub use decoder::{ProbeInfo, probe};
+pub use decoder::{ProbeInfo, drop_segment_indexes, probe};
 pub use engine::{Engine, EngineEvent};
 pub use gain::gain_for;
 pub use loudness::{Loudness, measure_loudness};

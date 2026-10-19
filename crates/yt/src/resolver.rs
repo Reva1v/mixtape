@@ -139,6 +139,11 @@ impl StreamResolver {
         self
     }
 
+    /// The yt-dlp executable (also used for SoundCloud / Bandcamp imports).
+    pub fn ytdlp(&self) -> &Path {
+        &self.ytdlp
+    }
+
     /// Netscape `cookies.txt` text passed to yt-dlp, or `None` to resolve anonymously.
     pub fn set_cookies(&self, netscape: Option<String>) {
         *lock(&self.cookies) = netscape;
@@ -488,6 +493,40 @@ async fn kill_tree(pid: Option<u32>, child: &mut Child) {
     #[cfg(not(windows))]
     let _ = pid;
     let _ = child.kill().await;
+}
+
+/// Runs a prepared sidecar command without a console window and collects its output.
+/// After `timeout` the whole process tree is killed. `Err` carries a reason in the app
+/// language when the process did not start or did not finish; the exit code is not checked.
+pub async fn run_capture(mut cmd: Command, timeout: Duration) -> std::result::Result<(String, String), String> {
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| trf!("couldn't start yt-dlp: {e}", "не вдалося запустити yt-dlp: {e}", "не удалось запустить yt-dlp: {e}"))?;
+    let pid = child.id();
+    let mut stdout = child.stdout.take();
+    let mut stderr = child.stderr.take();
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    let finished = tokio::time::timeout(timeout, async {
+        let (_, _, status) = tokio::join!(read_all(&mut stdout, &mut out), read_all(&mut stderr, &mut err), child.wait());
+        status
+    })
+    .await;
+    match finished {
+        Ok(Ok(_)) => Ok((String::from_utf8_lossy(&out).into_owned(), String::from_utf8_lossy(&err).into_owned())),
+        Ok(Err(e)) => Err(trf!("yt-dlp wait failed: {e}", "помилка очікування yt-dlp: {e}", "ошибка ожидания yt-dlp: {e}")),
+        Err(_) => {
+            kill_tree(pid, &mut child).await;
+            let secs = timeout.as_secs();
+            Err(trf!("yt-dlp didn't answer in {secs} s", "yt-dlp не відповів за {secs} с", "yt-dlp не ответил за {secs} с"))
+        }
+    }
 }
 
 /// Matches yt-dlp's JSON lines and error lines to the requested ids.

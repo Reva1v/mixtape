@@ -14,6 +14,7 @@ const MIGRATIONS_SLICE: &[M<'static>] = &[
     M::up(include_str!("../migrations/005_scrobble_outbox.sql")),
     M::up(include_str!("../migrations/006_track_loudness.sql")),
     M::up(include_str!("../migrations/007_track_analysis.sql")),
+    M::up(include_str!("../migrations/008_media_containers.sql")),
 ];
 
 fn migrations() -> Migrations<'static> {
@@ -78,6 +79,42 @@ mod tests {
         assert_eq!(checked, None);
         let limit: i64 = conn.query_row("PRAGMA journal_size_limit", [], |r| r.get(0)).unwrap();
         assert_eq!(limit, 1_048_576);
+    }
+
+    #[test]
+    fn v7_media_files_keep_rows_and_accept_mp3() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        {
+            let mut conn = Connection::open(&path).unwrap();
+            Migrations::from_slice(&MIGRATIONS_SLICE[..7]).to_latest(&mut conn).unwrap();
+            conn.execute("INSERT INTO tracks(id, title) VALUES ('a', 'A'), ('b', 'B')", []).unwrap();
+            conn.execute(
+                "INSERT INTO media_files(track_id, path, container, size_bytes, lufs, last_access, location)
+                 VALUES ('a', 'library/a.webm', 'webm', 10, -9.5, 1, 'library')",
+                [],
+            )
+            .unwrap();
+            assert!(conn
+                .execute("INSERT INTO media_files(track_id, path, container, size_bytes, last_access, location) VALUES ('b', 'x', 'mp3', 1, 1, 'library')", [])
+                .is_err());
+        }
+        let conn = open_writer(&path).unwrap();
+        let row: (String, String, f64) = conn
+            .query_row("SELECT path, container, lufs FROM media_files WHERE track_id = 'a'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
+            .unwrap();
+        assert_eq!(row, ("library/a.webm".into(), "webm".into(), -9.5));
+        conn.execute("INSERT INTO media_files(track_id, path, container, size_bytes, last_access, location) VALUES ('b', 'library/b.mp3', 'mp3', 1, 1, 'library')", [])
+            .unwrap();
+        assert!(conn
+            .execute("UPDATE media_files SET container = 'flac' WHERE track_id = 'b'", [])
+            .is_err());
+        // Still cascades with its track.
+        conn.execute("DELETE FROM tracks WHERE id = 'b'", []).unwrap();
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM media_files", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1);
     }
 
     #[test]

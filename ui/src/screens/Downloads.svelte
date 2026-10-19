@@ -79,7 +79,7 @@
   const showProgress = $derived(progress.running || progress.total > 0);
   const sync = $derived(progress.sync);
   const syncPercent = $derived(sync && sync.total > 0 ? Math.min(100, (sync.done / sync.total) * 100) : 0);
-  const empty = $derived(!account.connected && !showProgress && downloads.failed.length === 0);
+  const empty = $derived(!account.connected && !showProgress && !sync && downloads.failed.length === 0);
 </script>
 
 {#snippet checkbox(checked: boolean, label: string, onchange: (v: boolean) => void)}
@@ -143,10 +143,10 @@
     {#if sync}
       <section class="mb-4 rounded-lg bg-white/[0.04] px-5 py-4" aria-live="polite">
         <div class="flex items-baseline gap-2">
-          <span class="text-[14.5px] font-medium">{t.downloads.sync}</span>
+          <span class="text-[14.5px] font-medium">{sync.import ? t.downloads.linkImport : t.downloads.sync}</span>
           <span class="text-[13px] text-ink-3 tnum">{sync.label}{#if sync.total > 0}&nbsp;· {t.downloads.of(sync.done, sync.total)}{/if}…</span>
         </div>
-        <div class="mt-0.5 text-[13px] text-ink-3">{t.downloads.syncReading}</div>
+        <div class="mt-0.5 text-[13px] text-ink-3">{sync.import ? t.downloads.linkImportHint : t.downloads.syncReading}</div>
         <div class="mt-3 h-[3px] overflow-hidden rounded-full bg-fill-2" role="progressbar" aria-label={t.downloads.sync}>
           {#if sync.total > 0}
             <div class="h-full origin-left rounded-full bg-ink transition-transform duration-(--spring-smooth-ms)" style:transform="scaleX({syncPercent / 100})"></div>

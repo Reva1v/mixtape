@@ -1,0 +1,61 @@
+{
+ "album": "The Royal Concept EP",
+ "album_artist": "The Royal Concept",
+ "album_type": "ep",
+ "uploader": "The Royal Concept",
+ "uploader_id": "9615865",
+ "uploader_url": "https://soundcloud.com/the-concept-band",
+ "timestamp": 1343497860,
+ "modified_timestamp": 1358471457,
+ "duration": 1398.595,
+ "license": "all-rights-reserved",
+ "like_count": 482,
+ "repost_count": 99,
+ "id": "2284613",
+ "title": "The Royal Concept EP",
+ "_type": "playlist",
+ "entries": [
+  {
+   "album": "The Royal Concept EP",
+   "album_artist": "The Royal Concept",
+   "album_type": "ep",
+   "ie_key": "Soundcloud",
+   "id": "75206121",
+   "_type": "url_transparent",
+   "url": "https://soundcloud.com/the-concept-band/world-on-fire-1"
+  },
+  {
+   "album": "The Royal Concept EP",
+   "album_artist": "The Royal Concept",
+   "album_type": "ep",
+   "ie_key": "Soundcloud",
+   "id": "47127625",
+   "_type": "url_transparent",
+   "url": "https://soundcloud.com/the-concept-band/gimme-twice-mastered"
+  },
+  {
+   "album": "The Royal Concept EP",
+   "album_artist": "The Royal Concept",
+   "album_type": "ep",
+   "ie_key": "Soundcloud",
+   "id": "47127627",
+   "_type": "url_transparent",
+   "url": "https://soundcloud.com/the-concept-band/goldrushed-mastered"
+  }
+ ],
+ "webpage_url": "https://soundcloud.com/the-concept-band/sets/the-royal-concept-ep",
+ "original_url": "https://soundcloud.com/the-concept-band/sets/the-royal-concept-ep",
+ "webpage_url_basename": "the-royal-concept-ep",
+ "webpage_url_domain": "soundcloud.com",
+ "extractor": "soundcloud:set",
+ "extractor_key": "SoundcloudSet",
+ "duration_string": "23:18",
+ "upload_date": "20120728",
+ "modified_date": "20130118",
+ "release_year": null,
+ "album_artists": [
+  "The Royal Concept"
+ ],
+ "genre": "Indie/pop",
+ "playlist_count": 6
+}

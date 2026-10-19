@@ -71,10 +71,10 @@ export const ui: typeof en = {
   },
   importUrl: {
     title: "Добавить по ссылке",
-    intro: "Трек, альбом, плейлист или исполнитель с YouTube Music или YouTube — всё скачается в библиотеку.",
+    intro: "Трек, альбом, плейлист или исполнитель с YouTube Music или YouTube, а также трек, альбом, сет или профиль с SoundCloud или Bandcamp (для них аккаунт не нужен) — всё скачается в библиотеку.",
     kind: { track: "Трек", album: "Альбом", playlist: "Плейлист", artist: "Дискография" },
     link: "Ссылка",
-    notALink: "Это не похоже на ссылку YouTube Music или YouTube",
+    notALink: "Это не похоже на ссылку YouTube Music, YouTube, SoundCloud или Bandcamp",
     adding: "Добавляем…",
     failed: "Не удалось добавить ссылку",
     trackAdded: (title: string) => `«${title}» скачивается`,

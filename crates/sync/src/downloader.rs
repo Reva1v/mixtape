@@ -57,6 +57,8 @@ pub struct SyncStatus {
     pub done: u32,
     /// 0 when the amount is not known yet.
     pub total: u32,
+    /// A SoundCloud / Bandcamp link being added, not the YouTube Music sync.
+    pub import: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -591,7 +593,7 @@ mod tests {
         hooks.settle(2).await;
         assert_eq!(hooks.count(), 1);
 
-        let status = SyncStatus { label: "Читаю лайки".into(), done: 0, total: 0 };
+        let status = SyncStatus { label: "Читаю лайки".into(), done: 0, total: 0, import: false };
         dl.set_sync(Some(status.clone()));
         hooks.settle(2).await;
         assert_eq!(hooks.count(), 2);

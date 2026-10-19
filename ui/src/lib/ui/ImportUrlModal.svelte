@@ -1,10 +1,11 @@
 <script lang="ts">
   // «Добавить по ссылке» (T067): a track, album or playlist from YouTube / YouTube Music
-  // goes to the download queue. Opened by Ctrl+L, from the downloads screen, or by
+  // goes to the download queue; a SoundCloud / Bandcamp link is downloaded through yt-dlp
+  // without an account (progress on the downloads screen). Opened by Ctrl+L, from the downloads screen, or by
   // pasting a recognised link anywhere outside a text field. A Spotify playlist or album
   // link (or a pasted «Artist — Title» list) is matched on YouTube Music instead and saved
   // as a local playlist (SpotifyImport.svelte).
-  import { importUrl, parseMusicUrl, type ImportKind } from "$lib/ipc/sync";
+  import { importUrl, parseExternalUrl, parseMusicUrl, type ImportKind } from "$lib/ipc/sync";
   import { parseSpotifyUrl, type SpotifySource } from "$lib/ipc/spotify";
   import { downloads } from "$lib/stores/downloads.svelte";
   import { toasts } from "$lib/stores/overlay.svelte";
@@ -27,7 +28,7 @@
   let runFinished = $state(false);
 
   const open = $derived(downloads.importUrl !== null);
-  const parsed = $derived(parseMusicUrl(value));
+  const parsed = $derived(parseMusicUrl(value) ?? parseExternalUrl(value));
   const spotify = $derived(parsed ? null : parseSpotifyUrl(value));
   const listLines = $derived(listText.split("\n").filter((l) => l.trim()).length);
   const title = $derived(
@@ -85,12 +86,13 @@
     run = source;
   }
 
-  // Ctrl+V outside text fields with a YouTube or Spotify link opens the dialog prefilled.
+  // Ctrl+V outside text fields with a YouTube, SoundCloud, Bandcamp or Spotify link opens the
+  // dialog prefilled.
   function onPaste(e: ClipboardEvent) {
     const el = e.target as HTMLElement | null;
     if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
     const text = e.clipboardData?.getData("text") ?? "";
-    const link = parseMusicUrl(text) ?? parseSpotifyUrl(text);
+    const link = parseMusicUrl(text) ?? parseExternalUrl(text) ?? parseSpotifyUrl(text);
     if (!link) return;
     e.preventDefault();
     downloads.importUrl = link.url;
