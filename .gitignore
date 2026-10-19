@@ -13,7 +13,7 @@ src-tauri/binaries/*.exe
 
 # Listening bench: downloaded music and rendered clips stay local
 tools/mixbench/music/
-tools/mixbench/out/
+tools/mixbench/out*/
 
 # Promo video: the MP4/WebM ship as release assets, only the GIF and poster live in git
 docs/media/*.mp4

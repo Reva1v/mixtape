@@ -10,7 +10,7 @@
 //!
 //! Smart transitions ([`crate::smart`]) use the same path: the overlap starts on a planned
 //! downbeat instead of a fixed time before the end, the successor is decoded through a
-//! [`Varispeed`] into the mixer, and the mixer swaps the bass.
+//! [`Varispeed`] into the mixer, and the mixer works faders, EQ and the echo ([`Fx`]).
 //!
 //! Streamed sources ([`crate::SourceOpener::Sparse`]) never block this thread: their decoder
 //! answers [`Error::Buffering`] instead of waiting for bytes, and the engine skips that decode
@@ -37,7 +37,7 @@ use crate::crossfade::Mixer;
 use crate::gain::volume_curve;
 use crate::output::{Output, RING_MS};
 use crate::pipeline::Pipeline;
-use crate::smart::{self, BassSwap, SmartPlan, Varispeed};
+use crate::smart::{self, Fx, SmartPlan, Varispeed};
 use crate::timeline::{Handover, Timeline, Transition};
 use crate::{Error, Result, Source};
 
@@ -707,7 +707,7 @@ impl State {
     /// Starts mixing `b` in under the head over `len` frames: `b` becomes the head, the old
     /// head keeps decoding into the fade. `a_tail` is old-head audio already decoded past the
     /// start of the overlap; `b_ms` is where `b`'s positions count from. A smart plan adds
-    /// the bass swap and the tempo match.
+    /// its faders and effects and the tempo match.
     fn begin_fade(
         &mut self,
         b: Pipeline,
@@ -725,7 +725,7 @@ impl State {
         mix.a.ended = self.head_done;
         let mut stretch = None;
         if let Some(plan) = smart {
-            mix.swap = Some(BassSwap::new(&plan, self.rate()));
+            mix.fx = Some(Fx::new(&plan, self.rate()));
             if plan.speed != 1.0 {
                 stretch = Some(Varispeed::new(plan));
             }
@@ -1432,8 +1432,14 @@ pub mod bench {
         pub b_start_ms: u64,
         pub speed: f64,
         pub ramp: u64,
+        /// "blend" or "echo".
+        pub style: &'static str,
+        /// Blend: frames over which B rises; echo: the cut.
+        pub rise: u64,
         pub swap_at: u64,
         pub swap_len: u64,
+        /// Echo delay, frames.
+        pub delay: u64,
     }
 
     impl From<SmartPlan> for BenchPlan {
@@ -1444,8 +1450,14 @@ pub mod bench {
                 b_start_ms: p.b_start_ms,
                 speed: p.speed,
                 ramp: p.ramp,
+                style: match p.style {
+                    smart::Style::Blend => "blend",
+                    smart::Style::Echo => "echo",
+                },
+                rise: p.rise,
                 swap_at: p.swap_at,
                 swap_len: p.swap_len,
+                delay: p.delay,
             }
         }
     }

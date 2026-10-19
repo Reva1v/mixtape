@@ -323,7 +323,15 @@ fn diagnose(a: &Track, b: &Track, plan: Option<&BenchPlan>) -> Diagnosis {
             }
             r
         }
-        Mode::Unsynced => format!("смешение 4 с без сведения: {}", why.join("; ")),
+        Mode::Unsynced => format!(
+            "{} без сведения: {}",
+            if plan.is_some_and(|p| p.style == "echo") {
+                "эхо-выход"
+            } else {
+                "смешение 4 с"
+            },
+            why.join("; ")
+        ),
         Mode::Fallback => {
             if !aa.usable() || !ba.usable() {
                 "анализ непригоден (тишина/ошибка)".into()
@@ -702,6 +710,15 @@ document.querySelectorAll('audio').forEach(a => a.addEventListener('play', () =>
 fn card(h: &mut String, c: &Card, opts: &Opts) {
     let (badge, cls) = match c.diag.mode {
         Mode::Synced => ("умный, доли сведены", "b-smart"),
+        Mode::Unsynced
+            if c.smart
+                .rendered
+                .smart
+                .as_ref()
+                .is_some_and(|p| p.style == "echo") =>
+        {
+            ("умный, эхо-выход", "b-uns")
+        }
         Mode::Unsynced => ("умный без сведения", "b-uns"),
         Mode::Fallback => ("откат на кроссфейд", "b-fb"),
     };
@@ -758,17 +775,30 @@ fn card(h: &mut String, c: &Card, opts: &Opts) {
                 _ => facts.push(format!("длина <b>{:.1} с</b>", len_ms / 1000.0)),
             }
             facts.push(format!("B с <b>{}</b>", secs(p.b_start_ms)));
-            facts.push(format!(
-                "скорость B <b>×{:.4}</b> ({:+.2} %, возврат за {:.1} с)",
-                p.speed,
-                (p.speed - 1.0) * 100.0,
-                p.ramp as f64 / rate
-            ));
-            facts.push(format!(
-                "смена басов {:.1}–{:.1} с перехода",
-                p.swap_at as f64 / rate,
-                (p.swap_at + p.swap_len) as f64 / rate
-            ));
+            if p.style == "echo" {
+                facts.push(format!(
+                    "срез A на <b>{:.1} с</b> перехода, эхо {:.0} мс, хвост {:.1} с",
+                    p.rise as f64 / rate,
+                    p.delay as f64 * 1000.0 / rate,
+                    (p.len - p.rise) as f64 / rate
+                ));
+            } else {
+                facts.push(format!(
+                    "скорость B <b>×{:.4}</b> ({:+.2} %, возврат за {:.1} с)",
+                    p.speed,
+                    (p.speed - 1.0) * 100.0,
+                    p.ramp as f64 / rate
+                ));
+                facts.push(format!(
+                    "B выходит с открытием фильтра за {:.1} с",
+                    p.rise as f64 / rate
+                ));
+                facts.push(format!(
+                    "смена басов {:.1}–{:.1} с, затем A уходит с фильтром",
+                    p.swap_at as f64 / rate,
+                    (p.swap_at + p.swap_len) as f64 / rate
+                ));
+            }
         }
         None => facts.push(format!(
             "кроссфейд {} с в самом конце A",

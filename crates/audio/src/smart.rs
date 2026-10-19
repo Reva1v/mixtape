@@ -1,24 +1,33 @@
-//! Smart transitions («Умные переходы»): a DJ-style blend planned from both tracks' analyses.
+//! Smart transitions («Умные переходы»): a DJ-style handover planned from both tracks' analyses.
 //!
-//! The overlap lasts whole bars (8 when the keys go together, 2 when they clash), starts on a
-//! phrase start (else a downbeat) of the outgoing track and ends before its outro fades. The
-//! incoming track enters on a downbeat after its leading silence — late enough into a quiet
-//! intro that it is at full level when the outgoing track has gone — and is played up to ±6 %
-//! faster or slower (resampling, so its pitch moves with it) so the beats line up, gliding
-//! back to its own tempo over the last bar. Halfway through, the bass swaps over one bar:
-//! low-shelf filters cut the incoming track's bass until then and the outgoing track's after.
+//! When the tempos can be matched it is a blend, worked like a mixer's faders and EQ rather
+//! than a crossfade. The overlap lasts whole bars (16 when the incoming intro is long enough,
+//! 8 when the keys go together, 2 when they clash), starts on a phrase start (else a downbeat)
+//! of the outgoing track and ends before its outro fades. The incoming track enters on a
+//! downbeat after its leading silence and is played up to ±6 % faster or slower (resampling,
+//! so its pitch moves with it) so the beats line up, gliding back to its own tempo over the
+//! last bar. It rises over the first bars through a low-pass that opens up, with its bass cut,
+//! while the outgoing track stays at full level. Halfway, on a downbeat, the bass swaps over
+//! one beat; then the outgoing track thins out through a rising high-pass and fades.
+//!
+//! When the tempos are too far apart (or one track has no steady beat), the outgoing track is
+//! cut on a downbeat of its last phrase and its last beat repeats in a fading echo, while the
+//! incoming track drops in on the cut.
 
 use std::f64::consts::PI;
 
 use crate::analysis::TrackAnalysis;
 
 /// The longest overlap; the engine asks for the successor this much earlier.
-pub(crate) const MAX_SMART_MS: u64 = 20_000;
+pub(crate) const MAX_SMART_MS: u64 = 32_000;
 const MAX_STRETCH: f64 = 0.06;
-/// Bars of overlap when the keys go together, and when they clash.
+/// Bars of overlap at most (with a long enough incoming intro), when the keys go together, and
+/// when they clash (the incoming track's bass and highs are filtered meanwhile, so a short
+/// clash is soft).
+const LONG_BARS: u32 = 16;
 const BARS: u32 = 8;
-const CLASH_BARS: u32 = 2;
-/// Overlap when the beats cannot be matched (no steady beat, tempos too far apart).
+const CLASH_BARS: u32 = 4;
+/// Overlap when neither the beats can be matched nor the outgoing track has a beat to echo.
 const UNSYNCED_MS: u64 = 4_000;
 /// Bars of a phrase: the overlap starts on a phrase start where it can.
 const PHRASE_BARS: u32 = 8;
@@ -28,12 +37,39 @@ const MAX_SKIP_MS: u64 = 30_000;
 /// Bass cut of the shelf filters, dB, and their corner.
 const BASS_CUT_DB: f32 = -24.0;
 const BASS_HZ: f32 = 180.0;
-/// Filter coefficients are recomputed this often while the gain moves.
+/// Bars over which the incoming track rises, its low-pass opening from `LP_FROM_HZ`.
+const RISE_BARS: u64 = 2;
+const LP_FROM_HZ: f32 = 300.0;
+const LP_TO_HZ: f32 = 18_000.0;
+/// The high-pass of the outgoing track's fade rises to this.
+const HP_FROM_HZ: f32 = 20.0;
+const HP_TO_HZ: f32 = 1_200.0;
+/// Echo: delay in beats of the outgoing track (a dotted eighth), feedback, level, and the tail
+/// after the cut (beats, within the bounds in ms). Without a beat: the delay and tail in ms.
+const ECHO_BEATS: f64 = 0.75;
+const ECHO_FEEDBACK: f32 = 0.5;
+const ECHO_WET: f32 = 0.6;
+const ECHO_HP_HZ: f32 = 250.0;
+const ECHO_TAIL_BEATS: f64 = 6.0;
+const ECHO_TAIL_MS: (f64, f64) = (2_000.0, 3_500.0);
+/// Short ramps around the echo cut, ms, so it does not click.
+const CUT_RAMP_MS: f64 = 8.0;
+/// Filter coefficients are recomputed this often while they move.
 const FX_BLOCK: u64 = 32;
+
+/// How the tracks hand over.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Style {
+    /// Beat-matched faders and EQ (or, without beats, the same moves over a few seconds).
+    Blend,
+    /// The outgoing track's last beat echoes out while the incoming one drops in.
+    Echo,
+}
 
 /// A planned transition, in output frames.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SmartPlan {
+    pub style: Style,
     /// Frame of the outgoing track where the overlap starts.
     pub start: u64,
     pub len: u64,
@@ -43,9 +79,15 @@ pub(crate) struct SmartPlan {
     pub speed: f64,
     /// Last frames of the overlap over which the speed glides back to 1.
     pub ramp: u64,
-    /// Overlap frame where the bass swap starts, and its length.
+    /// Blend: frames over which the incoming track rises. Echo: the cut, where the outgoing
+    /// track stops and the incoming one comes in.
+    pub rise: u64,
+    /// Overlap frame where the bass swap starts, and its length; the outgoing track fades
+    /// after it.
     pub swap_at: u64,
     pub swap_len: u64,
+    /// Echo delay, frames (0 for a blend).
+    pub delay: u64,
 }
 
 impl SmartPlan {
@@ -106,24 +148,25 @@ pub(crate) fn plan(
     };
 
     let Some((pa, speed)) = synced else {
-        // No beat matching: a short blend that ends where the outgoing track starts to fade
-        // (on a downbeat when it has a beat).
-        let len_ms = UNSYNCED_MS.min(a_ms / 2).min(b_ms / 2) as f64;
-        let latest = a_out - len_ms;
-        let start_ms = match a.beat_period_ms() {
-            Some(p) => grid_at_or_before(a.beat_ms as f64, 4.0 * p, latest),
-            None => latest,
+        if let Some(p) = a.beat_period_ms() {
+            return echo_plan(a, b, a_ms, b_ms, a_out, p, rate);
         }
-        .max(a_ms as f64 / 2.0);
+        // Nothing to match or echo: the blend's moves over a few seconds, ending where the
+        // outgoing track starts to fade.
+        let len_ms = UNSYNCED_MS.min(a_ms / 2).min(b_ms / 2) as f64;
+        let start_ms = (a_out - len_ms).max(a_ms as f64 / 2.0);
         let len = frames(len_ms);
         return Some(SmartPlan {
+            style: Style::Blend,
             start: frames(start_ms),
             len,
             b_start_ms: b_entry(b, len_ms).round() as u64,
             speed: 1.0,
             ramp: 0,
-            swap_at: len * 3 / 8,
-            swap_len: len / 4,
+            rise: len / 4,
+            swap_at: len * 7 / 16,
+            swap_len: len / 8,
+            delay: 0,
         });
     };
 
@@ -131,13 +174,15 @@ pub(crate) fn plan(
     // The incoming track's intro, in output time: a long blend over its vocals would clash.
     let b_first = b_entry(b, 0.0);
     let intro = (b.intro_end_ms as f64 - b_first).max(0.0) / speed;
-    let mut bars = if compatible { BARS } else { CLASH_BARS };
+    let mut bars = if compatible { LONG_BARS } else { CLASH_BARS };
     let fits = |bars: u32| {
         let ms = bars as f64 * bar;
         ms <= MAX_SMART_MS as f64
             && ms <= a_ms as f64 / 2.0
             && ms * speed <= b_ms as f64 / 2.0
             && (bars <= 2 || ms <= intro.max(2.0 * bar))
+            // The long blend only over an intro that covers it.
+            && (bars <= BARS || ms <= intro)
     };
     while bars > 1 && !fits(bars) {
         bars /= 2;
@@ -162,7 +207,9 @@ pub(crate) fn plan(
     let len = frames(len_ms);
     let bar_frames = frames(bar);
     let swap_bar = (bars / 2).min(bars - 1) as u64;
+    let swap_at = (swap_bar * bar_frames).min(len.saturating_sub(bar_frames));
     Some(SmartPlan {
+        style: Style::Blend,
         start: frames(start_ms),
         len,
         b_start_ms: b_entry(b, len_ms * speed).round() as u64,
@@ -172,8 +219,53 @@ pub(crate) fn plan(
         } else {
             bar_frames.min(len / 2)
         },
-        swap_at: (swap_bar * bar_frames).min(len.saturating_sub(bar_frames)),
-        swap_len: bar_frames.min(len),
+        rise: (RISE_BARS * bar_frames).min(swap_at).max(1),
+        swap_at,
+        swap_len: frames(pa).min(len),
+        delay: 0,
+    })
+}
+
+/// The echo-out into `b`: the outgoing track is cut on the downbeat of its last phrase that
+/// fits before it fades (else of its last bar), after one beat that fills the echo.
+fn echo_plan(
+    a: &TrackAnalysis,
+    b: &TrackAnalysis,
+    a_ms: u64,
+    b_ms: u64,
+    a_out: f64,
+    pa: f64,
+    rate: u32,
+) -> Option<SmartPlan> {
+    let frames = |ms: f64| (ms * rate as f64 / 1000.0).round() as u64;
+    let bar = 4.0 * pa;
+    let half = a_ms as f64 / 2.0;
+    let mut cut = grid_at_or_before(a.beat_ms as f64, PHRASE_BARS as f64 * bar, a_out);
+    if cut - pa < half {
+        cut = grid_at_or_before(a.beat_ms as f64, bar, a_out);
+    }
+    if cut - pa < half {
+        return None;
+    }
+    let tail = (ECHO_TAIL_BEATS * pa)
+        .clamp(ECHO_TAIL_MS.0, ECHO_TAIL_MS.1)
+        .min(b_ms as f64 / 2.0);
+    // The incoming track drops in on the cut at full level: from the downbeat where its quiet
+    // intro ends (skipping at most [`MAX_SKIP_MS`] of it), else its first one. It starts a
+    // beat earlier, muted, so that downbeat lands on the cut.
+    let b_start = (b_drop(b) - pa).max(0.0);
+    let lead = frames(pa);
+    Some(SmartPlan {
+        style: Style::Echo,
+        start: frames(cut - pa),
+        len: lead + frames(tail),
+        b_start_ms: b_start.round() as u64,
+        speed: 1.0,
+        ramp: 0,
+        rise: lead,
+        swap_at: lead,
+        swap_len: 0,
+        delay: frames(ECHO_BEATS * pa).max(1),
     })
 }
 
@@ -208,6 +300,17 @@ fn b_entry(b: &TrackAnalysis, overlap_ms: f64) -> f64 {
     }
 }
 
+/// Where the incoming track drops in after an echo: the downbeat nearest to the end of its
+/// quiet intro, within [`MAX_SKIP_MS`] of its first one.
+fn b_drop(b: &TrackAnalysis) -> f64 {
+    let first = b_entry(b, 0.0);
+    let target = (b.intro_end_ms as f64).min(first + MAX_SKIP_MS as f64);
+    match b.beat_period_ms() {
+        Some(p) if target > first => grid_at_or_before(first, 4.0 * p, target + 2.0 * p),
+        _ => first,
+    }
+}
+
 /// How long before the end of `a` the successor must be ready for a smart transition.
 pub(crate) fn lead_ms(a: &TrackAnalysis, a_ms: u64) -> u64 {
     // The overlap may start up to a phrase before the latest downbeat that fits.
@@ -217,53 +320,90 @@ pub(crate) fn lead_ms(a: &TrackAnalysis, a_ms: u64) -> u64 {
     a_ms.saturating_sub(a.outro_start_ms.min(a.end_ms)) + MAX_SMART_MS + phrase
 }
 
-/// RBJ low-shelf biquad on a stereo signal, its gain changeable while it runs.
-pub(crate) struct Shelf {
+/// What a [`Biquad`] does.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Kind {
+    /// Low shelf at [`BASS_HZ`] with this gain, dB.
+    Shelf(f32),
+    LowPass(f32),
+    HighPass(f32),
+}
+
+/// RBJ biquad on a stereo signal, its setting changeable while it runs.
+pub(crate) struct Biquad {
     rate: f32,
-    gain_db: f32,
+    kind: Option<Kind>,
     b: [f32; 3],
     a: [f32; 2],
     /// Transposed direct form II state per channel.
     z: [[f32; 2]; 2],
 }
 
-impl Shelf {
-    pub fn new(rate: u32, gain_db: f32) -> Self {
+impl Biquad {
+    fn new(rate: u32, kind: Kind) -> Self {
         let mut s = Self {
             rate: rate as f32,
-            gain_db: f32::NAN,
+            kind: None,
             b: [1.0, 0.0, 0.0],
             a: [0.0, 0.0],
             z: [[0.0; 2]; 2],
         };
-        s.set_gain(gain_db);
+        s.set(kind);
         s
     }
 
-    pub fn set_gain(&mut self, db: f32) {
-        if (db - self.gain_db).abs() < 0.01 {
+    fn set(&mut self, kind: Kind) {
+        let near = match (self.kind, kind) {
+            (Some(Kind::Shelf(x)), Kind::Shelf(y)) => (x - y).abs() < 0.01,
+            (Some(Kind::LowPass(x)), Kind::LowPass(y))
+            | (Some(Kind::HighPass(x)), Kind::HighPass(y)) => (x / y - 1.0).abs() < 1e-3,
+            _ => false,
+        };
+        if near {
             return;
         }
-        self.gain_db = db;
-        let a = 10f32.powf(db / 40.0);
-        let w = 2.0 * PI as f32 * BASS_HZ / self.rate;
+        self.kind = Some(kind);
+        let hz = match kind {
+            Kind::Shelf(_) => BASS_HZ,
+            Kind::LowPass(hz) | Kind::HighPass(hz) => hz.min(self.rate * 0.45),
+        };
+        let w = 2.0 * PI as f32 * hz / self.rate;
         let (sin, cos) = w.sin_cos();
-        // Shelf slope 1.
-        let alpha = sin / 2.0 * 2f32.sqrt();
-        let sa = 2.0 * a.sqrt() * alpha;
-        let a0 = (a + 1.0) + (a - 1.0) * cos + sa;
-        self.b = [
-            a * ((a + 1.0) - (a - 1.0) * cos + sa) / a0,
-            2.0 * a * ((a - 1.0) - (a + 1.0) * cos) / a0,
-            a * ((a + 1.0) - (a - 1.0) * cos - sa) / a0,
-        ];
-        self.a = [
-            -2.0 * ((a - 1.0) + (a + 1.0) * cos) / a0,
-            ((a + 1.0) + (a - 1.0) * cos - sa) / a0,
-        ];
+        let (b, a0, a) = match kind {
+            Kind::Shelf(db) => {
+                let a = 10f32.powf(db / 40.0);
+                // Shelf slope 1.
+                let alpha = sin / 2.0 * 2f32.sqrt();
+                let sa = 2.0 * a.sqrt() * alpha;
+                (
+                    [
+                        a * ((a + 1.0) - (a - 1.0) * cos + sa),
+                        2.0 * a * ((a - 1.0) - (a + 1.0) * cos),
+                        a * ((a + 1.0) - (a - 1.0) * cos - sa),
+                    ],
+                    (a + 1.0) + (a - 1.0) * cos + sa,
+                    [
+                        -2.0 * ((a - 1.0) + (a + 1.0) * cos),
+                        (a + 1.0) + (a - 1.0) * cos - sa,
+                    ],
+                )
+            }
+            // Butterworth (Q = 1/√2).
+            Kind::LowPass(_) | Kind::HighPass(_) => {
+                let alpha = sin / 2f32.sqrt();
+                let b = if matches!(kind, Kind::LowPass(_)) {
+                    [(1.0 - cos) / 2.0, 1.0 - cos, (1.0 - cos) / 2.0]
+                } else {
+                    [(1.0 + cos) / 2.0, -(1.0 + cos), (1.0 + cos) / 2.0]
+                };
+                (b, 1.0 + alpha, [-2.0 * cos, 1.0 - alpha])
+            }
+        };
+        self.b = b.map(|x| x / a0);
+        self.a = a.map(|x| x / a0);
     }
 
-    pub fn process(&mut self, l: f32, r: f32) -> (f32, f32) {
+    fn process(&mut self, l: f32, r: f32) -> (f32, f32) {
         let mut out = [l, r];
         for (x, z) in out.iter_mut().zip(&mut self.z) {
             let y = self.b[0] * *x + z[0];
@@ -275,40 +415,141 @@ impl Shelf {
     }
 }
 
-/// The bass swap of an overlap: per-side shelves following the plan.
-pub(crate) struct BassSwap {
-    at: u64,
-    len: u64,
-    pub a: Shelf,
-    pub b: Shelf,
+/// `from` → `to` on a log scale, `t` in 0…1.
+fn sweep(from: f32, to: f32, t: f32) -> f32 {
+    from * (to / from).powf(t.clamp(0.0, 1.0))
 }
 
-impl BassSwap {
+/// 0 → 1 over `t` in 0…1, easing in and out.
+fn ease(t: f32) -> f32 {
+    0.5 - 0.5 * (PI as f32 * t.clamp(0.0, 1.0)).cos()
+}
+
+/// A stereo feedback delay with a high-passed return.
+struct Echo {
+    line: Vec<[f32; 2]>,
+    at: usize,
+    hp: Biquad,
+}
+
+impl Echo {
+    fn new(delay: u64, rate: u32) -> Self {
+        Self {
+            line: vec![[0.0; 2]; delay.max(1) as usize],
+            at: 0,
+            hp: Biquad::new(rate, Kind::HighPass(ECHO_HP_HZ)),
+        }
+    }
+
+    /// Feeds one frame in, returns the echo coming back.
+    fn process(&mut self, x: (f32, f32)) -> (f32, f32) {
+        let y = self.line[self.at];
+        let (l, r) = self.hp.process(y[0], y[1]);
+        self.line[self.at] = [x.0 + l * ECHO_FEEDBACK, x.1 + r * ECHO_FEEDBACK];
+        self.at = (self.at + 1) % self.line.len();
+        (l, r)
+    }
+}
+
+/// The faders, EQ and effects of a smart transition: mixes one frame of each side.
+pub(crate) struct Fx {
+    plan: SmartPlan,
+    ramp: f32,
+    a_shelf: Biquad,
+    b_shelf: Biquad,
+    a_hp: Biquad,
+    b_lp: Biquad,
+    echo: Option<Echo>,
+}
+
+impl Fx {
     pub fn new(plan: &SmartPlan, rate: u32) -> Self {
         Self {
-            at: plan.swap_at,
-            len: plan.swap_len.max(1),
-            a: Shelf::new(rate, 0.0),
-            b: Shelf::new(rate, BASS_CUT_DB),
+            ramp: (CUT_RAMP_MS * rate as f64 / 1000.0) as f32,
+            a_shelf: Biquad::new(rate, Kind::Shelf(0.0)),
+            b_shelf: Biquad::new(rate, Kind::Shelf(BASS_CUT_DB)),
+            a_hp: Biquad::new(rate, Kind::HighPass(HP_FROM_HZ)),
+            b_lp: Biquad::new(rate, Kind::LowPass(LP_FROM_HZ)),
+            echo: (plan.style == Style::Echo).then(|| Echo::new(plan.delay, rate)),
+            plan: plan.clone(),
         }
+    }
+
+    /// Where the outgoing track starts to fade: after the bass swap.
+    fn fall_at(&self) -> u64 {
+        self.plan.swap_at + self.plan.swap_len
     }
 
     /// Bass gains (dB) of the outgoing and incoming side at overlap frame `k`.
-    pub fn gains(&self, k: u64) -> (f32, f32) {
-        let t = (k.saturating_sub(self.at) as f32 / self.len as f32).min(1.0);
-        // Equal-power-ish in dB: most of the move in the middle of the bar.
-        let s = 0.5 - 0.5 * (PI as f32 * t).cos();
+    fn bass(&self, k: u64) -> (f32, f32) {
+        let t = k.saturating_sub(self.plan.swap_at) as f32 / self.plan.swap_len.max(1) as f32;
+        let s = ease(t);
         (BASS_CUT_DB * s, BASS_CUT_DB * (1.0 - s))
     }
 
-    /// Filters one frame of each side at overlap frame `k`.
-    pub fn process(&mut self, k: u64, a: (f32, f32), b: (f32, f32)) -> ((f32, f32), (f32, f32)) {
-        if k.is_multiple_of(FX_BLOCK) {
-            let (ga, gb) = self.gains(k);
-            self.a.set_gain(ga);
-            self.b.set_gain(gb);
+    /// Fader levels of the outgoing and incoming side at overlap frame `k`, before the
+    /// loudness correction.
+    pub fn faders(&self, k: u64) -> (f32, f32) {
+        let p = &self.plan;
+        match p.style {
+            Style::Blend => {
+                let b = ease(k as f32 / p.rise.max(1) as f32);
+                let fall = self.fall_at();
+                let t = k.saturating_sub(fall) as f32 / p.len.saturating_sub(fall).max(1) as f32;
+                let a = (t.clamp(0.0, 1.0) * PI as f32 / 2.0).cos();
+                (a, b)
+            }
+            Style::Echo => {
+                let t = (k as f32 - p.rise as f32) / self.ramp + 0.5;
+                let s = t.clamp(0.0, 1.0);
+                (1.0 - s, s)
+            }
         }
-        (self.a.process(a.0, a.1), self.b.process(b.0, b.1))
+    }
+
+    /// Mixes the frame `a` of the outgoing and `b` of the incoming track at overlap frame `k`.
+    pub fn mix(&mut self, k: u64, a: (f32, f32), b: (f32, f32)) -> (f32, f32) {
+        let (fa, fb) = self.faders(k);
+        match self.plan.style {
+            Style::Blend => {
+                if k.is_multiple_of(FX_BLOCK) {
+                    let (ga, gb) = self.bass(k);
+                    self.a_shelf.set(Kind::Shelf(ga));
+                    self.b_shelf.set(Kind::Shelf(gb));
+                    let rise = k as f32 / self.plan.rise.max(1) as f32;
+                    self.b_lp
+                        .set(Kind::LowPass(sweep(LP_FROM_HZ, LP_TO_HZ, rise)));
+                    let fall = self.fall_at();
+                    let t = k.saturating_sub(fall) as f32
+                        / self.plan.len.saturating_sub(fall).max(1) as f32;
+                    self.a_hp
+                        .set(Kind::HighPass(sweep(HP_FROM_HZ, HP_TO_HZ, t)));
+                }
+                let mut a = self.a_shelf.process(a.0, a.1);
+                if k >= self.fall_at() {
+                    a = self.a_hp.process(a.0, a.1);
+                }
+                let mut b = self.b_shelf.process(b.0, b.1);
+                if k < self.plan.rise {
+                    b = self.b_lp.process(b.0, b.1);
+                }
+                // Two tracks at full level would be louder than one: keep the summed power.
+                let n = (fa * fa + fb * fb).sqrt().max(1.0);
+                let (fa, fb) = (fa / n, fb / n);
+                (a.0 * fa + b.0 * fb, a.1 * fa + b.1 * fb)
+            }
+            Style::Echo => {
+                let len = self.plan.len.max(1) as f32;
+                let echo = self.echo.as_mut().expect("echo plan");
+                let (el, er) = echo.process((a.0 * fa, a.1 * fa));
+                // The tail fades out over the last third so it ends with the overlap.
+                let wet = ECHO_WET * (3.0 * (1.0 - k as f32 / len)).min(1.0);
+                (
+                    a.0 * fa + b.0 * fb + el * wet,
+                    a.1 * fa + b.1 * fb + er * wet,
+                )
+            }
+        }
     }
 }
 
@@ -437,7 +678,10 @@ mod tests {
         // intro ends at 30 s, so it reaches full level halfway, with the bass swap.
         assert_eq!(p.b_start_ms, 21_540);
         assert_eq!(p.ramp, 2 * RATE as u64);
-        assert_eq!((p.swap_at, p.swap_len), (8 * RATE as u64, 2 * RATE as u64));
+        // B rises over 2 bars; the bass swaps over one beat on the downbeat halfway.
+        assert_eq!(p.style, Style::Blend);
+        assert_eq!(p.rise, 4 * RATE as u64);
+        assert_eq!((p.swap_at, p.swap_len), (8 * RATE as u64, RATE as u64 / 2));
     }
 
     #[test]
@@ -445,7 +689,7 @@ mod tests {
         let a = track(120.0, 0.0, c(), 200_000);
         let b = track(120.0, 0.0, Some(Key::new(1, false)), 200_000);
         let p = plan(&a, &b, 200_000, 200_000, RATE).unwrap();
-        assert_eq!(p.len, 4 * RATE as u64, "2 bars");
+        assert_eq!(p.len, 8 * RATE as u64, "4 bars");
         assert_eq!((p.speed, p.ramp), (1.0, 0));
     }
 
@@ -457,7 +701,7 @@ mod tests {
         assert!((p.speed - 1.0 / 1.03).abs() < 1e-6, "{}", p.speed);
         let b = track(100.0, 0.0, c(), 200_000);
         let p = plan(&a, &b, 200_000, 200_000, RATE).unwrap();
-        assert_eq!(p.len, UNSYNCED_MS * RATE as u64 / 1000);
+        assert_eq!(p.style, Style::Echo, "too far apart: echo out");
         assert_eq!(p.speed, 1.0);
         let mut silent = track(120.0, 0.0, c(), 200_000);
         silent.end_ms = 0;
@@ -465,7 +709,7 @@ mod tests {
     }
 
     #[test]
-    fn unsynced_blend_ends_before_the_fade_and_skips_leading_silence() {
+    fn unsynced_transitions_end_before_the_fade_and_skip_leading_silence() {
         // No beat in A: the 4 s blend ends where A's outro (its fade) starts, not in it.
         let mut a = track(0.0, 0.0, c(), 200_000);
         a.outro_start_ms = 190_000;
@@ -474,14 +718,25 @@ mod tests {
         b.intro_end_ms = 1_500;
         let p = plan(&a, &b, 200_000, 200_000, RATE).unwrap();
         assert_eq!(p.start + p.len, 190 * RATE as u64);
+        assert_eq!(p.style, Style::Blend);
         assert_eq!(p.b_start_ms, 1_500, "B from its first sound");
-        // With a beat, on the downbeat of A (bars of 2 s from 100 ms) at or before 176 s.
+        // With a beat in A: cut on the phrase start (176.1 s: 16 s from 100 ms) at or before its outro
+        // at 180 s, after one beat into the echo, with B's first downbeat (2 s) on the cut.
         let a = track(120.0, 100.0, c(), 200_000);
-        let mut b = track(100.0, 0.0, c(), 200_000);
+        let mut b = track(100.0, 2_000.0, c(), 200_000);
+        b.start_ms = 1_900;
         b.intro_end_ms = 0;
         let p = plan(&a, &b, 200_000, 200_000, RATE).unwrap();
-        assert_eq!(p.speed, 1.0);
-        assert_eq!(p.start, RATE as u64 * 174_100 / 1000);
+        assert_eq!((p.style, p.speed), (Style::Echo, 1.0));
+        assert_eq!(p.start, RATE as u64 * 175_600 / 1000);
+        assert_eq!(p.rise, RATE as u64 / 2, "the cut, one beat in");
+        assert_eq!(p.len, RATE as u64 / 2 + 3 * RATE as u64);
+        assert_eq!(p.delay, RATE as u64 * 375 / 1000);
+        assert_eq!(p.b_start_ms, 1_500);
+        // A quiet intro up to 12 s: B drops in on the downbeat nearest its end (11.6 s).
+        b.intro_end_ms = 12_000;
+        let p = plan(&a, &b, 200_000, 200_000, RATE).unwrap();
+        assert_eq!(p.b_start_ms, 11_100);
     }
 
     #[test]
@@ -499,6 +754,9 @@ mod tests {
     #[test]
     fn speed_glides_back_and_drift_adds_up() {
         let p = SmartPlan {
+            style: Style::Blend,
+            rise: 1,
+            delay: 0,
             start: 0,
             len: 1000,
             b_start_ms: 0,
@@ -518,6 +776,9 @@ mod tests {
     #[test]
     fn varispeed_reads_the_planned_amount() {
         let p = SmartPlan {
+            style: Style::Blend,
+            rise: 1,
+            delay: 0,
             start: 0,
             len: 48_000,
             b_start_ms: 0,
@@ -566,51 +827,128 @@ mod tests {
         (x.iter().map(|s| s * s).sum::<f32>() / x.len() as f32).sqrt()
     }
 
-    #[test]
-    fn shelf_cuts_bass_and_keeps_treble() {
-        let sine = |hz: f32| -> Vec<f32> {
-            (0..RATE)
-                .map(|i| (2.0 * PI as f32 * hz * i as f32 / RATE as f32).sin())
-                .collect()
-        };
-        let through = |hz: f32, db: f32| {
-            let mut s = Shelf::new(RATE, db);
-            let out: Vec<f32> = sine(hz).into_iter().map(|x| s.process(x, x).0).collect();
-            rms(&out[RATE as usize / 2..]) / rms(&sine(hz)[RATE as usize / 2..])
-        };
-        assert!(
-            (through(50.0, 0.0) - 1.0).abs() < 1e-3,
-            "0 dB is transparent"
-        );
-        assert!(
-            through(50.0, BASS_CUT_DB) < 0.1,
-            "bass cut {}",
-            through(50.0, BASS_CUT_DB)
-        );
-        assert!(
-            (through(4000.0, BASS_CUT_DB) - 1.0).abs() < 0.05,
-            "treble kept"
-        );
+    fn sine(hz: f32) -> Vec<f32> {
+        (0..RATE)
+            .map(|i| (2.0 * PI as f32 * hz * i as f32 / RATE as f32).sin())
+            .collect()
+    }
+
+    /// Steady-state gain of a filter set to `kind` for a sine at `hz`.
+    fn through(kind: Kind, hz: f32) -> f32 {
+        let mut f = Biquad::new(RATE, kind);
+        let out: Vec<f32> = sine(hz).into_iter().map(|x| f.process(x, x).0).collect();
+        rms(&out[RATE as usize / 2..]) / rms(&sine(hz)[RATE as usize / 2..])
     }
 
     #[test]
-    fn bass_swaps_over_one_bar() {
-        let p = SmartPlan {
+    fn filters_cut_what_they_should() {
+        let shelf = Kind::Shelf(BASS_CUT_DB);
+        assert!(
+            (through(Kind::Shelf(0.0), 50.0) - 1.0).abs() < 1e-3,
+            "0 dB is transparent"
+        );
+        assert!(
+            through(shelf, 50.0) < 0.1,
+            "bass cut {}",
+            through(shelf, 50.0)
+        );
+        assert!((through(shelf, 4000.0) - 1.0).abs() < 0.05, "treble kept");
+        let lp = Kind::LowPass(LP_FROM_HZ);
+        assert!(through(lp, 100.0) > 0.9 && through(lp, 4000.0) < 0.02);
+        let hp = Kind::HighPass(HP_TO_HZ);
+        assert!(through(hp, 100.0) < 0.02 && through(hp, 8000.0) > 0.95);
+        assert!((through(Kind::HighPass(HP_FROM_HZ), 1000.0) - 1.0).abs() < 1e-3);
+    }
+
+    fn blend() -> SmartPlan {
+        SmartPlan {
+            style: Style::Blend,
             start: 0,
             len: 8000,
             b_start_ms: 0,
             speed: 1.0,
             ramp: 0,
+            rise: 2000,
             swap_at: 4000,
             swap_len: 1000,
-        };
-        let s = BassSwap::new(&p, RATE);
-        assert_eq!(s.gains(0), (0.0, BASS_CUT_DB));
-        assert_eq!(s.gains(3999), (0.0, BASS_CUT_DB));
-        let (a, b) = s.gains(4500);
+            delay: 0,
+        }
+    }
+
+    #[test]
+    fn blend_works_the_faders_like_a_dj() {
+        let fx = Fx::new(&blend(), RATE);
+        // B rises over `rise` while A stays up; A fades after the swap.
+        assert_eq!(fx.faders(0), (1.0, 0.0));
+        let (a, b) = fx.faders(1000);
+        assert!(a == 1.0 && (b - 0.5).abs() < 1e-3);
+        assert_eq!(fx.faders(3000), (1.0, 1.0));
+        let (a, b) = fx.faders(6500);
+        assert!((a - (PI as f32 / 4.0).cos()).abs() < 1e-3 && b == 1.0);
+        let (a, _) = fx.faders(8000);
+        assert!(a.abs() < 1e-6);
+        // The bass moves from B's side to A's over the swap.
+        assert_eq!(fx.bass(0), (0.0, BASS_CUT_DB));
+        assert_eq!(fx.bass(3999), (0.0, BASS_CUT_DB));
+        let (a, b) = fx.bass(4500);
         assert!((a - BASS_CUT_DB / 2.0).abs() < 1e-3 && (b - BASS_CUT_DB / 2.0).abs() < 1e-3);
-        assert_eq!(s.gains(5000), (BASS_CUT_DB, 0.0));
-        assert_eq!(s.gains(7999), (BASS_CUT_DB, 0.0));
+        assert_eq!(fx.bass(5000), (BASS_CUT_DB, 0.0));
+    }
+
+    #[test]
+    fn blend_keeps_the_loudness_of_one_track() {
+        // Two uncorrelated full-level sides while both faders are up: summed power of one.
+        let mut fx = Fx::new(&blend(), RATE);
+        let (mut sum, mut n) = (0.0f64, 0);
+        let mut rng = 1u32;
+        let mut noise = || {
+            rng = rng.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (rng >> 8) as f32 / (1u32 << 24) as f32 * 2.0 - 1.0
+        };
+        for k in 0..4000u64 {
+            let (a, b) = (noise(), noise());
+            let (l, _) = fx.mix(k, (a, a), (b, b));
+            if (2500..4000).contains(&k) {
+                sum += (l * l) as f64;
+                n += 1;
+            }
+        }
+        let rms = (sum / n as f64).sqrt();
+        // Uniform noise has RMS 1/√3; B's bass is cut, so a little under it.
+        assert!(rms > 0.45 && rms < 0.62, "{rms}");
+    }
+
+    #[test]
+    fn echo_cuts_the_outgoing_track_and_repeats_its_last_beat() {
+        let p = SmartPlan {
+            style: Style::Echo,
+            start: 0,
+            len: 48_000,
+            b_start_ms: 0,
+            speed: 1.0,
+            ramp: 0,
+            rise: 4_800,
+            swap_at: 4_800,
+            swap_len: 0,
+            delay: 3_600,
+        };
+        let mut fx = Fx::new(&p, RATE);
+        assert_eq!(fx.faders(0), (1.0, 0.0));
+        assert_eq!(fx.faders(4_000), (1.0, 0.0));
+        assert_eq!(fx.faders(5_000), (0.0, 1.0));
+        // A is a 1 kHz tone, B is silent: after the cut only the echo of A is heard,
+        // in repeats `delay` apart, dying away by the end.
+        let tone = sine(1000.0);
+        let out: Vec<f32> = (0..48_000u64)
+            .map(|k| {
+                let a = tone[k as usize];
+                fx.mix(k, (a, a), (0.0, 0.0)).0
+            })
+            .collect();
+        let level = |from: usize| rms(&out[from..from + 1_000]);
+        assert!(level(6_000) > 0.1, "first repeat after the cut");
+        assert!(level(13_000) < level(6_000), "repeats fade");
+        assert!(level(46_000) < 0.01, "silent by the end: {}", level(46_000));
     }
 
     #[test]
