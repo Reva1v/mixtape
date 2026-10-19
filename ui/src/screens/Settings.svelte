@@ -1,5 +1,22 @@
 <script lang="ts">
-  import type { Snippet } from "svelte";
+  import type { Component, Snippet } from "svelte";
+  import IconCrossfade from "~icons/solar/soundwave-linear";
+  import IconDuration from "~icons/solar/stopwatch-linear";
+  import IconSmart from "~icons/solar/magic-stick-3-linear";
+  import IconFullscreen from "~icons/solar/maximize-square-3-linear";
+  import IconNormalize from "~icons/solar/tuning-2-linear";
+  import IconCache from "~icons/solar/database-linear";
+  import IconAutosave from "~icons/solar/download-minimalistic-linear";
+  import IconClear from "~icons/solar/trash-bin-trash-linear";
+  import IconFolder from "~icons/solar/folder-linear";
+  import IconLanguage from "~icons/solar/globus-linear";
+  import IconIconStyle from "~icons/solar/pallete-2-linear";
+  import IconBackground from "~icons/solar/gallery-wide-linear";
+  import IconTray from "~icons/solar/minimize-square-linear";
+  import IconAutostart from "~icons/solar/power-linear";
+  import IconUpdate from "~icons/solar/refresh-circle-linear";
+  import IconAutoUpdate from "~icons/solar/cloud-download-linear";
+  import IconImport from "~icons/solar/folder-with-files-linear";
   import { prefs } from "$lib/stores/prefs.svelte";
   import { LANGS, locale, t } from "$lib/i18n";
   import Select from "$lib/ui/Select.svelte";
@@ -70,8 +87,13 @@
   }
 </script>
 
-{#snippet row(title: string, hint: string, control: Snippet)}
+{#snippet row(title: string, hint: string, control: Snippet, Icon?: Component)}
   <div class="flex items-center gap-6 px-5 py-4">
+    {#if Icon}
+      <div class="-mr-2 grid size-9 shrink-0 place-items-center rounded-[9px] bg-white/[0.06] text-ink-2">
+        <Icon class="size-[19px]" />
+      </div>
+    {/if}
     <div class="min-w-0 flex-1">
       <div class="text-[14.5px] font-medium">{title}</div>
       <div class="mt-0.5 text-[13px] leading-snug text-ink-3">{hint}</div>
@@ -143,6 +165,7 @@
         t.settings.playback.crossfade,
         t.settings.playback.crossfadeHint,
         crossfadeSwitch,
+        IconCrossfade,
       )}
       {#if p.crossfade}
         {#snippet fadeSlider()}
@@ -162,12 +185,12 @@
             <span class="w-9 text-right text-[13px] text-ink-2 tnum">{t.settings.playback.seconds(fadePreview ?? p.crossfadeSec)}</span>
           </div>
         {/snippet}
-        {@render row(t.settings.playback.duration, t.settings.playback.durationHint, fadeSlider)}
+        {@render row(t.settings.playback.duration, t.settings.playback.durationHint, fadeSlider, IconDuration)}
       {/if}
       {#snippet smartSwitch()}
         <Switch checked={p.smartTransitions} label={t.smart.title} onchange={(v) => prefs.update({ smartTransitions: v })} />
       {/snippet}
-      {@render row(t.smart.title, t.smart.hint, smartSwitch)}
+      {@render row(t.smart.title, t.smart.hint, smartSwitch, IconSmart)}
       {#snippet mixFullSwitch()}
         <Switch
           checked={p.mixFullscreen}
@@ -179,11 +202,12 @@
         t.settings.playback.mixFullscreen,
         t.settings.playback.mixFullscreenHint,
         mixFullSwitch,
+        IconFullscreen,
       )}
       {#snippet normalizeSwitch()}
         <Switch checked={p.normalizeVolume} label={t.normalize.title} onchange={(v) => prefs.update({ normalizeVolume: v })} />
       {/snippet}
-      {@render row(t.normalize.title, t.normalize.hint, normalizeSwitch)}
+      {@render row(t.normalize.title, t.normalize.hint, normalizeSwitch, IconNormalize)}
     </div>
   </section>
 
@@ -218,6 +242,7 @@
           t.settings.storage.cache,
           t.settings.storage.cacheHint(gb(st.cacheBytes)),
           limitChoice,
+          IconCache,
         )}
         {#snippet autosaveSwitch()}
           <div class="flex items-center gap-4">
@@ -235,6 +260,7 @@
           t.settings.storage.autosave,
           st.autosavePlays ? t.settings.storage.autosaveOn(st.autosavePlays) : t.settings.storage.autosaveOff,
           autosaveSwitch,
+          IconAutosave,
         )}
         {#snippet clearButton()}
           <button
@@ -245,7 +271,7 @@
             {t.settings.storage.clearButton}
           </button>
         {/snippet}
-        {@render row(t.settings.storage.clear, t.settings.storage.clearHint, clearButton)}
+        {@render row(t.settings.storage.clear, t.settings.storage.clearHint, clearButton, IconClear)}
         {#snippet openButton()}
           <button
             type="button"
@@ -255,7 +281,7 @@
             {t.settings.storage.open}
           </button>
         {/snippet}
-        {@render row(t.settings.storage.dataDir, st.dataDir, openButton)}
+        {@render row(t.settings.storage.dataDir, st.dataDir, openButton, IconFolder)}
       </div>
     </section>
   {/if}
@@ -271,7 +297,7 @@
           onchange={(language) => prefs.update({ language })}
         />
       {/snippet}
-      {@render row(t.language.title, t.language.hint, langSelect)}
+      {@render row(t.language.title, t.language.hint, langSelect, IconLanguage)}
       {#snippet iconSelect()}
         <Select
           value={p.iconStyle}
@@ -280,7 +306,7 @@
           onchange={(iconStyle) => prefs.update({ iconStyle })}
         />
       {/snippet}
-      {@render row(t.iconStyle.title, t.iconStyle.hint, iconSelect)}
+      {@render row(t.iconStyle.title, t.iconStyle.hint, iconSelect, IconIconStyle)}
       {#snippet bgSwitch()}
         <Switch checked={p.smoothBackground} label={t.settings.appearance.smoothBackground} onchange={(v) => prefs.update({ smoothBackground: v })} />
       {/snippet}
@@ -288,6 +314,7 @@
         t.settings.appearance.smoothBackground,
         t.settings.appearance.smoothBackgroundHint,
         bgSwitch,
+        IconBackground,
       )}
     </div>
   </section>
@@ -298,7 +325,7 @@
       {#snippet traySwitch()}
         <Switch checked={p.closeToTray} label={t.tray.closeToTray} onchange={(v) => prefs.update({ closeToTray: v })} />
       {/snippet}
-      {@render row(t.tray.closeToTray, t.tray.closeToTrayHint, traySwitch)}
+      {@render row(t.tray.closeToTray, t.tray.closeToTrayHint, traySwitch, IconTray)}
       {#snippet autostartSelect()}
         <Select
           value={autostart}
@@ -311,7 +338,7 @@
           onchange={(mode) => void setAutostart(mode)}
         />
       {/snippet}
-      {@render row(t.tray.autostart, t.tray.autostartHint, autostartSelect)}
+      {@render row(t.tray.autostart, t.tray.autostartHint, autostartSelect, IconAutostart)}
     </div>
   </section>
 
@@ -350,11 +377,12 @@
           return t.updates.restartHint;
         })(),
         updateButton,
+        IconUpdate,
       )}
       {#snippet autoSwitch()}
         <Switch checked={p.autoUpdate} label={t.updates.auto} onchange={(v) => prefs.update({ autoUpdate: v })} />
       {/snippet}
-      {@render row(t.updates.auto, t.updates.autoHint, autoSwitch)}
+      {@render row(t.updates.auto, t.updates.autoHint, autoSwitch, IconAutoUpdate)}
     </div>
   </section>
 
@@ -374,6 +402,7 @@
         t.settings.library.importFolder,
         t.settings.library.importHint,
         importButton,
+        IconImport,
       )}
     </div>
   </section>

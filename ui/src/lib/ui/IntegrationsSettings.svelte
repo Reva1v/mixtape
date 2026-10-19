@@ -1,7 +1,9 @@
 <script lang="ts">
   // Settings → «Last.fm and Discord»: the Last.fm connection (desktop sign-in in the
   // browser) and the Discord presence switch. Rows come from the Settings screen.
-  import type { Snippet } from "svelte";
+  import type { Component, Snippet } from "svelte";
+  import IconLastfm from "~icons/solar/radio-minimalistic-linear";
+  import IconDiscord from "~icons/solar/gamepad-linear";
   import { t } from "$lib/i18n";
   import { invoke, on } from "$lib/ipc";
   import { prefs } from "$lib/stores/prefs.svelte";
@@ -9,7 +11,7 @@
   import Switch from "$lib/ui/Switch.svelte";
   import type { Integrations } from "$lib/ipc/bindings/Integrations";
 
-  let { row }: { row: Snippet<[string, string, Snippet]> } = $props();
+  let { row }: { row: Snippet<[string, string, Snippet, Component?]> } = $props();
 
   let info = $state<Integrations | null>(null);
   let busy = $state(false);
@@ -96,6 +98,7 @@
               ? t.integrations.pendingHint
               : t.integrations.hint,
         lastfmControl,
+        IconLastfm,
       )}
       {#if i.discordAvailable}
         {#snippet discordSwitch()}
@@ -105,7 +108,7 @@
             onchange={(v) => prefs.update({ discordPresence: v })}
           />
         {/snippet}
-        {@render row(t.integrations.discord, t.integrations.discordHint, discordSwitch)}
+        {@render row(t.integrations.discord, t.integrations.discordHint, discordSwitch, IconDiscord)}
       {/if}
     </div>
   </section>
