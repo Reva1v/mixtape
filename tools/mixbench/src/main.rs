@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-use mixtape_audio::analysis::{TempoDetail, tempo_detail_file};
+use mixtape_audio::analysis::{MIN_CONSISTENCY, MIN_CONTRAST, TempoDetail, tempo_detail_file};
 use mixtape_audio::bench::{self, BenchPlan, Rendered};
 use mixtape_audio::{Key, Source, TrackAnalysis, analyze_file, gain_for, measure_loudness, probe};
 use serde::Deserialize;
@@ -210,15 +210,19 @@ fn secs(ms: u64) -> String {
 
 fn print_track_table(tracks: &[Track]) {
     println!(
-        "{:<18} {:<16} {:>6} {:>7} {:>7} {:<34} {:>5} {:>5} {:<12} {:>7} {:>7} {:>6} {:>6}",
+        "{:<18} {:<16} {:>6} {:>7} {:>7} {:<34} {:>5} {:>9} {:>5} {:>9} {:>5} {:>5} {:<12} {:>7} {:>7} {:>6} {:>6}",
         "id",
         "genre",
         "exp",
         "bpm",
         "raw",
         "verdict",
-        "per",
         "str",
+        "cons/stab",
+        "half",
+        "on/down",
+        "phr",
+        "per",
         "key",
         "intro",
         "outro",
@@ -228,7 +232,7 @@ fn print_track_table(tracks: &[Track]) {
     for t in tracks {
         let a = &t.analysis;
         println!(
-            "{:<18} {:<16} {:>6} {:>7.2} {:>7} {:<34} {:>5} {:>5} {:<12} {:>7} {:>7} {:>6} {:>6}",
+            "{:<18} {:<16} {:>6} {:>7.2} {:>7} {:<34} {:>5} {:>9} {:>5} {:>9} {:>5} {:>5} {:<12} {:>7} {:>7} {:>6} {:>6}",
             t.spec.id,
             t.spec.genre,
             t.spec.expected_bpm.map_or("?".into(), |b| format!("{b}")),
@@ -236,9 +240,21 @@ fn print_track_table(tracks: &[Track]) {
             t.detail.map_or("—".into(), |d| format!("{:.1}", d.bpm)),
             t.tempo_verdict(),
             t.detail
-                .map_or("—".into(), |d| format!("{:.2}", d.periodicity)),
-            t.detail
                 .map_or("—".into(), |d| format!("{:.2}", d.strength)),
+            t.detail.map_or("—".into(), |d| format!(
+                "{:.2}/{:.2}",
+                d.consistency, d.stability
+            )),
+            t.detail
+                .and_then(|d| d.half_beat)
+                .map_or("—".into(), |h| format!("{h:.2}")),
+            t.detail.map_or("—".into(), |d| format!(
+                "{:.1}/{:.2}",
+                d.beat_onset, d.downbeat
+            )),
+            t.detail.map_or("—".into(), |d| format!("{:.2}", d.phrase)),
+            t.detail
+                .map_or("—".into(), |d| format!("{:.2}", d.periodicity)),
             key_name(a.key),
             secs(a.intro_end_ms),
             secs(a.outro_start_ms),
@@ -606,9 +622,9 @@ button:hover { border-color: #44444f; }
         opts.post_ms / 1000
     );
 
-    h.push_str("<h2>Треки</h2><div class=\"tablewrap\"><table><tr><th>Трек</th><th>Жанр</th><th>Ожид. BPM</th><th>BPM</th><th title=\"Лучшая сетка до порогов устойчивости\">BPM до порога</th><th>Проверка</th>\
-        <th title=\"Автокорреляция на периоде доли; порог 0.15\">Периодичность</th><th title=\"Сила онсетов на сетке; порог 1.5\">Сила доли</th>\
-        <th>Тональность</th><th>Интро до</th><th>Аутро с</th><th>Длина</th><th>LUFS</th><th>Анализ, мс</th></tr>");
+    h.push_str(&format!("<h2>Треки</h2><div class=\"tablewrap\"><table><tr><th>Трек</th><th>Жанр</th><th>Ожид. BPM</th><th>BPM</th><th title=\"Лучшая сетка до порогов устойчивости\">BPM до порога</th><th>Проверка</th>\
+        <th title=\"Пик онсетов, свёрнутых на период доли, к среднему; порог {MIN_CONTRAST}\">Сила доли</th><th title=\"Согласие фазы доли по 4-тактовым кускам трека; порог {MIN_CONSISTENCY}\">Устойчивость</th>\
+        <th>Тональность</th><th>Интро до</th><th>Аутро с</th><th>Длина</th><th>LUFS</th><th>Анализ, мс</th></tr>"));
     for t in tracks {
         let a = &t.analysis;
         let v = t.tempo_verdict();
@@ -648,8 +664,8 @@ button:hover { border-color: #44444f; }
             },
             t.detail.map_or("—".into(), |d| format!("{:.1}", d.bpm)),
             esc(&v),
-            detail(|d| d.periodicity, 0.15),
-            detail(|d| d.strength, 1.5),
+            detail(|d| d.strength, MIN_CONTRAST),
+            detail(|d| d.consistency, MIN_CONSISTENCY),
             key_name(a.key),
             secs(a.intro_end_ms),
             secs(a.outro_start_ms),
@@ -659,7 +675,7 @@ button:hover { border-color: #44444f; }
         );
     }
     h.push_str("</table></div>");
-    h.push_str("<p class=\"dim\">Периодичность и сила доли показаны и тогда, когда анализ их отбросил (красным — ниже порога, тогда BPM = 0 и переход без сведения).</p>");
+    h.push_str("<p class=\"dim\">Сила доли и устойчивость показаны и тогда, когда анализ их отбросил (красным — ниже порога, тогда BPM = 0 и переход без сведения).</p>");
 
     h.push_str("<h2>Пары</h2>");
     for c in cards {
@@ -711,8 +727,8 @@ fn card(h: &mut String, c: &Card, opts: &Opts) {
                 "—".into()
             },
             t.detail.map_or("—".into(), |d| format!(
-                "период. {:.2} / сила {:.2}",
-                d.periodicity, d.strength
+                "сила {:.2} / устойчивость {:.2}",
+                d.strength, d.consistency
             )),
             key_name(a.key),
             secs(a.intro_end_ms),

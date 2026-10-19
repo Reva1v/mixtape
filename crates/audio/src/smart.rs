@@ -1,11 +1,12 @@
 //! Smart transitions («Умные переходы»): a DJ-style blend planned from both tracks' analyses.
 //!
-//! The overlap starts on a downbeat in the outgoing track's outro and lasts whole bars (8 when
-//! the keys go together, 2 when they clash). The incoming track starts on its first beat and is
-//! played up to ±6 % faster or slower (resampling, so its pitch moves with it) so the beats
-//! line up, gliding back to its own tempo over the last bar. Halfway through, the bass swaps
-//! over one bar: low-shelf filters cut the incoming track's bass until then and the outgoing
-//! track's after.
+//! The overlap lasts whole bars (8 when the keys go together, 2 when they clash), starts on a
+//! phrase start (else a downbeat) of the outgoing track and ends before its outro fades. The
+//! incoming track enters on a downbeat after its leading silence — late enough into a quiet
+//! intro that it is at full level when the outgoing track has gone — and is played up to ±6 %
+//! faster or slower (resampling, so its pitch moves with it) so the beats line up, gliding
+//! back to its own tempo over the last bar. Halfway through, the bass swaps over one bar:
+//! low-shelf filters cut the incoming track's bass until then and the outgoing track's after.
 
 use std::f64::consts::PI;
 
@@ -19,6 +20,11 @@ const BARS: u32 = 8;
 const CLASH_BARS: u32 = 2;
 /// Overlap when the beats cannot be matched (no steady beat, tempos too far apart).
 const UNSYNCED_MS: u64 = 4_000;
+/// Bars of a phrase: the overlap starts on a phrase start where it can.
+const PHRASE_BARS: u32 = 8;
+/// The most of the incoming track's intro skipped so it is at full level when the outgoing
+/// track has gone.
+const MAX_SKIP_MS: u64 = 30_000;
 /// Bass cut of the shelf filters, dB, and their corner.
 const BASS_CUT_DB: f32 = -24.0;
 const BASS_HZ: f32 = 180.0;
@@ -81,7 +87,8 @@ pub(crate) fn plan(
         return None;
     }
     let frames = |ms: f64| (ms * rate as f64 / 1000.0).round() as u64;
-    let a_end = a.end_ms.min(a_ms);
+    // The overlap ends before the outgoing track fades (its outro) or goes silent.
+    let a_out = a.outro_start_ms.min(a.end_ms).min(a_ms) as f64;
 
     // Tempo match, allowing half or double time.
     let synced = match (a.beat_period_ms(), b.beat_period_ms()) {
@@ -99,17 +106,20 @@ pub(crate) fn plan(
     };
 
     let Some((pa, speed)) = synced else {
-        // No beat matching: a short blend ending where the outro fades.
-        let len_ms = UNSYNCED_MS.min(a_ms / 2).min(b_ms / 2);
-        let start_ms = a
-            .outro_start_ms
-            .min(a_end.saturating_sub(len_ms))
-            .max(a_ms / 2);
-        let len = frames(len_ms as f64);
+        // No beat matching: a short blend that ends where the outgoing track starts to fade
+        // (on a downbeat when it has a beat).
+        let len_ms = UNSYNCED_MS.min(a_ms / 2).min(b_ms / 2) as f64;
+        let latest = a_out - len_ms;
+        let start_ms = match a.beat_period_ms() {
+            Some(p) => grid_at_or_before(a.beat_ms as f64, 4.0 * p, latest),
+            None => latest,
+        }
+        .max(a_ms as f64 / 2.0);
+        let len = frames(len_ms);
         return Some(SmartPlan {
-            start: frames(start_ms as f64),
+            start: frames(start_ms),
             len,
-            b_start_ms: b.start_ms,
+            b_start_ms: b_entry(b, len_ms).round() as u64,
             speed: 1.0,
             ramp: 0,
             swap_at: len * 3 / 8,
@@ -119,8 +129,8 @@ pub(crate) fn plan(
 
     let bar = 4.0 * pa;
     // The incoming track's intro, in output time: a long blend over its vocals would clash.
-    let b_start = first_beat_from(b, b.start_ms as f64);
-    let intro = (b.intro_end_ms as f64 - b_start).max(0.0) / speed;
+    let b_first = b_entry(b, 0.0);
+    let intro = (b.intro_end_ms as f64 - b_first).max(0.0) / speed;
     let mut bars = if compatible { BARS } else { CLASH_BARS };
     let fits = |bars: u32| {
         let ms = bars as f64 * bar;
@@ -137,15 +147,16 @@ pub(crate) fn plan(
     }
     let len_ms = bars as f64 * bar;
 
-    // The latest downbeat that starts the overlap before the outro and still ends it before
-    // the outgoing track goes silent (the grid's first beat is taken as a downbeat).
-    let latest = (a.outro_start_ms as f64).min(a_end as f64 - len_ms);
+    // The latest phrase start (8 bars from the analysed one) that ends the overlap before
+    // the outro, else the latest downbeat.
+    let latest = a_out - len_ms;
     let first = a.beat_ms as f64;
-    if latest < first {
-        return None;
+    let half = a_ms as f64 / 2.0;
+    let mut start_ms = grid_at_or_before(first, PHRASE_BARS as f64 * bar, latest);
+    if start_ms < half {
+        start_ms = grid_at_or_before(first, bar, latest);
     }
-    let start_ms = first + ((latest - first) / bar).floor() * bar;
-    if start_ms < a_ms as f64 / 2.0 {
+    if start_ms < half || start_ms < 0.0 {
         return None;
     }
     let len = frames(len_ms);
@@ -154,7 +165,7 @@ pub(crate) fn plan(
     Some(SmartPlan {
         start: frames(start_ms),
         len,
-        b_start_ms: b_start.round() as u64,
+        b_start_ms: b_entry(b, len_ms * speed).round() as u64,
         speed,
         ramp: if speed == 1.0 {
             0
@@ -166,20 +177,44 @@ pub(crate) fn plan(
     })
 }
 
-/// The first beat of `t`'s grid at or after `from_ms` (or `from_ms` without a beat).
-fn first_beat_from(t: &TrackAnalysis, from_ms: f64) -> f64 {
-    match t.beat_period_ms() {
-        Some(p) => {
-            let first = t.beat_ms as f64;
-            first + ((from_ms - first - 1.0) / p).ceil().max(0.0) * p
+/// The latest point of the grid `first + k·step` (k may be negative) at or before `t`.
+fn grid_at_or_before(first: f64, step: f64, t: f64) -> f64 {
+    first + ((t - first + 1e-6) / step).floor() * step
+}
+
+/// Where the incoming track enters for an overlap of `overlap_ms` of its own time: on its
+/// first downbeat once the music starts (at its first sound without a beat), or, when its
+/// quieter intro is longer than half the overlap, on the downbeat that brings it to full
+/// level halfway through the overlap — with the bass swap, while the outgoing track still
+/// covers a break before the drop (skipping at most [`MAX_SKIP_MS`] of the intro).
+fn b_entry(b: &TrackAnalysis, overlap_ms: f64) -> f64 {
+    let start = b.start_ms as f64;
+    let bar = b.beat_period_ms().map(|p| 4.0 * p);
+    let first = match bar {
+        // Half a beat early still counts: the start is rounded to 250 ms blocks.
+        Some(bar) => {
+            let d = grid_at_or_before(b.beat_ms as f64, bar, start + bar - bar / 8.0);
+            if d < 0.0 { d + bar } else { d }
         }
-        None => from_ms,
+        None => start,
+    };
+    let target = (b.intro_end_ms as f64 - overlap_ms / 2.0).min(first + MAX_SKIP_MS as f64);
+    if overlap_ms <= 0.0 || target <= first {
+        return first;
+    }
+    match bar {
+        Some(bar) => grid_at_or_before(first, bar, target + bar / 2.0),
+        None => target,
     }
 }
 
 /// How long before the end of `a` the successor must be ready for a smart transition.
 pub(crate) fn lead_ms(a: &TrackAnalysis, a_ms: u64) -> u64 {
-    a_ms.saturating_sub(a.outro_start_ms.min(a.end_ms)) + MAX_SMART_MS
+    // The overlap may start up to a phrase before the latest downbeat that fits.
+    let phrase = a
+        .beat_period_ms()
+        .map_or(0, |p| (4.0 * PHRASE_BARS as f64 * p).ceil() as u64);
+    a_ms.saturating_sub(a.outro_start_ms.min(a.end_ms)) + MAX_SMART_MS + phrase
 }
 
 /// RBJ low-shelf biquad on a stereo signal, its gain changeable while it runs.
@@ -392,12 +427,15 @@ mod tests {
         let a = track(120.0, 100.0, c(), 200_000);
         let b = track(124.0, 250.0, Some(Key::new(7, false)), 180_000);
         let p = plan(&a, &b, 200_000, 180_000, RATE).unwrap();
-        // 8 bars at 120 BPM = 16 s, on a downbeat (100 ms + k·2 s) at or before 180 s.
+        // 8 bars at 120 BPM = 16 s, ending by the outro at 180 s, on a phrase start
+        // (100 ms + k·16 s).
         assert_eq!(p.len, 16 * RATE as u64);
-        assert_eq!(p.start, RATE as u64 * 178_100 / 1000);
+        assert_eq!(p.start, RATE as u64 * 160_100 / 1000);
         // The faster incoming track is slowed down to 120 BPM.
         assert!((p.speed - 120.0 / 124.0).abs() < 1e-9);
-        assert_eq!(p.b_start_ms, 250);
+        // It enters on the downbeat (250 ms + k·1935.5 ms) nearest to 4 of its bars before its
+        // intro ends at 30 s, so it reaches full level halfway, with the bass swap.
+        assert_eq!(p.b_start_ms, 21_540);
         assert_eq!(p.ramp, 2 * RATE as u64);
         assert_eq!((p.swap_at, p.swap_len), (8 * RATE as u64, 2 * RATE as u64));
     }
@@ -424,6 +462,26 @@ mod tests {
         let mut silent = track(120.0, 0.0, c(), 200_000);
         silent.end_ms = 0;
         assert!(plan(&a, &silent, 200_000, 200_000, RATE).is_none());
+    }
+
+    #[test]
+    fn unsynced_blend_ends_before_the_fade_and_skips_leading_silence() {
+        // No beat in A: the 4 s blend ends where A's outro (its fade) starts, not in it.
+        let mut a = track(0.0, 0.0, c(), 200_000);
+        a.outro_start_ms = 190_000;
+        let mut b = track(0.0, 0.0, c(), 200_000);
+        b.start_ms = 1_500;
+        b.intro_end_ms = 1_500;
+        let p = plan(&a, &b, 200_000, 200_000, RATE).unwrap();
+        assert_eq!(p.start + p.len, 190 * RATE as u64);
+        assert_eq!(p.b_start_ms, 1_500, "B from its first sound");
+        // With a beat, on the downbeat of A (bars of 2 s from 100 ms) at or before 176 s.
+        let a = track(120.0, 100.0, c(), 200_000);
+        let mut b = track(100.0, 0.0, c(), 200_000);
+        b.intro_end_ms = 0;
+        let p = plan(&a, &b, 200_000, 200_000, RATE).unwrap();
+        assert_eq!(p.speed, 1.0);
+        assert_eq!(p.start, RATE as u64 * 174_100 / 1000);
     }
 
     #[test]
@@ -558,6 +616,7 @@ mod tests {
     #[test]
     fn lead_covers_the_outro() {
         let a = track(120.0, 0.0, c(), 200_000);
-        assert_eq!(lead_ms(&a, 200_000), 20_000 + MAX_SMART_MS);
+        // Outro, the longest overlap, and a phrase (8 bars at 120 BPM) it may start earlier.
+        assert_eq!(lead_ms(&a, 200_000), 20_000 + MAX_SMART_MS + 16_000);
     }
 }

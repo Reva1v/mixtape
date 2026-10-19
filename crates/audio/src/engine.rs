@@ -277,6 +277,8 @@ struct AutoFade {
     start: u64,
     len: u64,
     smart: Option<SmartPlan>,
+    /// Plain crossfade: where the successor starts (its leading silence skipped).
+    b_start_ms: u64,
 }
 
 /// Opens the output device: `(volume, paused)`. Tests swap in a fake.
@@ -1111,7 +1113,10 @@ impl State {
                 let b = self.next.take().expect("planned with a successor");
                 match fade.smart {
                     Some(plan) => self.begin_smart(b, plan, tail),
-                    None => self.begin_fade(b, fade.start + fade.len - start, tail, true, 0, None),
+                    None => {
+                        let len = fade.start + fade.len - start;
+                        self.begin_plain(b, len, tail, fade.b_start_ms)
+                    }
                 }
             }
         }
@@ -1136,19 +1141,37 @@ impl State {
                 start: plan.start,
                 len: plan.len,
                 smart: Some(plan),
+                b_start_ms: 0,
             });
         }
         if self.crossfade_ms == 0 {
             return None;
         }
-        let (la, lb) = (a.out_len()?, b.out_len()?);
-        let len = (self.rate() as u64 * self.crossfade_ms as u64 / 1000)
+        // Analysed tracks: the fade ends where the outgoing track goes silent, and the
+        // incoming one starts where its sound does.
+        let rate = self.rate() as u64;
+        let (mut la, mut lb) = (a.out_len()?, b.out_len()?);
+        let a_end = a.analysis.as_deref().filter(|x| x.usable()).map(|x| x.end_ms);
+        let b_start_ms = b
+            .analysis
+            .as_deref()
+            .filter(|x| x.usable())
+            .map_or(0, |x| x.start_ms);
+        // (Not for less silence than the analysis resolves: its 250 ms blocks.)
+        if let Some(end) = a_end.map(|ms| ms * rate / 1000)
+            && la > end + rate / 4
+        {
+            la = end;
+        }
+        lb = lb.saturating_sub(b_start_ms * rate / 1000);
+        let len = (rate * self.crossfade_ms as u64 / 1000)
             .min(la / 2)
             .min(lb / 2);
         (len > 0 && sought.is_none_or(|at| at < la - len)).then_some(AutoFade {
             start: la - len,
             len,
             smart: None,
+            b_start_ms,
         })
     }
 
@@ -1170,6 +1193,16 @@ impl State {
         }
         let b_ms = plan.timeline_start_ms(self.rate());
         self.begin_fade(b, plan.len, a_tail, true, b_ms, Some(plan));
+    }
+
+    /// Starts the plain crossfade into `b`, from `b_start_ms` (its leading silence skipped).
+    fn begin_plain(&mut self, mut b: Pipeline, len: u64, a_tail: Vec<f32>, b_start_ms: u64) {
+        if b_start_ms > 0
+            && let Err(e) = b.seek(b_start_ms)
+        {
+            self.emit_error(b.id.clone(), e);
+        }
+        self.begin_fade(b, len, a_tail, true, b_start_ms, None);
     }
 
     /// Feeds the mixer from whichever side it waits for, or mixes. Returns whether anything
@@ -1324,11 +1357,13 @@ impl State {
             self.head_done
                 || head.duration_ms().is_some_and(|d| {
                     // A smart transition may start in the outro, well before the end.
-                    let smart = match &head.analysis {
-                        Some(a) if self.smart => NEXT_LEAD_MS + smart::lead_ms(a, d),
-                        _ => 0,
+                    let (smart, silence) = match head.analysis.as_deref() {
+                        Some(a) if self.smart => (NEXT_LEAD_MS + smart::lead_ms(a, d), 0),
+                        // The plain crossfade ends where the sound does.
+                        Some(a) if a.usable() => (0, d.saturating_sub(a.end_ms)),
+                        _ => (0, 0),
                     };
-                    d.saturating_sub(head.position_ms()) <= lead.max(smart)
+                    d.saturating_sub(head.position_ms()) <= (lead + silence).max(smart)
                 })
         });
         if near_end && self.next.is_none() {
@@ -1666,7 +1701,7 @@ mod tests {
             key: None,
             start_ms: 0,
             end_ms,
-            intro_end_ms: end_ms,
+            intro_end_ms: 0,
             outro_start_ms,
         }
     }
@@ -1677,8 +1712,8 @@ mod tests {
         s
     }
 
-    /// A (2 s) at "480 BPM" — bars of 500 ms, outro from 1.5 s — into B (1 s) at "500 BPM"
-    /// with its first beat at 20 ms.
+    /// A (2 s) at "480 BPM" — bars of 500 ms, no outro — into B (1 s) at "500 BPM" with its
+    /// first beat at 20 ms.
     fn smart_run(crossfade_ms: u32, b: Source) -> Played {
         let (mut st, rx) = smart_start(crossfade_ms, b);
         let mut p = Played::default();
@@ -1692,7 +1727,7 @@ mod tests {
         st.crossfade_ms = crossfade_ms;
         st.smart = true;
         let a = st
-            .open_pipeline(analysed(A, grid(480.0, 0.0, 2000, 1500), true))
+            .open_pipeline(analysed(A, grid(480.0, 0.0, 2000, 2000), true))
             .unwrap();
         st.start_head(a, 0, false);
         st.next_src = Some(b);
@@ -1761,7 +1796,7 @@ mod tests {
         let mut st = State::new(tx);
         st.handle(Command::Smart(true));
         let a = st
-            .open_pipeline(analysed(A, grid(480.0, 0.0, 2000, 1500), true))
+            .open_pipeline(analysed(A, grid(480.0, 0.0, 2000, 2000), true))
             .unwrap();
         st.start_head(a, 0, false);
         st.next_src = Some(src(B, true));
@@ -1773,6 +1808,31 @@ mod tests {
         play(&mut st, &rx, &mut p, u64::MAX);
         let start_b = p.at(|e| matches!(e, EngineEvent::Started { id, .. } if id == B));
         assert!(start_b.abs_diff(3 * RATE / 2) <= 2 * FRAME, "B starts at {start_b}");
+    }
+
+    #[test]
+    fn plain_crossfade_skips_analysed_silence() {
+        // Smart transitions off. A's analysis has its sound end at 1.25 s (the rest of its 2 s
+        // counts as silence), B's start at 250 ms: the 300 ms fade ends where A's sound does
+        // and B enters where its sound starts.
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let mut st = State::new(tx);
+        st.crossfade_ms = 300;
+        let a = st
+            .open_pipeline(analysed(A, grid(0.0, 0.0, 1250, 1250), true))
+            .unwrap();
+        st.start_head(a, 0, false);
+        let mut b = grid(0.0, 0.0, 1000, 1000);
+        b.start_ms = 250;
+        st.next_src = Some(analysed(B, b, true));
+        let mut p = Played::default();
+        play(&mut st, &rx, &mut p, u64::MAX);
+        assert_eq!(p.story(), ["+a", "+b", "-a", "-b"]);
+        let start_b = p.at(|e| matches!(e, EngineEvent::Started { id, .. } if id == B));
+        assert!(start_b.abs_diff(RATE * 95 / 100) <= 2 * FRAME, "B starts at {start_b}");
+        // 0.95 s of A, the 0.3 s fade, then B's 0.45 s from 0.55 s on.
+        assert!(p.frames().abs_diff(RATE * 170 / 100) <= 2 * FRAME, "{}", p.frames());
+        assert!(p.ended_ms(B).abs_diff(1000) <= 25, "{}", p.ended_ms(B));
     }
 
     #[test]
