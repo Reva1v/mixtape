@@ -20,6 +20,16 @@
 ---
 
 <p align="center">
+  <a href="https://github.com/Reva1v/mixtape/releases/download/v0.1.0/mixtape-promo.mp4">
+    <img src="docs/media/mixtape-promo.gif" width="860" alt="Mixtape в движении: главная, альбом, поиск, очередь, полноэкранный плеер с текстом">
+  </a>
+  <br>
+  <a href="https://github.com/Reva1v/mixtape/releases/download/v0.1.0/mixtape-promo.mp4"><b>▶ Смотреть 70-секундный обзор со звуком</b></a>
+  <br>
+  <sub>Музыка в видео: «3am» — Tokyo Music Walker, CC BY 3.0.</sub>
+</p>
+
+<p align="center">
   <img src="docs/images/overview-ru.png" width="860" alt="Главный экран Mixtape с очередью запущенного микса и его фильтрами">
 </p>
 

@@ -125,3 +125,9 @@ cargo about generate about.hbs -o rust-licenses.html
 
 Release maintainers should regenerate it for each release and attach it to the release, or
 paste it below this section.
+
+## Promo video
+
+The music in the promo video (`mixtape-promo.mp4`, attached to the releases) is “3am” by
+Tokyo Music Walker, licensed under
+[CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). It is not part of the app.

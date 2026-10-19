@@ -20,6 +20,16 @@ Streams and downloads from your YouTube Music account, plays offline, and keeps 
 ---
 
 <p align="center">
+  <a href="https://github.com/Reva1v/mixtape/releases/download/v0.1.0/mixtape-promo.mp4">
+    <img src="docs/media/mixtape-promo.gif" width="860" alt="Mixtape in motion: home, album, search, queue, full-screen lyrics">
+  </a>
+  <br>
+  <a href="https://github.com/Reva1v/mixtape/releases/download/v0.1.0/mixtape-promo.mp4"><b>▶ Watch the 70-second tour with sound</b></a>
+  <br>
+  <sub>Music in the video: “3am” by Tokyo Music Walker, CC BY 3.0.</sub>
+</p>
+
+<p align="center">
   <img src="docs/images/overview-en.png" width="860" alt="Mixtape home screen with the queue of a running mix and its filter chips">
 </p>
 
