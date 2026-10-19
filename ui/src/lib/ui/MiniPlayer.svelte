@@ -62,6 +62,36 @@
     lastSeek = performance.now();
     void player.scrubTo(scrub.ms);
   }
+
+  // Misclick guard: the whole bar seeks, so a press that just misses a button must not
+  // jump the track. A press this close to a button counts as that button; right after a
+  // button press (next, next…) the margin around that same button is wider.
+  const NEAR_PX = 12;
+  const REPEAT_PX = 40;
+  const REPEAT_MS = 600;
+  let lastButton: { el: HTMLElement; at: number } | null = null;
+  let forward: { el: HTMLElement; x: number; y: number } | null = null;
+
+  function distance(el: Element, x: number, y: number) {
+    const r = el.getBoundingClientRect();
+    return Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom));
+  }
+
+  /** The button a press on empty space should go to instead of seeking, if any. */
+  function nearButton(e: PointerEvent): HTMLElement | null {
+    if (!bar) return null;
+    const recent = lastButton && performance.now() - lastButton.at < REPEAT_MS ? lastButton.el : null;
+    let best: HTMLElement | null = null;
+    let bestD = Infinity;
+    for (const el of bar.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")) {
+      const d = distance(el, e.clientX, e.clientY);
+      if (d < bestD && (d <= NEAR_PX || (el === recent && d <= REPEAT_PX))) {
+        best = el;
+        bestD = d;
+      }
+    }
+    return best;
+  }
 </script>
 
 {#snippet capsuleButton(label: string, Icon: Component, active: boolean, onclick: () => void, disabled = false)}
@@ -92,23 +122,47 @@
   class="relative flex h-(--player-h) shrink-0 cursor-pointer items-center overflow-hidden rounded-xl bg-panel pr-2.5 select-none
     {scrub ? 'cursor-grabbing' : ''}"
   onpointerdown={(e) => {
-    if (!track || e.button !== 0 || (e.target as HTMLElement).closest("button, [data-no-seek], [role=slider]:not([data-bar])")) return;
+    if (e.button !== 0) return;
+    const pressed = (e.target as HTMLElement).closest<HTMLElement>("button");
+    if (pressed) lastButton = { el: pressed, at: performance.now() };
+    if (!track || pressed || (e.target as HTMLElement).closest("[data-no-seek], [role=slider]:not([data-bar])")) return;
+    const near = nearButton(e);
     bar?.setPointerCapture(e.pointerId);
+    if (near) {
+      forward = { el: near, x: e.clientX, y: e.clientY };
+      return;
+    }
     scrubTo(e);
     seekNow();
   }}
   onpointermove={(e) => {
+    // A press handed to a button turns into a scrub only when dragged away.
+    if (forward && Math.hypot(e.clientX - forward.x, e.clientY - forward.y) > 8) {
+      forward = null;
+      scrubTo(e);
+      seekNow();
+    }
     if (!scrub) return;
     scrubTo(e);
     if (performance.now() - lastSeek > SCRUB_SEEK_MS) seekNow();
   }}
   onpointerup={(e) => {
+    if (forward) {
+      const el = forward.el;
+      forward = null;
+      lastButton = { el, at: performance.now() };
+      el.click();
+      return;
+    }
     if (!scrub) return;
     scrubTo(e);
     seekNow();
     scrub = null;
   }}
-  onpointercancel={() => (scrub = null)}
+  onpointercancel={() => {
+    scrub = null;
+    forward = null;
+  }}
   oncontextmenu={(e) => {
     e.preventDefault();
     if (track) menu.show(trackMenu(track), e.clientX, e.clientY);
