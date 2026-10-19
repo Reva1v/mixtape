@@ -3,6 +3,9 @@
 use crate::decoder::Decoder;
 use crate::gain::{GAIN_RAMP_MS, GainRamp, db_to_linear, soft_limit};
 use crate::resample::Resampler;
+use std::sync::Arc;
+
+use crate::analysis::TrackAnalysis;
 use crate::{Result, Source};
 
 /// Fade length on load/seek, so a cut into the middle of a waveform does not click.
@@ -14,6 +17,7 @@ pub(crate) struct Pipeline {
     pub seq: u64,
     /// Whether the transition into this source may crossfade.
     pub crossfade: bool,
+    pub analysis: Option<Arc<TrackAnalysis>>,
     dec: Decoder,
     resampler: Option<Resampler>,
     out_rate: u32,
@@ -40,6 +44,7 @@ impl Pipeline {
             id: src.id,
             seq: 0,
             crossfade: src.crossfade,
+            analysis: src.analysis,
             dec,
             resampler: None,
             out_rate,
@@ -322,5 +327,27 @@ mod tests {
             assert!((got - expect).abs() < 1e-3, "frame {f}: gain {got}, expected {expect}");
         }
         assert_eq!(pcm[off_at * 2..], reference[off_at * 2..pcm.len()], "unity is bit-exact");
+    }
+
+    /// A seek into the first 80 ms (the Opus pre-roll) reopens the file and skips to the
+    /// target; it used to skip past the end instead.
+    #[test]
+    fn seek_near_the_start() {
+        for name in ["sine2_opus.webm", "sine2_aac.m4a"] {
+            let mut full = Vec::new();
+            drain(&mut open(name, 48_000), &mut full);
+            for ms in [0u64, 20, 50, 100] {
+                let mut p = open(name, 48_000);
+                p.seek(ms).unwrap();
+                let mut out = Vec::new();
+                drain(&mut p, &mut out);
+                let expect = full.len() / 2 - (ms * 48) as usize;
+                assert!(
+                    (out.len() / 2).abs_diff(expect) <= 96,
+                    "{name} from {ms} ms: {} frames, expected {expect}",
+                    out.len() / 2
+                );
+            }
+        }
     }
 }

@@ -24,6 +24,11 @@ mixFullscreen: boolean,
  */
 normalizeVolume: boolean, 
 /**
+ * «Умные переходы (бета)»: beat-matched DJ-style transitions between analysed tracks
+ * (like Apple Music's AutoMix); tracks are analysed in the background while it is on.
+ */
+smartTransitions: boolean, 
+/**
  * Interface language; absent until chosen, then the Windows display language decides.
  */
 language?: Lang, 

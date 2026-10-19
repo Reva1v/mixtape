@@ -79,6 +79,9 @@ pub fn on_player_event(app: &AppHandle, ev: PlayerEvent) {
             crate::tray::on_state(app, &s);
         }
         PlayerEvent::TrackChanged { track, palette } => {
+            // The analyser looks at the new current and next track (only a message: event
+            // handlers must not call into the player).
+            st.analyzer.kick();
             st.media.on_track(&st, &track);
             crate::tray::on_track(app, &track);
             let _ = app.emit("track:changed", TrackChanged { track, palette });

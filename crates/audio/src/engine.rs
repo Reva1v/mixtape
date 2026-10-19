@@ -8,6 +8,10 @@
 //! the successor becomes the head and a [`Fade`] keeps decoding the outgoing track into a
 //! [`Mixer`] alongside it, so the ring only ever holds one already-mixed stream.
 //!
+//! Smart transitions ([`crate::smart`]) use the same path: the overlap starts on a planned
+//! downbeat instead of a fixed time before the end, the successor is decoded through a
+//! [`Varispeed`] into the mixer, and the mixer swaps the bass.
+//!
 //! Streamed sources ([`crate::SourceOpener::Sparse`]) never block this thread: their decoder
 //! answers [`Error::Buffering`] instead of waiting for bytes, and the engine skips that decode
 //! step (commands and events keep flowing) and tries again on the next turn. A load whose header
@@ -21,16 +25,19 @@
 //! the thread blocks on its command channel until something arrives.
 
 use std::collections::VecDeque;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 
+use crate::analysis::TrackAnalysis;
 use crate::crossfade::Mixer;
 use crate::gain::volume_curve;
 use crate::output::{Output, RING_MS};
 use crate::pipeline::Pipeline;
+use crate::smart::{self, BassSwap, SmartPlan, Varispeed};
 use crate::timeline::{Handover, Timeline, Transition};
 use crate::{Error, Result, Source};
 
@@ -74,7 +81,8 @@ pub enum EngineEvent {
     StateChanged {
         playing: bool,
     },
-    /// `id` is about 10 s plus the crossfade length from its end and nothing is queued after it.
+    /// `id` is about 10 s plus the crossfade length (with smart transitions: plus its outro and
+    /// the longest smart overlap) from its end and nothing is queued after it.
     NeedNext {
         id: String,
     },
@@ -108,6 +116,11 @@ enum Command {
     },
     SetNext(Option<Source>),
     Crossfade(u32),
+    Smart(bool),
+    Analysis {
+        id: String,
+        analysis: Option<Arc<TrackAnalysis>>,
+    },
     Play,
     Pause,
     Toggle,
@@ -172,6 +185,22 @@ impl Engine {
     /// is clamped to half of either track.
     pub fn set_crossfade(&self, ms: u32) {
         self.send(Command::Crossfade(ms));
+    }
+
+    /// Smart transitions on or off. On, an automatic transition between two analysed tracks
+    /// that may crossfade is planned from their beats, keys and structure; otherwise (and
+    /// when off) [`Engine::set_crossfade`] applies as before.
+    pub fn set_smart(&self, on: bool) {
+        self.send(Command::Smart(on));
+    }
+
+    /// Hands over the analysis of every source with this id (playing, queued): it finished
+    /// after the source was built.
+    pub fn set_analysis(&self, id: impl Into<String>, analysis: Option<Arc<TrackAnalysis>>) {
+        self.send(Command::Analysis {
+            id: id.into(),
+            analysis,
+        });
     }
 
     pub fn play(&self) {
@@ -239,6 +268,15 @@ struct Fade {
     a_seq: u64,
     a: Option<Pipeline>,
     mix: Mixer,
+    /// Smart transition at another tempo: the head is decoded into this, not the mixer.
+    stretch: Option<Varispeed>,
+}
+
+/// An automatic transition the head is heading for (output frames of the head).
+struct AutoFade {
+    start: u64,
+    len: u64,
+    smart: Option<SmartPlan>,
 }
 
 /// Opens the output device: `(volume, paused)`. Tests swap in a fake.
@@ -267,6 +305,8 @@ struct State {
     /// A crossfade into the head being decoded.
     fade: Option<Fade>,
     crossfade_ms: u32,
+    /// Smart transitions between analysed tracks.
+    smart: bool,
     /// Decoded audio waiting for room in the ring.
     pending: Vec<f32>,
     pending_at: usize,
@@ -314,6 +354,7 @@ impl State {
             next_src: None,
             fade: None,
             crossfade_ms: 0,
+            smart: false,
             pending: Vec::new(),
             pending_at: 0,
             written: 0,
@@ -462,13 +503,13 @@ impl State {
             Command::SetNext(src) => self.set_next(src),
             Command::Crossfade(ms) => {
                 self.crossfade_ms = ms;
-                if ms > 0 {
-                    self.slots
-                        .iter_mut()
-                        .chain(&mut self.next)
-                        .for_each(Pipeline::measure);
-                }
+                self.measure_all();
             }
+            Command::Smart(on) => {
+                self.smart = on;
+                self.measure_all();
+            }
+            Command::Analysis { id, analysis } => self.set_analysis(&id, analysis),
             Command::Play => self.play(),
             Command::Pause => self.set_playing(false),
             Command::Toggle if self.playing => self.set_playing(false),
@@ -498,6 +539,32 @@ impl State {
             .iter_mut()
             .chain(&mut self.next)
             .chain(self.fade.as_mut().and_then(|f| f.a.as_mut()))
+    }
+
+    /// Transitions overlap, so track lengths are needed up front.
+    fn fades(&self) -> bool {
+        self.crossfade_ms > 0 || self.smart
+    }
+
+    fn measure_all(&mut self) {
+        if self.fades() {
+            self.slots
+                .iter_mut()
+                .chain(&mut self.next)
+                .for_each(Pipeline::measure);
+        }
+    }
+
+    fn set_analysis(&mut self, id: &str, analysis: Option<Arc<TrackAnalysis>>) {
+        self.pipelines_mut()
+            .filter(|p| p.id == id)
+            .for_each(|p| p.analysis = analysis.clone());
+        let waiting = self.waiting.as_mut().map(|(s, _)| s);
+        for src in waiting.into_iter().chain(&mut self.next_src) {
+            if src.id == id {
+                src.analysis = analysis.clone();
+            }
+        }
     }
 
     fn set_gain(&mut self, id: &str, db: f32) {
@@ -612,14 +679,14 @@ impl State {
         if let Some(lb) = b.out_len() {
             len = len.min(lb / 2);
         }
-        self.begin_fade(b, len, Vec::new(), false);
+        self.begin_fade(b, len, Vec::new(), false, 0, None);
     }
 
     /// Makes `p` the decode head; its first frame lands at the current end of the queue.
     fn start_head(&mut self, mut p: Pipeline, start_ms: u64, started: bool) {
         self.seq += 1;
         p.seq = self.seq;
-        if self.crossfade_ms > 0 {
+        if self.fades() {
             // Crossfades and an early NeedNext need the length up front.
             p.measure();
         }
@@ -633,20 +700,37 @@ impl State {
 
     /// Starts mixing `b` in under the head over `len` frames: `b` becomes the head, the old
     /// head keeps decoding into the fade. `a_tail` is old-head audio already decoded past the
-    /// start of the overlap.
-    fn begin_fade(&mut self, b: Pipeline, len: u64, a_tail: Vec<f32>, completed: bool) {
+    /// start of the overlap; `b_ms` is where `b`'s positions count from. A smart plan adds
+    /// the bass swap and the tempo match.
+    fn begin_fade(
+        &mut self,
+        b: Pipeline,
+        len: u64,
+        a_tail: Vec<f32>,
+        completed: bool,
+        b_ms: u64,
+        smart: Option<SmartPlan>,
+    ) {
         let Some(a_seq) = self.slots.back().map(|p| p.seq) else {
             return;
         };
         let mut mix = Mixer::new(len);
         mix.a.buf = a_tail;
         mix.a.ended = self.head_done;
+        let mut stretch = None;
+        if let Some(plan) = smart {
+            mix.swap = Some(BassSwap::new(&plan, self.rate()));
+            if plan.speed != 1.0 {
+                stretch = Some(Varispeed::new(plan));
+            }
+        }
         self.fade = Some(Fade {
             a_seq,
             a: None,
             mix,
+            stretch,
         });
-        self.start_head(b, 0, false);
+        self.start_head(b, b_ms, false);
         self.timeline.set_handover(Handover::Overlap {
             frames: len.max(1),
             completed,
@@ -1000,31 +1084,71 @@ impl State {
         }
         // This chunk crossed into the overlap (or the successor arrived late, after its start:
         // then the overlap is what is left of the head).
-        if let Some((total, len)) = plan
-            && before < total
+        if let Some(fade) = plan
+            && before < fade.start + fade.len
         {
-            let start = (total - len).max(before);
+            let start = fade.start.max(before);
             let after = before + ((self.pending.len() - from) / 2) as u64;
             if after > start {
                 let tail = self.pending.split_off(from + 2 * (start - before) as usize);
                 let b = self.next.take().expect("planned with a successor");
-                self.begin_fade(b, total - start, tail, true);
+                match fade.smart {
+                    Some(plan) => self.begin_smart(b, plan, tail),
+                    None => self.begin_fade(b, fade.start + fade.len - start, tail, true, 0, None),
+                }
             }
         }
         true
     }
 
-    /// Head length and overlap with the opened successor (output frames), when they crossfade.
-    fn auto_fade(&self) -> Option<(u64, u64)> {
+    /// The transition into the opened successor, when they overlap: a smart one while it can
+    /// still start where planned, else the plain crossfade.
+    fn auto_fade(&self) -> Option<AutoFade> {
         let (a, b) = (self.slots.back()?, self.next.as_ref()?);
-        if self.crossfade_ms == 0 || !b.crossfade {
+        if !b.crossfade {
+            return None;
+        }
+        if let Some(plan) = self.smart_plan(a, b)
+            && a.out_pos() <= plan.start
+        {
+            return Some(AutoFade {
+                start: plan.start,
+                len: plan.len,
+                smart: Some(plan),
+            });
+        }
+        if self.crossfade_ms == 0 {
             return None;
         }
         let (la, lb) = (a.out_len()?, b.out_len()?);
         let len = (self.rate() as u64 * self.crossfade_ms as u64 / 1000)
             .min(la / 2)
             .min(lb / 2);
-        (len > 0).then_some((la, len))
+        (len > 0).then_some(AutoFade {
+            start: la - len,
+            len,
+            smart: None,
+        })
+    }
+
+    fn smart_plan(&self, a: &Pipeline, b: &Pipeline) -> Option<SmartPlan> {
+        if !self.smart {
+            return None;
+        }
+        let (aa, ba) = (a.analysis.as_deref()?, b.analysis.as_deref()?);
+        smart::plan(aa, ba, a.duration_ms()?, b.duration_ms()?, self.rate())
+    }
+
+    /// Starts a planned smart transition: `b` from its first beat, positions corrected for
+    /// the tempo change of the overlap.
+    fn begin_smart(&mut self, mut b: Pipeline, plan: SmartPlan, a_tail: Vec<f32>) {
+        if plan.b_start_ms > 0
+            && let Err(e) = b.seek(plan.b_start_ms)
+        {
+            self.emit_error(b.id.clone(), e);
+        }
+        let b_ms = plan.timeline_start_ms(self.rate());
+        self.begin_fade(b, plan.len, a_tail, true, b_ms, Some(plan));
     }
 
     /// Feeds the mixer from whichever side it waits for, or mixes. Returns whether anything
@@ -1058,23 +1182,48 @@ impl State {
             let Some(head) = self.slots.back_mut() else {
                 return false;
             };
-            fade.mix.b.ended = match head.fill(&mut fade.mix.b.buf) {
-                Ok(more) => !more,
-                Err(Error::Buffering) => {
-                    self.starved = true;
-                    return false;
+            match &mut fade.stretch {
+                Some(vs) => {
+                    if vs.wants_input() {
+                        vs.input_ended = match head.fill(&mut vs.raw) {
+                            Ok(more) => !more,
+                            Err(Error::Buffering) => {
+                                self.starved = true;
+                                return false;
+                            }
+                            Err(e) => {
+                                failed = Some((head.id.clone(), e));
+                                true
+                            }
+                        };
+                        self.head_done = vs.input_ended;
+                    }
+                    vs.produce(&mut fade.mix.b.buf);
+                    fade.mix.b.ended = vs.dry();
                 }
-                Err(e) => {
-                    failed = Some((head.id.clone(), e));
-                    true
+                None => {
+                    fade.mix.b.ended = match head.fill(&mut fade.mix.b.buf) {
+                        Ok(more) => !more,
+                        Err(Error::Buffering) => {
+                            self.starved = true;
+                            return false;
+                        }
+                        Err(e) => {
+                            failed = Some((head.id.clone(), e));
+                            true
+                        }
+                    };
+                    self.head_done = fade.mix.b.ended;
                 }
-            };
-            self.head_done = fade.mix.b.ended;
+            }
         } else {
             fade.mix.mix(&mut self.pending);
             if fade.mix.finished() {
-                let rest = self.fade.take().expect("fading").mix.into_rest();
-                self.pending.extend_from_slice(&rest);
+                let fade = self.fade.take().expect("fading");
+                self.pending.extend_from_slice(&fade.mix.into_rest());
+                if let Some(vs) = fade.stretch {
+                    self.pending.extend_from_slice(&vs.into_rest());
+                }
             }
         }
         self.starved = false;
@@ -1115,7 +1264,7 @@ impl State {
         let id = src.id.clone();
         match self.open_pipeline(src.clone()) {
             Ok(mut p) => {
-                if self.crossfade_ms > 0 && p.crossfade {
+                if self.fades() && p.crossfade {
                     p.measure();
                 }
                 self.next = Some(p);
@@ -1152,9 +1301,14 @@ impl State {
         let lead = NEXT_LEAD_MS + self.crossfade_ms as u64;
         let near_end = self.slots.back().is_some_and(|head| {
             self.head_done
-                || head
-                    .duration_ms()
-                    .is_some_and(|d| d.saturating_sub(head.position_ms()) <= lead)
+                || head.duration_ms().is_some_and(|d| {
+                    // A smart transition may start in the outro, well before the end.
+                    let smart = match &head.analysis {
+                        Some(a) if self.smart => NEXT_LEAD_MS + smart::lead_ms(a, d),
+                        _ => 0,
+                    };
+                    d.saturating_sub(head.position_ms()) <= lead.max(smart)
+                })
         });
         if near_end && self.next.is_none() {
             self.open_next();
@@ -1354,6 +1508,118 @@ mod tests {
             start_b.abs_diff(2 * RATE - x) <= 2 * FRAME,
             "B starts at {start_b}"
         );
+    }
+
+    /// A beat grid: bars of `4 · 60 / bpm` s, audible from 0 to `end_ms`.
+    fn grid(bpm: f32, beat_ms: f32, end_ms: u64, outro_start_ms: u64) -> TrackAnalysis {
+        TrackAnalysis {
+            bpm,
+            beat_ms,
+            key: None,
+            start_ms: 0,
+            end_ms,
+            intro_end_ms: end_ms,
+            outro_start_ms,
+        }
+    }
+
+    fn analysed(name: &str, a: TrackAnalysis, crossfade: bool) -> Source {
+        let mut s = src(name, crossfade);
+        s.analysis = Some(Arc::new(a));
+        s
+    }
+
+    /// A (2 s) at "480 BPM" — bars of 500 ms, outro from 1.5 s — into B (1 s) at "500 BPM"
+    /// with its first beat at 20 ms.
+    fn smart_run(crossfade_ms: u32, b: Source) -> Played {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let mut st = State::new(tx);
+        st.crossfade_ms = crossfade_ms;
+        st.smart = true;
+        let a = st
+            .open_pipeline(analysed(A, grid(480.0, 0.0, 2000, 1500), true))
+            .unwrap();
+        st.start_head(a, 0, false);
+        st.next_src = Some(b);
+        let mut p = Played::default();
+        play(&mut st, &rx, &mut p, u64::MAX);
+        p
+    }
+
+    fn b_grid() -> TrackAnalysis {
+        grid(500.0, 20.0, 1000, 900)
+    }
+
+    /// Frequency of a sine from its zero crossings.
+    fn frequency(pcm: &[f32], from: u64, frames: u64) -> f64 {
+        let s: Vec<f32> = (from..from + frames).map(|f| pcm[2 * f as usize]).collect();
+        let crossings = s.windows(2).filter(|w| (w[0] < 0.0) != (w[1] < 0.0)).count();
+        crossings as f64 / 2.0 / (frames as f64 / RATE as f64)
+    }
+
+    #[test]
+    fn smart_transition_starts_on_the_planned_downbeat() {
+        let p = smart_run(0, analysed(B, b_grid(), true));
+        // The plan: one bar (500 ms) from A's downbeat at 1.5 s; B from 20 ms at 0.96× speed
+        // (120 ms beats stretched to A's 125 ms), gliding back to 1× over the last 250 ms.
+        let (start, len) = (3 * RATE / 2, RATE / 2);
+        let drift = (0.96 - 1.0) * (RATE as f64 / 4.0 + RATE as f64 / 8.0);
+        let b_rest = (RATE as f64 * 0.98 - len as f64 - drift) as u64;
+        assert_eq!(p.story(), ["+a", "+b", "-a", "-b"]);
+        let start_b = p.at(|e| matches!(e, EngineEvent::Started { id, .. } if id == B));
+        let end_a = p.at(|e| matches!(e, EngineEvent::Ended { id, .. } if id == A));
+        assert!(start_b.abs_diff(start) <= 2 * FRAME, "B starts at {start_b}");
+        assert!(end_a.abs_diff(start + len) <= 2 * FRAME, "A ends at {end_a}");
+        assert!(
+            p.frames().abs_diff(start + len + b_rest) <= 2 * FRAME,
+            "{} frames",
+            p.frames()
+        );
+        assert!(p.ended_ms(A).abs_diff(2000) <= 20);
+        // B's positions count from where its tempo-matched start puts them.
+        assert!(p.ended_ms(B).abs_diff(1000) <= 25, "{}", p.ended_ms(B));
+        // After the overlap B plays at its own speed and pitch.
+        let f = frequency(&p.pcm, start + len + RATE / 20, RATE / 5);
+        assert!((f - 660.0).abs() < 10.0, "{f} Hz");
+        // Before it, A alone.
+        let f = frequency(&p.pcm, RATE / 2, RATE / 5);
+        assert!((f - 440.0).abs() < 10.0, "{f} Hz");
+    }
+
+    #[test]
+    fn smart_transitions_fall_back_without_analysis_and_keep_albums_gapless() {
+        // Not analysed yet: the plain crossfade, exactly.
+        let plain = run(300, A, src(B, true));
+        let p = smart_run(300, src(B, true));
+        assert!(p.pcm == plain.pcm, "plain crossfade");
+        // Same album: gapless even with both analysed.
+        let mut reference = Vec::new();
+        for name in [A, B] {
+            let mut p = Pipeline::open(src(name, true), FALLBACK_RATE).unwrap();
+            while p.fill(&mut reference).unwrap() {}
+        }
+        let p = smart_run(300, analysed(B, b_grid(), false));
+        assert!(p.pcm == reference, "gapless");
+    }
+
+    #[test]
+    fn analysis_arriving_late_reaches_the_queued_successor() {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let mut st = State::new(tx);
+        st.handle(Command::Smart(true));
+        let a = st
+            .open_pipeline(analysed(A, grid(480.0, 0.0, 2000, 1500), true))
+            .unwrap();
+        st.start_head(a, 0, false);
+        st.next_src = Some(src(B, true));
+        st.handle(Command::Analysis {
+            id: B.into(),
+            analysis: Some(Arc::new(b_grid())),
+        });
+        let mut p = Played::default();
+        play(&mut st, &rx, &mut p, u64::MAX);
+        let start_b = p.at(|e| matches!(e, EngineEvent::Started { id, .. } if id == B));
+        assert!(start_b.abs_diff(3 * RATE / 2) <= 2 * FRAME, "B starts at {start_b}");
     }
 
     #[test]

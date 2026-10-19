@@ -4,6 +4,7 @@
 use std::f64::consts::FRAC_PI_2;
 
 use crate::gain::soft_limit;
+use crate::smart::BassSwap;
 
 /// Gains of the outgoing and incoming track at `t` (0…1) into the fade: cos/sin, so the summed
 /// power of uncorrelated material stays constant.
@@ -35,6 +36,8 @@ pub(crate) struct Mixer {
     done: u64,
     pub a: Side,
     pub b: Side,
+    /// Smart transition: the bass moves from the outgoing to the incoming side.
+    pub swap: Option<BassSwap>,
 }
 
 impl Mixer {
@@ -44,6 +47,7 @@ impl Mixer {
             done: 0,
             a: Side::default(),
             b: Side::default(),
+            swap: None,
         }
     }
 
@@ -71,9 +75,17 @@ impl Mixer {
             }
         }
         out.reserve(n * 2);
-        for i in 0..n * 2 {
-            let (ga, gb) = curves((self.done + (i / 2) as u64) as f64 / self.len as f64);
-            out.push(soft_limit(self.a.sample(i) * ga + self.b.sample(i) * gb));
+        for f in 0..n {
+            let k = self.done + f as u64;
+            let (ga, gb) = curves(k as f64 / self.len as f64);
+            let (i, j) = (2 * f, 2 * f + 1);
+            let mut a = (self.a.sample(i), self.a.sample(j));
+            let mut b = (self.b.sample(i), self.b.sample(j));
+            if let Some(swap) = &mut self.swap {
+                (a, b) = swap.process(k, a, b);
+            }
+            out.push(soft_limit(a.0 * ga + b.0 * gb));
+            out.push(soft_limit(a.1 * ga + b.1 * gb));
         }
         for side in [&mut self.a, &mut self.b] {
             side.buf.drain(..(n * 2).min(side.buf.len()));

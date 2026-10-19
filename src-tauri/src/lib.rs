@@ -74,8 +74,7 @@ pub fn run() {
             // Pending likes, artist pictures, unused covers: once, after start.
             background::spawn(state.clone());
             updates::spawn(state.clone());
-            state.player.set_crossfade(prefs.crossfade_ms());
-            state.player.set_normalization(prefs.normalize_volume);
+            prefs.apply_playback(&state);
             tracing::debug!("setup: crossfade applied");
             // `setup` runs on the main (UI) thread, which the thumbnail toolbar needs.
             state.media.install(app.handle());

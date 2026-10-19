@@ -1,5 +1,6 @@
 //! Local library: SQLite storage, search and settings.
 
+pub mod analysis;
 pub mod cache_lru;
 pub mod conn;
 pub mod covers;

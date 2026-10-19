@@ -7,6 +7,7 @@ import { tray } from "./tray";
 import { stats } from "./stats";
 import { integrations } from "./integrations";
 import { normalize } from "./normalize";
+import { smart } from "./smart";
 import { spotify } from "./spotify";
 
 export const ru = {
@@ -17,6 +18,7 @@ export const ru = {
   ...stats,
   ...integrations,
   ...normalize,
+  ...smart,
   ...spotify,
   updates,
   iconStyle,
