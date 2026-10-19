@@ -12,10 +12,9 @@ use tauri::{
     AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, WebviewWindow,
 };
 
-/// Mini window size, logical px; the width can grow up to `MAX_WIDTH`.
+/// Mini window size, logical px; fixed, the strip is not resizable.
 const WIDTH: f64 = 380.0;
 const HEIGHT: f64 = 116.0;
-const MAX_WIDTH: f64 = 720.0;
 /// `minWidth` / `minHeight` of the main window in `tauri.conf.json`.
 const NORMAL_MIN: (f64, f64) = (940.0, 600.0);
 /// Gap to the work-area corner when the strip has no remembered place, logical px.
@@ -55,12 +54,12 @@ struct Normal {
     maximized: bool,
 }
 
-/// Where the strip was last time: physical position, logical width.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+/// Where the strip was last time: physical position. Older builds also stored a
+/// `width`; serde skips that unknown field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 struct Saved {
     x: i32,
     y: i32,
-    width: f64,
 }
 
 /// Where the strip opens: its last place if at least half of it is still on one screen,
@@ -144,20 +143,15 @@ fn load_saved(app: &AppHandle) -> Option<Saved> {
         .flatten()
 }
 
-/// Remembers the strip's place and width for next time.
+/// Remembers the strip's place for next time.
 fn remember(app: &AppHandle, w: &WebviewWindow) {
     if w.is_minimized().unwrap_or(false) {
         return;
     }
-    let (Ok(pos), Ok(size), Ok(scale)) = (w.outer_position(), w.inner_size(), w.scale_factor())
-    else {
+    let Ok(pos) = w.outer_position() else {
         return;
     };
-    let saved = Saved {
-        x: pos.x,
-        y: pos.y,
-        width: (size.width as f64 / scale).round(),
-    };
+    let saved = Saved { x: pos.x, y: pos.y };
     if let Some(st) = app.try_state::<Arc<AppState>>()
         && let Err(e) = mixtape_library::settings::set(&st.db, SAVED_KEY, &saved)
     {
@@ -194,10 +188,9 @@ fn enter(app: &AppHandle) {
     let _ = app.emit("window:mini", true);
 
     let saved = load_saved(app);
-    let width = saved.map_or(WIDTH, |s| s.width).clamp(WIDTH, MAX_WIDTH);
     let scale = w.scale_factor().unwrap_or(1.0);
     let px = (
-        (width * scale).round() as u32,
+        (WIDTH * scale).round() as u32,
         (HEIGHT * scale).round() as u32,
     );
     let areas: Vec<Rect> = w
@@ -244,8 +237,9 @@ fn enter(app: &AppHandle) {
     let _ = w.set_maximizable(false);
     let _ = w.set_always_on_top(true);
     let _ = w.set_min_size(Some(LogicalSize::new(WIDTH, HEIGHT)));
-    let _ = w.set_max_size(Some(LogicalSize::new(MAX_WIDTH, HEIGHT)));
-    let _ = w.set_size(LogicalSize::new(width, HEIGHT));
+    let _ = w.set_max_size(Some(LogicalSize::new(WIDTH, HEIGHT)));
+    let _ = w.set_size(LogicalSize::new(WIDTH, HEIGHT));
+    let _ = w.set_resizable(false);
     let _ = w.set_position(PhysicalPosition::new(x, y));
     overlay(&w, false);
 }
@@ -263,6 +257,8 @@ fn leave(app: &AppHandle) {
     ACTIVE.store(false, Ordering::SeqCst);
     let normal = NORMAL.lock().expect("mini bounds poisoned").take();
     let _ = w.set_always_on_top(false);
+    // `tauri.conf.json` leaves the main window resizable (the default).
+    let _ = w.set_resizable(true);
     let _ = w.set_max_size(None::<tauri::Size>);
     let _ = w.set_min_size(Some(LogicalSize::new(NORMAL_MIN.0, NORMAL_MIN.1)));
     if let Some(n) = normal {
@@ -372,6 +368,12 @@ mod tests {
             place(Some((3000, 900)), (380, 116), &[SCREEN], SCREEN, 16),
             (1524, 908)
         );
+    }
+
+    #[test]
+    fn saved_place_reads_old_json_with_a_width() {
+        let old: Saved = serde_json::from_str(r#"{"x":10,"y":-20,"width":560.0}"#).unwrap();
+        assert_eq!(old, Saved { x: 10, y: -20 });
     }
 
     #[test]

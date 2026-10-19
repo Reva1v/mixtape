@@ -1,7 +1,9 @@
 <script lang="ts">
   // The window as a mini player (lib/stores/mini.ts): cover, title and artist, prev / play
-  // / next, like, a hairline of progress along the bottom and a button back to the full
-  // window. Every empty spot drags the window.
+  // / next, like, shuffle / repeat / volume in the bottom-right corner, a hairline of
+  // progress along the bottom and a button back to the full window. Every empty spot
+  // drags the window.
+  import type { Component } from "svelte";
   import { followProgress, player } from "$lib/stores/player.svelte";
   import { visible } from "$lib/stores/visible.svelte";
   import { mini } from "$lib/stores/mini";
@@ -11,11 +13,15 @@
   import Cover from "./Cover.svelte";
   import PauseGlyph from "./PauseGlyph.svelte";
   import PlayGlyph from "./PlayGlyph.svelte";
+  import Volume from "./Volume.svelte";
   import IconPrev from "~icons/solar/skip-previous-bold";
   import IconNext from "~icons/solar/skip-next-bold";
   import IconHeart from "~icons/solar/heart-bold";
   import IconHeartLine from "~icons/solar/heart-linear";
   import IconFull from "~icons/solar/quit-pip-linear";
+  import IconShuffle from "~icons/solar/shuffle-linear";
+  import IconRepeat from "~icons/solar/repeat-linear";
+  import IconRepeatOne from "~icons/solar/repeat-one-linear";
 
   const track = $derived(player.track);
 
@@ -31,6 +37,19 @@
 
   const glyph = "grid place-items-center transition-colors";
 </script>
+
+{#snippet cornerButton(label: string, Icon: Component, active: boolean, onclick: () => void)}
+  <button
+    type="button"
+    aria-label={label}
+    data-tip={label}
+    class="{glyph} size-7 rounded-md {active ? 'text-ink' : 'text-[#8a8a8e] hover:text-ink'}"
+    {@attach pressable(0.86)}
+    {onclick}
+  >
+    <Icon class="size-[17px]" />
+  </button>
+{/snippet}
 
 <div
   class="relative flex h-screen items-center gap-3 overflow-hidden bg-panel pr-2 pl-3 select-none"
@@ -106,6 +125,17 @@
   >
     <IconFull class="size-[17px]" />
   </button>
+
+  <div class="absolute right-2 bottom-2 flex items-center">
+    {@render cornerButton(t.player.shuffle, IconShuffle, player.state.shuffle, () => player.toggleShuffle())}
+    {@render cornerButton(
+      player.state.repeat === "one" ? t.player.repeatOne : t.player.repeat,
+      player.state.repeat === "one" ? IconRepeatOne : IconRepeat,
+      player.state.repeat !== "off",
+      () => player.cycleRepeat(),
+    )}
+    <Volume popout />
+  </div>
 
   <!-- Progress: full width, slid left by what is still to play. -->
   <div class="pointer-events-none absolute inset-x-0 bottom-0 h-[3px] overflow-hidden bg-white/[0.08]">
