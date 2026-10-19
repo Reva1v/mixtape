@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { Component, Snippet } from "svelte";
   import IconCrossfade from "~icons/solar/soundwave-linear";
+  import IconTransition from "~icons/solar/round-transfer-horizontal-linear";
+  import IconGapless from "~icons/solar/skip-next-linear";
   import IconDuration from "~icons/solar/stopwatch-linear";
   import IconSmart from "~icons/solar/magic-stick-3-linear";
   import IconFullscreen from "~icons/solar/maximize-square-3-linear";
@@ -77,6 +79,7 @@
   // One choice over two prefs: smart transitions fall back to the crossfade until a track
   // is analysed, so «smart» keeps the crossfade on too.
   const TRANSITIONS = ["gapless", "smooth", "smart"] as const;
+  const TRANSITION_ICONS = { gapless: IconGapless, smooth: IconCrossfade, smart: IconSmart };
   type Transition = (typeof TRANSITIONS)[number];
   const transition = $derived<Transition>(p.smartTransitions ? "smart" : p.crossfade ? "smooth" : "gapless");
   function setTransition(m: Transition) {
@@ -167,28 +170,44 @@
   <section class="mb-8">
     <h2 class="mb-3 text-[13px] font-semibold tracking-wide text-ink-3 uppercase">{t.settings.playback.title}</h2>
     <div class="divide-y divide-line overflow-hidden rounded-lg bg-white/[0.04]">
-      {#snippet transitionChoice()}
-        <div class="flex shrink-0 gap-1 rounded-full bg-fill-1 p-1 ring-1 ring-line" role="radiogroup" aria-label={t.transition.title}>
+      <!-- Three cards instead of a switch row: each mode says what it does. -->
+      <div class="px-5 py-4">
+        <div class="flex items-center gap-4">
+          <div class="grid size-9 shrink-0 place-items-center rounded-[9px] bg-white/[0.06] text-ink-2">
+            <IconTransition class="size-[19px]" />
+          </div>
+          <div class="min-w-0">
+            <div class="text-[14.5px] font-medium">{t.transition.title}</div>
+            <div class="mt-0.5 text-[13px] leading-snug text-ink-3">{t.transition.subtitle}</div>
+          </div>
+        </div>
+        <div class="mt-4 grid grid-cols-3 gap-2" role="radiogroup" aria-label={t.transition.title}>
           {#each TRANSITIONS as m (m)}
+            {@const Icon = TRANSITION_ICONS[m]}
+            {@const on = transition === m}
             <button
               type="button"
               role="radio"
-              aria-checked={transition === m}
-              class="h-7 rounded-full px-3 text-[12.5px] font-medium whitespace-nowrap transition-colors
-                {transition === m ? 'bg-ink text-black' : 'text-ink-2 hover:bg-fill-2 hover:text-ink'}"
+              aria-checked={on}
+              class="flex flex-col items-start gap-2 rounded-[10px] p-3 text-left ring-1 transition-colors
+                {on ? 'bg-white/[0.08] ring-ink/70' : 'bg-white/[0.02] ring-line hover:bg-white/[0.05]'}"
               onclick={() => setTransition(m)}
             >
-              {t.transition[m]}
+              <Icon class="size-[19px] {on ? 'text-ink' : 'text-ink-3'}" />
+              <span class="flex items-center gap-1.5 text-[13.5px] font-medium {on ? 'text-ink' : 'text-ink-2'}">
+                {t.transition[m]}
+                {#if m === "smart"}
+                  <span class="rounded-full bg-white/[0.08] px-1.5 py-px text-[10.5px] font-semibold tracking-wide text-ink-3 uppercase">{t.transition.beta}</span>
+                {/if}
+              </span>
+              <span class="text-[12px] leading-snug text-ink-3">{t.transition[`${m}Desc`]}</span>
             </button>
           {/each}
         </div>
-      {/snippet}
-      {@render row(
-        t.transition.title,
-        t.transition[`${transition}Hint`],
-        transitionChoice,
-        transition === "smart" ? IconSmart : IconCrossfade,
-      )}
+        <p class="mt-3 text-[12px] leading-snug text-ink-3">
+          {t.transition.albumNote}{#if transition === "smart"}&nbsp;{t.transition.smartNote}{/if}
+        </p>
+      </div>
       {#if transition !== "gapless"}
         {#snippet fadeSlider()}
           <div class="flex w-56 items-center gap-3">
