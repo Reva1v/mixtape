@@ -370,21 +370,38 @@ async fn import_external(st: Arc<AppState>, link: ExternalLink) -> CmdResult<Imp
 }
 
 #[tauri::command]
-pub fn downloads_pause(state: State<'_, Arc<AppState>>) {
-    state.downloads.pause();
+pub async fn downloads_pause(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
+    // These write to the database: off the main thread, which a sync command would block.
+    let st = state.inner().clone();
+    blocking(move || {
+        st.downloads.pause();
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn downloads_resume(state: State<'_, Arc<AppState>>) {
-    state.downloads.resume();
+pub async fn downloads_resume(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
+    let st = state.inner().clone();
+    blocking(move || {
+        st.downloads.resume();
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn download_retry(state: State<'_, Arc<AppState>>, job_id: RetryTarget) {
-    state.downloads.retry(match job_id {
+pub async fn download_retry(state: State<'_, Arc<AppState>>, job_id: RetryTarget) -> CmdResult<()> {
+    let st = state.inner().clone();
+    let target = match job_id {
         RetryTarget::Job(id) => Some(id),
         RetryTarget::All(_) => None,
-    });
+    };
+    blocking(move || {
+        st.downloads.retry(target);
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]

@@ -32,7 +32,12 @@ impl Db {
         std::thread::Builder::new().name("db-writer".into()).spawn(move || {
             let mut conn = writer_conn;
             while let Ok(job) = rx.recv() {
-                job(&mut conn);
+                // A panicking job must not take the writer down with it: its transaction is
+                // rolled back on unwind, its caller gets an error, the next jobs still run.
+                let run = std::panic::AssertUnwindSafe(|| job(&mut conn));
+                if std::panic::catch_unwind(run).is_err() {
+                    tracing::error!("a database write panicked; rolled back");
+                }
             }
         })?;
         Ok(Self {
@@ -75,18 +80,31 @@ impl Db {
         F: FnOnce(&Connection) -> Result<R>,
     {
         let conn = {
-            let mut pool = self.inner.readers.lock().expect("reader pool poisoned");
+            let mut pool = self.inner.readers.lock().unwrap_or_else(|e| e.into_inner());
             loop {
                 if let Some(c) = pool.pop() {
                     break c;
                 }
-                pool = self.inner.reader_free.wait(pool).expect("reader pool poisoned");
+                pool = self.inner.reader_free.wait(pool).unwrap_or_else(|e| e.into_inner());
             }
         };
-        let res = f(&conn);
-        self.inner.readers.lock().expect("reader pool poisoned").push(conn);
-        self.inner.reader_free.notify_one();
-        res
+        // Returned to the pool on drop, so a panicking `f` does not shrink it for good.
+        let lease = Lease { inner: &self.inner, conn: Some(conn) };
+        f(lease.conn.as_ref().expect("leased connection"))
+    }
+}
+
+struct Lease<'a> {
+    inner: &'a Inner,
+    conn: Option<Connection>,
+}
+
+impl Drop for Lease<'_> {
+    fn drop(&mut self) {
+        if let Some(c) = self.conn.take() {
+            self.inner.readers.lock().unwrap_or_else(|e| e.into_inner()).push(c);
+            self.inner.reader_free.notify_one();
+        }
     }
 }
 
@@ -96,6 +114,29 @@ mod tests {
 
     fn settings_count(db: &Db) -> i64 {
         db.read(|c| Ok(c.query_row("SELECT count(*) FROM settings", [], |r| r.get(0))?)).unwrap()
+    }
+
+    #[test]
+    fn panics_do_not_drain_the_pool_or_stop_the_writer() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Db::open(&dir.path().join("t.db")).unwrap();
+        for _ in 0..READERS + 1 {
+            let d = db.clone();
+            let r = std::thread::spawn(move || d.read(|_| -> Result<()> { panic!("reader") })).join();
+            assert!(r.is_err());
+        }
+        let r = db.write(|t| -> Result<()> {
+            t.execute("INSERT INTO settings(key, value) VALUES ('k', '1')", [])?;
+            panic!("writer")
+        });
+        assert!(r.is_err());
+        db.write(|t| {
+            t.execute("INSERT INTO settings(key, value) VALUES ('j', '1')", [])?;
+            Ok(())
+        })
+        .unwrap();
+        // The panicked write was rolled back; reads still find a free connection.
+        assert_eq!(settings_count(&db), 1);
     }
 
     #[test]

@@ -22,17 +22,16 @@ pub fn check(db: &Db, data_root: &Path) -> Result<IntegrityReport> {
     })?;
     // One directory listing per folder instead of a `stat` per file: with 20k tracks that is
     // the difference between ~1.3 s and a few ms of startup.
-    let mut listed: HashMap<PathBuf, HashSet<OsString>> = HashMap::new();
+    // `None`: the folder could not be listed (locked, no access, a drive not ready) —
+    // unknown is not missing, so its files are asked about one by one.
+    let mut listed: HashMap<PathBuf, Option<HashSet<OsString>>> = HashMap::new();
     let mut exists = |full: &Path| -> bool {
         let (Some(dir), Some(name)) = (full.parent(), full.file_name()) else { return false };
-        listed
-            .entry(dir.to_path_buf())
-            .or_insert_with(|| {
-                std::fs::read_dir(dir)
-                    .map(|rd| rd.filter_map(|e| e.ok()).filter(|e| e.file_type().is_ok_and(|t| t.is_file())).map(|e| e.file_name()).collect())
-                    .unwrap_or_default()
-            })
-            .contains(name)
+        let names = listed.entry(dir.to_path_buf()).or_insert_with(|| list_files(dir));
+        match names {
+            Some(names) => names.contains(name) || !full.try_exists().is_ok_and(|e| !e),
+            None => !matches!(full.try_exists(), Ok(false)),
+        }
     };
     let missing: Vec<(String, String)> = files
         .into_iter()
@@ -59,11 +58,39 @@ pub fn check(db: &Db, data_root: &Path) -> Result<IntegrityReport> {
     })
 }
 
+/// File names in `dir`; empty when it does not exist, `None` when it cannot be read.
+fn list_files(dir: &Path) -> Option<HashSet<OsString>> {
+    match std::fs::read_dir(dir) {
+        Ok(rd) => Some(
+            rd.filter_map(|e| e.ok())
+                .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+                .map(|e| e.file_name())
+                .collect(),
+        ),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(HashSet::new()),
+        Err(e) => {
+            tracing::warn!(dir = %dir.display(), error = %e, "couldn't list a media folder");
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::repo::tests::{db, meta};
     use crate::repo::{FileLocation, MediaFile, put_media_file, track, upsert_track};
+
+    #[test]
+    fn an_unreadable_folder_is_not_an_empty_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("f");
+        std::fs::write(&file, b"x").unwrap();
+        assert_eq!(list_files(&dir.path().join("none")), Some(HashSet::new()));
+        // Listing a file fails with something other than "not found".
+        assert_eq!(list_files(&file), None);
+        assert!(list_files(dir.path()).unwrap().contains(std::ffi::OsStr::new("f")));
+    }
 
     #[test]
     fn marks_missing_files() {

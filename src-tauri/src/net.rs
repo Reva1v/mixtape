@@ -1,8 +1,9 @@
 //! Network status (T092). Real requests tell it most of the time: every InnerTube call
 //! reports whether YouTube answered, a connect failure marks the app offline at once and a
-//! timeout asks for a probe. While offline a light probe runs every 10 s; while online it
-//! runs only every 15 minutes, and not at all while the window is minimized and nothing
-//! plays. On a change the UI gets `net:status`; coming back online flushes likes, tops up
+//! timeout asks for a probe. While offline a light probe runs after 10 s, backing off to
+//! every 5 minutes (at once that slow while the window is minimized or hidden to the tray
+//! and nothing plays); while online it runs only every 15 minutes, and not at all while
+//! the window is out of sight and nothing plays. On a change the UI gets `net:status`; coming back online flushes likes, tops up
 //! a running mix, wakes the downloader and the scheduled sync. Local playback never
 //! depends on it.
 
@@ -15,8 +16,9 @@ use std::time::Duration;
 use tauri::{Emitter, Manager};
 
 const PROBE_URL: &str = "https://music.youtube.com/generate_204";
-/// Probe interval while offline.
+/// First probe interval while offline; doubles up to [`OFFLINE_PROBE_MAX`].
 const OFFLINE_PROBE: Duration = Duration::from_secs(10);
+const OFFLINE_PROBE_MAX: Duration = Duration::from_secs(5 * 60);
 /// Probe interval while online: real requests usually notice trouble first.
 const ONLINE_PROBE: Duration = Duration::from_secs(15 * 60);
 
@@ -68,11 +70,23 @@ fn on_reach(st: &Arc<AppState>, reach: Reach) {
     }
 }
 
-/// Minimized with nothing playing: no one would see the status, skip the check.
+/// Minimized or hidden to the tray with nothing playing: no one would see the status.
 fn idle(st: &AppState) -> bool {
-    let minimized = st.app.get_webview_window("main").and_then(|w| w.is_minimized().ok()).unwrap_or(false);
+    let unseen = st
+        .app
+        .get_webview_window(crate::window::MAIN)
+        .map(|w| w.is_minimized().unwrap_or(false) || !w.is_visible().unwrap_or(true))
+        .unwrap_or(false);
     use mixtape_player::Status;
-    minimized && !matches!(st.player.state().status, Status::Playing | Status::Loading | Status::Buffering)
+    unseen && !matches!(st.player.state().status, Status::Playing | Status::Loading | Status::Buffering)
+}
+
+/// How long to wait before the next probe after `failed` probes in a row found no network.
+fn offline_delay(failed: u32, idle: bool) -> Duration {
+    if idle {
+        return OFFLINE_PROBE_MAX;
+    }
+    OFFLINE_PROBE.saturating_mul(1 << failed.min(16)).min(OFFLINE_PROBE_MAX)
 }
 
 pub fn spawn(st: Arc<AppState>) {
@@ -86,6 +100,7 @@ pub fn spawn(st: Arc<AppState>) {
         // One check at start, so the UI knows from the beginning.
         let online = probe(st.yt.http()).await;
         set_online(&st, online);
+        let mut failed = 0u32;
         loop {
             if st.online.load(Ordering::SeqCst) {
                 let nudged = tokio::select! {
@@ -96,9 +111,12 @@ pub fn spawn(st: Arc<AppState>) {
                     continue;
                 }
             } else {
-                tokio::time::sleep(OFFLINE_PROBE).await;
+                // A real request that gets through (`Reach::Answered`) marks the app online
+                // without waiting for this.
+                tokio::time::sleep(offline_delay(failed, idle(&st))).await;
             }
             let online = probe(st.yt.http()).await;
+            failed = if online { 0 } else { failed.saturating_add(1) };
             set_online(&st, online);
         }
     });
@@ -107,4 +125,19 @@ pub fn spawn(st: Arc<AppState>) {
 #[tauri::command]
 pub fn net_status(state: tauri::State<'_, Arc<AppState>>) -> bool {
     state.online.load(Ordering::SeqCst)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn offline_probes_back_off() {
+        assert_eq!(offline_delay(0, false), OFFLINE_PROBE);
+        assert_eq!(offline_delay(1, false), Duration::from_secs(20));
+        assert_eq!(offline_delay(10, false), OFFLINE_PROBE_MAX);
+        assert_eq!(offline_delay(u32::MAX, false), OFFLINE_PROBE_MAX);
+        // Out of sight, nothing playing: no fast polling at all.
+        assert_eq!(offline_delay(0, true), OFFLINE_PROBE_MAX);
+    }
 }

@@ -177,7 +177,9 @@ pub async fn cache_clear(state: State<'_, Arc<AppState>>) -> CmdResult<StorageIn
 }
 
 fn trim(st: &AppState, limit: u64) -> CmdResult<()> {
-    let protect: Vec<_> = st.player.state().track_id.into_iter().collect();
+    // The playing track and the one lined up after it: evicting the successor's file would
+    // make it fail just before it is due.
+    let protect = st.player.upcoming();
     let root = st.paths.root.clone();
     st.db.write(move |t| cache_lru::evict(t, &root, limit, &protect))?;
     Ok(())

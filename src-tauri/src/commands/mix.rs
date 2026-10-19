@@ -3,6 +3,7 @@
 
 use super::{CmdResult, blocking};
 use crate::commands::library::emit_changed;
+use crate::commands::player::PLAY_REQUESTS;
 use crate::state::AppState;
 use mixtape_core::{AppError, ErrorKind, TrackId, TrackState, tr};
 use mixtape_library::views::ViewKind;
@@ -61,6 +62,7 @@ pub(super) async fn page_of(st: &AppState, radio: RadioPage) -> CmdResult<MixPag
 pub async fn mix_start(state: St<'_>, track_id: TrackId) -> CmdResult<()> {
     let st = state.inner().clone();
     need_account(&st)?;
+    let req = PLAY_REQUESTS.begin();
     let mut radio = st.yt.radio(&track_id).await.map_err(|e| yt_error(&st, e))?;
     // A clip seed comes back as its audio version first; keep one of the two.
     let seed_title = st.db.read(|c| repo::track(c, &track_id)).ok().flatten().map(|t| t.title.to_lowercase());
@@ -80,6 +82,9 @@ pub async fn mix_start(state: St<'_>, track_id: TrackId) -> CmdResult<()> {
                 "YouTube Music не собрал микс для этого трека",
             ),
         ));
+    }
+    if !PLAY_REQUESTS.is_latest(req) {
+        return Ok(());
     }
     blocking(move || {
         st.player.start_mix(track_id, page);
@@ -159,16 +164,17 @@ pub async fn track_set_liked(state: St<'_>, id: TrackId, liked: bool) -> CmdResu
     let st2 = st.clone();
     let root = st.paths.root.clone();
     // A liked track that is only cached moves into the library (T076).
-    blocking(move || {
+    let moved_id = id.clone();
+    let moved = blocking(move || {
         Ok(st2.db.write(move |t| {
-            likes::queue_like(t, &id, liked)?;
-            if liked {
-                cache_lru::promote(t, &root, &id)?;
-            }
-            Ok(())
+            likes::set_like(t, &id, liked)?;
+            Ok(liked && cache_lru::promote(t, &root, &id)?)
         })?)
     })
     .await?;
+    if moved {
+        st.player.media_moved(&moved_id);
+    }
     emit_changed(&st.app, &[ViewKind::Liked, ViewKind::Tracks, ViewKind::Albums]);
     flush_likes(&st);
     Ok(())
@@ -231,6 +237,7 @@ fn arm_like_retry(st: &Arc<AppState>) {
 pub async fn track_download(state: St<'_>, id: TrackId) -> CmdResult<()> {
     let st = state.inner().clone();
     let st2 = st.clone();
+    let moved_id = id.clone();
     let promoted = blocking(move || {
         let root = st2.paths.root.clone();
         Ok(st2.db.write(move |t| {
@@ -246,6 +253,7 @@ pub async fn track_download(state: St<'_>, id: TrackId) -> CmdResult<()> {
     })
     .await?;
     if promoted {
+        st.player.media_moved(&moved_id);
         emit_changed(&st.app, &[ViewKind::Tracks, ViewKind::Albums, ViewKind::Artists]);
     } else {
         st.downloads.wake();
@@ -260,9 +268,14 @@ pub fn autosave(st: &Arc<AppState>, id: &TrackId, full_plays: u32) {
         return;
     }
     let root = st.paths.root.clone();
-    let id = id.clone();
+    let (id, id_moved) = (id.clone(), id.clone());
     match st.db.write(move |t| cache_lru::promote(t, &root, &id)) {
-        Ok(true) => emit_changed(&st.app, &[ViewKind::Tracks, ViewKind::Albums, ViewKind::Artists]),
+        Ok(true) => {
+            emit_changed(&st.app, &[ViewKind::Tracks, ViewKind::Albums, ViewKind::Artists]);
+            // This runs in a player event handler: reach the player from another thread.
+            let (st, id) = (st.clone(), id_moved);
+            tauri::async_runtime::spawn_blocking(move || st.player.media_moved(&id));
+        }
         Ok(false) => {}
         Err(e) => tracing::warn!(error = %e, "autosave failed"),
     }

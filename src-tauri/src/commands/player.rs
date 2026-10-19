@@ -7,11 +7,33 @@ use mixtape_library::repo;
 use mixtape_player::{PlaySource, PlaybackState, QueueContext, QueueView, Repeat};
 use serde::Deserialize;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::State;
 use tauri::ipc::Channel;
 use ts_rs::TS;
 
 type St<'a> = State<'a, Arc<AppState>>;
+
+/// Numbers the requests that replace what plays. One that waited on the network acts only
+/// if no newer one came meanwhile, so a slow album page cannot replace a mix started later.
+pub struct PlayRequests(AtomicU64);
+
+impl PlayRequests {
+    pub const fn new() -> Self {
+        Self(AtomicU64::new(0))
+    }
+
+    /// A new request; it supersedes every earlier one.
+    pub fn begin(&self) -> u64 {
+        self.0.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    pub fn is_latest(&self, n: u64) -> bool {
+        self.0.load(Ordering::SeqCst) == n
+    }
+}
+
+pub static PLAY_REQUESTS: PlayRequests = PlayRequests::new();
 
 #[tauri::command]
 pub async fn player_subscribe(state: St<'_>, channel: Channel<PlaybackState>) -> CmdResult<()> {
@@ -31,6 +53,7 @@ pub async fn player_subscribe(state: St<'_>, channel: Channel<PlaybackState>) ->
 #[tauri::command]
 pub async fn play(state: St<'_>, source: PlaySource, start_index: Option<u32>) -> CmdResult<()> {
     let st = state.inner().clone();
+    let req = PLAY_REQUESTS.begin();
     // Catalog items (search, home) may not have their tracks stored yet.
     let source = match source {
         PlaySource::Album { id } => {
@@ -38,11 +61,17 @@ pub async fn play(state: St<'_>, source: PlaySource, start_index: Option<u32>) -
                 Ok((repo::album_track_ids(c, &id)?.len(), repo::album(c, &id)?.and_then(|a| a.track_count)))
             })?;
             crate::commands::catalog::fill_album(&st, &id, Some((n, total))).await;
+            if !PLAY_REQUESTS.is_latest(req) {
+                return Ok(());
+            }
             PlaySource::Album { id }
         }
         PlaySource::Playlist { id } if st.db.read(|c| repo::playlist(c, &id))?.is_none() => {
             let (_, tracks) = crate::commands::catalog::catalog_playlist(&st, &id).await?;
             let ids = tracks.into_iter().map(|t| t.id).collect();
+            if !PLAY_REQUESTS.is_latest(req) {
+                return Ok(());
+            }
             return blocking(move || {
                 st.player.play_tracks(ids, start_index.unwrap_or(0) as usize, QueueContext::Playlist(id));
                 Ok(())
@@ -53,6 +82,9 @@ pub async fn play(state: St<'_>, source: PlaySource, start_index: Option<u32>) -
             let found = mixtape_sync::catalog::store_artist(&*st.yt, st.yt.http(), &st.db, &st.covers, &id)
                 .await
                 .map_err(AppError::from)?;
+            if !PLAY_REQUESTS.is_latest(req) {
+                return Ok(());
+            }
             return blocking(move || {
                 st.player.play_tracks(found.top, start_index.unwrap_or(0) as usize, QueueContext::Artist(id));
                 Ok(())
@@ -183,9 +215,26 @@ pub async fn queue_clear(state: St<'_>) -> CmdResult<()> {
 #[tauri::command]
 pub async fn queue_jump(state: St<'_>, uid: u64) -> CmdResult<()> {
     let st = state.inner().clone();
+    PLAY_REQUESTS.begin();
     blocking(move || {
         st.player.jump(uid);
         Ok(())
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PlayRequests;
+
+    #[test]
+    fn a_newer_play_request_supersedes_an_older_one() {
+        let r = PlayRequests::new();
+        let album = r.begin();
+        assert!(r.is_latest(album));
+        let mix = r.begin();
+        // The album page arrives after the mix was asked for: it must not replace it.
+        assert!(!r.is_latest(album));
+        assert!(r.is_latest(mix));
+    }
 }

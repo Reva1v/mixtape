@@ -227,7 +227,11 @@ fn strip_duration(s: &mut &str) -> Option<u64> {
     {
         return None;
     }
-    let n: Vec<u64> = parts.iter().filter_map(|p| p.parse().ok()).collect();
+    // A number too long for a clock («99999999999999999999:00») is not a duration.
+    if parts.iter().any(|p| p.len() > 4) {
+        return None;
+    }
+    let n: Vec<u64> = parts.iter().map(|p| p.parse().ok()).collect::<Option<_>>()?;
     if n[1..].iter().any(|&x| x >= 60) {
         return None;
     }
@@ -384,6 +388,10 @@ mod tests {
     fn durations_need_valid_clock() {
         assert_eq!(parse_lines("A — Song 99"), vec![t(&["A"], "Song 99", None)]);
         assert_eq!(parse_lines("A — 7:61"), vec![t(&["A"], "7:61", None)]);
+        // Numbers too long for a clock used to panic (an empty slice, an overflow).
+        for odd in ["99999999999999999999:99999999999999999999", "9999999999999999:59:59"] {
+            assert_eq!(parse_lines(&format!("A — {odd}")), vec![t(&["A"], odd, None)]);
+        }
         assert_eq!(
             parse_lines("A — Song - 1:02:03"),
             vec![t(&["A"], "Song", Some(3_723_000))]

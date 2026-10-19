@@ -186,6 +186,7 @@ pub async fn mix_start_playlist(state: St<'_>, playlist_id: String) -> CmdResult
             ),
         ));
     }
+    let req = crate::commands::player::PLAY_REQUESTS.begin();
     let radio = st
         .yt
         .radio_playlist(&playlist_id)
@@ -198,6 +199,9 @@ pub async fn mix_start_playlist(state: St<'_>, playlist_id: String) -> CmdResult
             tr("YouTube Music didn't make this mix", "YouTube Music не зібрав цей мікс", "YouTube Music не собрал этот микс"),
         ));
     };
+    if !crate::commands::player::PLAY_REQUESTS.is_latest(req) {
+        return Ok(());
+    }
     blocking(move || {
         st.player.start_mix(seed, page);
         Ok(())

@@ -55,13 +55,36 @@ fn apply(st: &AppState, cookies: Option<Cookies>) {
 
 #[cfg(windows)]
 pub(crate) fn seal(text: &str) -> Result<Vec<u8>, AppError> {
-    mixtape_win::dpapi::protect(text.as_bytes()).map_err(|e| AppError::new(ErrorKind::Internal, e.to_string()))
+    mixtape_win::dpapi::protect(text.as_bytes()).map_err(|e| {
+        tracing::warn!(error = %e, "DPAPI protect failed");
+        AppError::new(
+            ErrorKind::Internal,
+            mixtape_core::tr(
+                "Couldn't encrypt the account data on this computer",
+                "Не вдалося зашифрувати дані акаунта на цьому комп'ютері",
+                "Не удалось зашифровать данные аккаунта на этом компьютере",
+            ),
+        )
+    })
 }
 
 #[cfg(windows)]
 pub(crate) fn open(sealed: &[u8]) -> Result<String, AppError> {
-    let bytes = mixtape_win::dpapi::unprotect(sealed).map_err(|e| AppError::new(ErrorKind::Auth, e.to_string()))?;
-    String::from_utf8(bytes).map_err(|e| AppError::new(ErrorKind::Auth, e.to_string()))
+    let unreadable = || {
+        AppError::new(
+            ErrorKind::Auth,
+            mixtape_core::tr(
+                "The saved sign-in can't be read on this computer, connect the account again",
+                "Збережений вхід не читається на цьому комп'ютері — підключіть акаунт знову",
+                "Сохранённый вход не читается на этом компьютере — подключите аккаунт заново",
+            ),
+        )
+    };
+    let bytes = mixtape_win::dpapi::unprotect(sealed).map_err(|e| {
+        tracing::warn!(error = %e, "DPAPI unprotect failed");
+        unreadable()
+    })?;
+    String::from_utf8(bytes).map_err(|_| unreadable())
 }
 
 #[cfg(not(windows))]

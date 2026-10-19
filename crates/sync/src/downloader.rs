@@ -406,6 +406,10 @@ async fn download(inner: &Arc<Inner>, job: i64, id: TrackId) -> Outcome {
     let part = fetch::part_path(&path);
     let mut refreshed = false;
     let size = loop {
+        if let Err(e) = fetch::claim_part(&part, &fetch::part_key(stream.itag, &stream.url)) {
+            fail(FetchError::Io(e).to_string()).await;
+            return Outcome::OtherError;
+        }
         match fetch_with_progress(inner, job, &stream, &part, &cancel).await {
             Ok(size) => break size,
             // Stream URLs expire; get a fresh one once and resume from the `.part`.
@@ -446,15 +450,22 @@ async fn download(inner: &Arc<Inner>, job: i64, id: TrackId) -> Outcome {
     };
     let saved = inner
         .db_write(move |t| {
-            repo::put_media_file(t, &media)?;
+            let replaced = store_download(t, &media)?;
             if let (Some(lufs), Some(peak)) = (analysis.lufs, analysis.true_peak) {
                 repo::set_loudness(t, &media.track_id, lufs, peak)?;
             }
-            jobs::mark_done(t, job)
+            jobs::mark_done(t, job)?;
+            Ok(replaced)
         })
         .await;
     match saved {
-        Ok(_) => {
+        Ok(replaced) => {
+            if let Some(old) = replaced
+                && let Err(e) = std::fs::remove_file(inner.root.join(&old))
+                && e.kind() != std::io::ErrorKind::NotFound
+            {
+                tracing::warn!(%id, error = %e, "replaced audio file left behind");
+            }
             inner.hooks.finished(&id);
             Outcome::Ok
         }
@@ -468,6 +479,15 @@ async fn download(inner: &Arc<Inner>, job: i64, id: TrackId) -> Outcome {
             Outcome::OtherError
         }
     }
+}
+
+/// Records a finished download. Returns the path of the file it replaces (a cached copy
+/// streamed meanwhile, or an older download in another container), for the caller to
+/// delete once the row is committed.
+fn store_download(t: &rusqlite::Connection, media: &MediaFile) -> mixtape_library::Result<Option<String>> {
+    let old = repo::media_file(t, &media.track_id)?.map(|o| o.path).filter(|p| *p != media.path);
+    repo::put_media_file(t, media)?;
+    Ok(old)
 }
 
 /// The URL for `id`. On a cache miss the next queued tracks are resolved in the same
@@ -558,6 +578,33 @@ mod tests {
             }
             tokio::time::sleep(Duration::from_millis(300)).await;
         }
+    }
+
+    #[test]
+    fn a_download_reports_the_cached_copy_it_replaces() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Db::open(&dir.path().join("t.db")).unwrap();
+        let id = TrackId::new("aaaaaaaaaaa");
+        let file = |path: &str, location| MediaFile {
+            track_id: id.clone(),
+            path: path.into(),
+            container: "webm".into(),
+            itag: Some(251),
+            size_bytes: 1,
+            sample_rate: None,
+            location,
+        };
+        let (cached, again) = (file("cache/aaaaaaaaaaa.webm", FileLocation::Cache), file("library/aaaaaaaaaaa.webm", FileLocation::Library));
+        let lib = again.clone();
+        let (first, second) = db
+            .write(move |t| {
+                t.execute("INSERT INTO tracks(id, title, duration_ms, state) VALUES ('aaaaaaaaaaa', 'A', 1000, 'remote')", [])?;
+                repo::put_media_file(t, &cached)?;
+                Ok((store_download(t, &lib)?, store_download(t, &again)?))
+            })
+            .unwrap();
+        assert_eq!(first.as_deref(), Some("cache/aaaaaaaaaaa.webm"));
+        assert_eq!(second, None, "the same file is not deleted");
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -9,6 +9,15 @@ use crate::state::Chip;
 use mixtape_core::TrackId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Generations are unique across sessions: a page fetched for an old mix never matches a
+/// newer one, even though each new session starts over.
+static GENERATIONS: AtomicU64 = AtomicU64::new(0);
+
+fn next_generation() -> u64 {
+    GENERATIONS.fetch_add(1, Ordering::SeqCst) + 1
+}
 
 /// Load the next page when this many tracks or fewer are left after the current one.
 pub const LOW_WATER: usize = 5;
@@ -61,7 +70,7 @@ impl MixSession {
             chips: page.chips,
             continuation: page.continuation,
             seen: HashSet::new(),
-            generation: 0,
+            generation: next_generation(),
             loading: false,
         };
         let mut tracks = vec![seed];
@@ -127,7 +136,7 @@ impl MixSession {
         for c in &mut self.chips {
             c.selected = c.id == id;
         }
-        self.generation += 1;
+        self.generation = next_generation();
         self.loading = false;
         Some(self.generation)
     }
@@ -148,6 +157,12 @@ impl MixSession {
 
     pub fn generation(&self) -> u64 {
         self.generation
+    }
+
+    /// A session restored from the saved queue: later generations are numbered past its own.
+    pub fn restored(self) -> Self {
+        GENERATIONS.fetch_max(self.generation, Ordering::SeqCst);
+        self
     }
 
     pub fn can_continue(&self) -> bool {
@@ -209,6 +224,22 @@ mod tests {
         let req = s.begin_more(0).unwrap();
         s.more_failed(req.generation);
         assert!(s.begin_more(0).is_some());
+    }
+
+    #[test]
+    fn a_page_of_an_old_mix_does_not_join_a_new_one() {
+        let (mut old, _) = MixSession::start(TrackId("s".into()), page(&["a"], Some("c1")));
+        let stale = old.begin_more(0).unwrap();
+        let (mut new, _) = MixSession::start(TrackId("t".into()), page(&["b"], Some("c2")));
+        assert!(new.accept_more(stale.generation, page(&["x"], None)).is_empty());
+        new.more_failed(stale.generation);
+        assert!(new.begin_more(0).is_some());
+        // Restored from disk with a high number: new sessions are numbered past it.
+        let mut saved = old.clone();
+        saved.generation = u64::MAX / 2;
+        let saved = saved.restored();
+        let (fresh, _) = MixSession::start(TrackId("u".into()), page(&[], None));
+        assert!(fresh.generation() > saved.generation());
     }
 
     #[test]

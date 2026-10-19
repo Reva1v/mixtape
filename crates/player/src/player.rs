@@ -72,7 +72,7 @@ struct PlaybackPos {
 /// carry their own).
 fn restore(snapshot: Option<Snapshot>, pos: Option<PlaybackPos>) -> (Queue, u64, f32, Option<MixSession>) {
     let (queue, mut position_ms, mut volume, mix) = match snapshot {
-        Some(s) => (s.queue, s.position_ms, s.volume, s.mix),
+        Some(s) => (s.queue, s.position_ms, s.volume, s.mix.map(MixSession::restored)),
         None => (Queue::new(), 0, 0.8, None),
     };
     if let Some(p) = pos {
@@ -122,6 +122,9 @@ struct Inner {
     deferred: Option<(TrackId, u64)>,
     /// The remote successor whose stream is being opened.
     next_request: Option<TrackId>,
+    /// A successor the engine failed to open: not lined up again, so the current track
+    /// plays to its end and the failure is handled when it becomes current.
+    failed_next: Option<TrackId>,
     /// Listening time of the plays in progress, for the statistics log.
     listens: Listens,
 }
@@ -154,6 +157,12 @@ impl Inner {
     fn live_state(&self) -> PlaybackState {
         PlaybackState { position_ms: self.live_position(), ..self.state.clone() }
     }
+}
+
+/// An engine error about `id` concerns the lined-up successor, not the playing track.
+fn is_successor_error(id: &str, current: Option<&TrackId>, pending: Option<&TrackId>, next: Option<&TrackId>) -> bool {
+    current.is_some_and(|t| t.as_str() != id)
+        && (pending.is_some_and(|t| t.as_str() == id) || next.is_some_and(|t| t.as_str() == id))
 }
 
 fn now_ms() -> u64 {
@@ -211,6 +220,7 @@ impl Player {
                 load_seq: 0,
                 deferred: None,
                 next_request: None,
+                failed_next: None,
                 listens: Listens::default(),
             }),
             engine,
@@ -295,6 +305,21 @@ impl Player {
         inner.queue.current().into_iter().chain(inner.queue.peek_next(true)).map(|i| i.track_id.clone()).collect()
     }
 
+    /// The audio file of `id` moved (cache → library, or a download finished). A successor
+    /// lined up from the old path is lined up again, so it does not fail when it is due.
+    pub fn media_moved(&self, id: &TrackId) {
+        let lined_up = {
+            let inner = self.lock();
+            inner.pending_next.as_ref() == Some(id)
+                || inner.failed_next.as_ref() == Some(id)
+                || inner.queue.peek_next(true).is_some_and(|i| &i.track_id == id)
+        };
+        if lined_up {
+            self.lock().failed_next = None;
+            self.refresh_next();
+        }
+    }
+
     /// Normalisation gain of a track from what is known about its loudness (0 dB if nothing).
     fn track_gain(&self, id: &TrackId) -> f32 {
         let l = self.db.read(|c| repo::track_loudness(c, id)).unwrap_or_default();
@@ -341,6 +366,7 @@ impl Player {
             inner.load_seq += 1;
             inner.deferred = None;
             inner.next_request = None;
+            inner.failed_next = None;
             // A new track: let the provider hear about the window again (retries failures).
             inner.last_prefetch = None;
             inner.load_seq
@@ -701,18 +727,32 @@ impl Player {
 
     /// Runs a queue edit, then re-lines up the gapless successor.
     pub fn edit_queue<R>(&self, f: impl FnOnce(&mut Queue) -> R) -> R {
-        let (r, was_empty, now_has) = {
+        let (r, before, after, playing) = {
             let mut inner = self.lock();
-            let was_empty = inner.queue.current().is_none();
+            let before = inner.queue.current().map(|i| i.uid);
             let r = f(&mut inner.queue);
             inner.queue_dirty = true;
-            (r, was_empty, inner.queue.current().is_some())
+            let after = inner.queue.current().map(|i| (i.uid, i.track_id.clone()));
+            (r, before, after, matches!(inner.state.status, Status::Playing | Status::Buffering | Status::Loading))
         };
         (self.sink)(PlayerEvent::QueueChanged);
-        if was_empty && now_has {
-            self.start_current(0);
-        } else {
-            self.refresh_next();
+        match (before, after) {
+            (None, Some(_)) => self.start_current(0),
+            // The current item itself was removed: what is current now has to be loaded,
+            // or the old track would go on playing under the new one's name.
+            (Some(was), Some((now, id))) if was != now => {
+                self.record_end(false);
+                if playing {
+                    self.start_current(0);
+                } else {
+                    self.load_track(&id, 0, false);
+                }
+            }
+            (Some(_), None) => {
+                self.record_end(false);
+                self.stop_idle();
+            }
+            _ => self.refresh_next(),
         }
         self.save_snapshot(false);
         r
@@ -760,7 +800,7 @@ impl Player {
     fn refresh_next(&self) {
         let next = {
             let inner = self.lock();
-            inner.queue.peek_next(true).map(|i| i.track_id.clone())
+            inner.queue.peek_next(true).map(|i| i.track_id.clone()).filter(|id| inner.failed_next.as_ref() != Some(id))
         };
         let mut src = None;
         if let Some(id) = &next {
@@ -833,6 +873,7 @@ impl Player {
                 let (advanced, closed) = {
                     let mut inner = self.lock();
                     inner.skips = 0;
+                    inner.failed_next = None;
                     // `load` clears `pending_next`, so a match here can only be the
                     // gapless successor (including the same track under repeat-one).
                     let gapless = inner.pending_next.as_ref() == Some(&id);
@@ -919,6 +960,26 @@ impl Player {
             }
             EngineEvent::Error { id, message } => {
                 tracing::warn!(%id, %message, "playback error");
+                // The queued successor failed while the current track still plays: leave the
+                // current one alone; the successor is retried (and skipped) when it is due.
+                let successor = {
+                    let mut inner = self.lock();
+                    let successor = is_successor_error(
+                        &id,
+                        inner.state.track_id.as_ref(),
+                        inner.pending_next.as_ref(),
+                        inner.queue.peek_next(true).map(|i| &i.track_id),
+                    );
+                    if successor {
+                        inner.pending_next = None;
+                        inner.failed_next = Some(TrackId(id.clone()));
+                    }
+                    successor
+                };
+                if successor {
+                    self.refresh_next();
+                    return;
+                }
                 let listened = self.lock().listens.end(&id, None);
                 self.log_listens(listened.into_iter().collect());
                 (self.sink)(PlayerEvent::Error(trf!(
@@ -1045,6 +1106,17 @@ mod tests {
             position_ms,
             volume: 0.3,
         }
+    }
+
+    #[test]
+    fn successor_error_is_told_apart_from_the_current_one() {
+        let (cur, next) = (TrackId::from("cur"), TrackId::from("nxt"));
+        assert!(is_successor_error("nxt", Some(&cur), Some(&next), Some(&next)));
+        assert!(is_successor_error("nxt", Some(&cur), None, Some(&next)));
+        assert!(!is_successor_error("cur", Some(&cur), Some(&next), Some(&next)));
+        // Repeat-one: the successor is the current track itself — a normal error.
+        assert!(!is_successor_error("cur", Some(&cur), Some(&cur), Some(&cur)));
+        assert!(!is_successor_error("old", Some(&cur), Some(&next), Some(&next)));
     }
 
     #[test]

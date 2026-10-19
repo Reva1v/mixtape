@@ -40,9 +40,24 @@ impl From<reqwest::Error> for FetchError {
         match e.status() {
             Some(StatusCode::FORBIDDEN) => Self::Expired,
             Some(s) => Self::Http(s.as_u16()),
-            None => Self::Network(e.to_string()),
+            None => Self::Network(network_text(&e)),
         }
     }
+}
+
+/// A network failure in the user's language. reqwest's own text is English and carries
+/// the request URL — for googlevideo that holds the user's IP — so it is never shown.
+fn network_text(e: &reqwest::Error) -> String {
+    if e.is_timeout() {
+        tr("the server didn't answer in time", "сервер не відповів вчасно", "сервер не ответил вовремя")
+    } else if e.is_connect() {
+        tr("no connection to the server", "немає з'єднання з сервером", "нет соединения с сервером")
+    } else if e.is_body() || e.is_decode() {
+        tr("the connection broke off", "з'єднання обірвалося", "соединение оборвалось")
+    } else {
+        tr("the request failed", "запит не вдався", "запрос не удался")
+    }
+    .into()
 }
 
 /// Cancellation flag shared between a download and whoever stops it. Cloning shares
@@ -316,13 +331,48 @@ fn content_range_total(v: &str) -> Option<u64> {
     v.rsplit_once('/').and_then(|(_, t)| t.trim().parse().ok())
 }
 
+/// What a `.part` file holds: the stream format and its exact length (`clen`). A resume
+/// appends to the bytes already there, so it must fetch the very same file.
+pub fn part_key(itag: u32, url: &str) -> String {
+    match clen_param(url) {
+        Some(n) => format!("{itag}:{n}"),
+        None => itag.to_string(),
+    }
+}
+
+fn key_path(part: &Path) -> PathBuf {
+    let mut s = part.as_os_str().to_owned();
+    s.push(".src");
+    PathBuf::from(s)
+}
+
+/// Makes `part` belong to `key` before a fetch: a `.part` left by another format (or by a
+/// version that did not record one) is thrown away instead of resumed.
+pub fn claim_part(part: &Path, key: &str) -> std::io::Result<()> {
+    let marker = key_path(part);
+    let same = std::fs::read_to_string(&marker).is_ok_and(|k| k == key);
+    if !same {
+        match std::fs::remove_file(part) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+            _ => {}
+        }
+        if let Some(dir) = marker.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        std::fs::write(&marker, key)?;
+    }
+    Ok(())
+}
+
 /// Moves a finished `part` file to `final_path`, creating folders and replacing an
 /// existing file.
 pub fn finalize(part: &Path, final_path: &Path) -> std::io::Result<()> {
     if let Some(dir) = final_path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    std::fs::rename(part, final_path)
+    std::fs::rename(part, final_path)?;
+    let _ = std::fs::remove_file(key_path(part));
+    Ok(())
 }
 
 #[cfg(test)]
@@ -412,6 +462,38 @@ mod tests {
         let before = s.ranges.lock().unwrap().len();
         assert_eq!(run(&s, &part, Some(50_000), 16_384).await.unwrap(), 50_000);
         assert_eq!(s.ranges.lock().unwrap().len(), before);
+    }
+
+    #[tokio::test]
+    async fn network_errors_hide_the_url() {
+        // Nothing listens on port 9 of localhost: a connect error.
+        let url = "http://127.0.0.1:9/videoplayback?ip=203.0.113.7&itag=251";
+        let e = reqwest::Client::new().get(url).send().await.unwrap_err();
+        let shown = FetchError::from(e).to_string();
+        assert!(!shown.contains("203.0.113.7") && !shown.contains("127.0.0.1"), "{shown}");
+        assert!(!shown.contains("error sending request"), "{shown}");
+    }
+
+    #[test]
+    fn a_part_of_another_format_is_not_resumed() {
+        let dir = tempfile::tempdir().unwrap();
+        let part = dir.path().join("a.webm.part");
+        let url = "https://x.googlevideo.com/videoplayback?itag=251&clen=5000";
+        assert_eq!(part_key(251, url), "251:5000");
+        // Left by a version that did not record its format: dropped.
+        std::fs::write(&part, b"old").unwrap();
+        claim_part(&part, &part_key(251, url)).unwrap();
+        assert!(!part.exists());
+        // Same format again: kept for the resume.
+        std::fs::write(&part, b"abc").unwrap();
+        claim_part(&part, &part_key(251, url)).unwrap();
+        assert_eq!(std::fs::read(&part).unwrap(), b"abc");
+        // A fresh URL for another format: dropped.
+        claim_part(&part, &part_key(250, url)).unwrap();
+        assert!(!part.exists());
+        std::fs::write(&part, b"done").unwrap();
+        finalize(&part, &dir.path().join("a.webm")).unwrap();
+        assert!(!key_path(&part).exists());
     }
 
     #[tokio::test]

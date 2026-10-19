@@ -227,9 +227,10 @@ pub fn progress(
     Ok(n > 0)
 }
 
-/// `running → done`.
+/// `running → done` (or `paused → done`).
 pub fn mark_done(conn: &Connection, id: i64) -> Result<bool> {
-    transition(conn, id, "'running'", "status = 'done', error = NULL")
+    // Paused after the file was written (during analysis): it is done all the same.
+    transition(conn, id, "'running', 'paused'", "status = 'done', error = NULL")
 }
 
 /// `running → failed`; counts the attempt and keeps the human-readable reason.
@@ -458,6 +459,20 @@ mod tests {
         );
         assert_eq!(db.write(|t| clear_done(t)).unwrap(), 1);
         assert_eq!(db.read(|c| get(c, id)).unwrap(), None);
+    }
+
+    #[test]
+    fn paused_while_the_file_was_saved_still_ends_done() {
+        let (_d, db) = setup();
+        let id = db.write(|t| Ok(enqueue(t, &tid("a"), "url")?.unwrap())).unwrap();
+        db.write(move |t| {
+            assert!(mark_running(t, id)?);
+            pause_all(t)?;
+            assert!(mark_done(t, id)?);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(status(&db, id), JobStatus::Done);
     }
 
     #[test]

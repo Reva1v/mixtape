@@ -30,12 +30,14 @@ pub fn mirror_playlist(
 
 /// Makes local likes match YouTube Music. `liked` is newest first, as YouTube lists it;
 /// `liked_at` keeps that order. Tracks with a like change still waiting in the outbox
-/// keep the local value — it is newer than what YouTube knows.
+/// keep the local value — it is newer than what YouTube knows. Only YouTube tracks are
+/// touched: likes of SoundCloud, Bandcamp and local tracks never reach YouTube Music.
 pub fn apply_remote_likes(conn: &Connection, liked: &[TrackId]) -> Result<()> {
     let now = now_ms();
     conn.execute(
         "UPDATE tracks SET liked = 0, liked_at = NULL
-         WHERE liked = 1 AND id NOT IN (SELECT track_id FROM like_outbox)",
+         WHERE liked = 1 AND length(id) = 11 AND id NOT LIKE 'local%'
+           AND id NOT IN (SELECT track_id FROM like_outbox)",
         [],
     )?;
     let mut stmt = conn.prepare_cached(
@@ -152,10 +154,17 @@ pub fn merge_local_twins(conn: &Connection) -> Result<usize> {
                 last_played_at = MAX(COALESCE(play_stats.last_played_at, 0), COALESCE(excluded.last_played_at, 0))",
             params![local, yt],
         )?;
+        let local_liked: bool =
+            conn.query_row("SELECT liked FROM tracks WHERE id = ?1", [local], |r| r.get(0))?;
+        let twin_liked: bool = conn.query_row("SELECT liked FROM tracks WHERE id = ?1", [yt], |r| r.get(0))?;
+        if local_liked && !twin_liked {
+            // Through the outbox: a like set only here would be undone by the next sync.
+            crate::likes::set_like(conn, &TrackId::new(yt.as_str()), true)?;
+        }
         conn.execute(
-            "UPDATE tracks SET liked = 1, liked_at = COALESCE(liked_at, (SELECT liked_at FROM tracks WHERE id = ?1))
-             WHERE id = ?2 AND (SELECT liked FROM tracks WHERE id = ?1) = 1",
-            params![local, yt],
+            "UPDATE tracks SET liked_at = COALESCE((SELECT liked_at FROM tracks WHERE id = ?1), liked_at)
+             WHERE id = ?2 AND liked = 1 AND ?3",
+            params![local, yt, local_liked && !twin_liked],
         )?;
         conn.execute("UPDATE playlist_items SET track_id = ?2 WHERE track_id = ?1", params![local, yt])?;
         conn.execute("UPDATE play_events SET track_id = ?2 WHERE track_id = ?1", params![local, yt])?;
@@ -373,8 +382,38 @@ mod tests {
         assert!(gone && liked);
         assert_eq!(plays, 1);
         assert!(snap.contains("yyyyyyyyyyy"));
+        // The like went through the outbox: a sync before it reaches YouTube keeps it.
+        let still = db
+            .write(|t| {
+                apply_remote_likes(t, &[])?;
+                Ok(repo::track(t, &TrackId::new("yyyyyyyyyyy"))?.unwrap().liked)
+            })
+            .unwrap();
+        assert!(still, "a merged like survives the next sync");
         let events = db.read(|c| crate::stats::listening(c, i64::MIN, 0)).unwrap();
         assert_eq!(events.top_tracks[0].track.id.as_str(), "yyyyyyyyyyy", "the play log follows the merge");
+    }
+
+    #[test]
+    fn remote_likes_leave_other_sites_alone() {
+        let (_dir, db) = test_util::db();
+        let ids = ["sc0123456789abcdef", "bc0123456789abcdef", "local0123456789a", "aaaaaaaaaaa"];
+        let liked = db
+            .write(move |t| {
+                for id in ids {
+                    repo::upsert_track(t, &test_util::meta(id, id, ("UCx", "X"), None))?;
+                    crate::likes::set_like(t, &TrackId::new(id), true)?;
+                }
+                // Only the YouTube like is waiting to be sent.
+                let queued = crate::likes::pending_likes(t, 10)?;
+                assert_eq!(queued.len(), 1);
+                assert_eq!(queued[0].track_id.as_str(), "aaaaaaaaaaa");
+                t.execute("DELETE FROM like_outbox", [])?;
+                apply_remote_likes(t, &[])?;
+                ids.iter().map(|id| Ok(repo::track(t, &TrackId::new(*id))?.unwrap().liked)).collect::<Result<Vec<_>>>()
+            })
+            .unwrap();
+        assert_eq!(liked, vec![true, true, true, false]);
     }
 
     #[test]

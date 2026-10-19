@@ -40,6 +40,23 @@ pub fn queue_like(conn: &Connection, id: &TrackId, liked: bool) -> Result<()> {
     Ok(())
 }
 
+/// A YouTube `videoId`: 11 characters. SoundCloud and Bandcamp ids (`sc…`, `bc…`) are
+/// 18, local imports (`local…`) 16.
+pub fn is_youtube_track(id: &TrackId) -> bool {
+    let s = id.as_str();
+    s.len() == 11 && !s.starts_with("local")
+}
+
+/// Sets a like from the user. Only YouTube tracks go to the outbox; the others have no
+/// YouTube Music side and keep the like locally.
+pub fn set_like(conn: &Connection, id: &TrackId, liked: bool) -> Result<()> {
+    if is_youtube_track(id) {
+        queue_like(conn, id, liked)
+    } else {
+        set_liked(conn, id, liked)
+    }
+}
+
 /// Queued actions, oldest first.
 pub fn pending_likes(conn: &Connection, limit: usize) -> Result<Vec<PendingLike>> {
     let mut stmt = conn.prepare_cached(

@@ -212,6 +212,10 @@ pub async fn spotify_download(state: St<'_>, id: PlaylistId) -> CmdResult<u32> {
     })
     .await?;
     if promoted > 0 {
+        // The successor may have moved out of the cache: line it up from its new place.
+        if let Some(next) = st.player.upcoming().get(1) {
+            st.player.media_moved(next);
+        }
         emit_changed(
             &st.app,
             &[ViewKind::Tracks, ViewKind::Albums, ViewKind::Artists],
