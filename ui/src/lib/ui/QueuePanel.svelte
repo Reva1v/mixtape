@@ -19,7 +19,6 @@
   import Equalizer from "./Equalizer.svelte";
   import IconButton from "./IconButton.svelte";
   import IconX from "~icons/solar/close-circle-linear";
-  import IconRadio from "~icons/solar/radio-minimalistic-linear";
   import IconStream from "~icons/solar/cloud-linear";
   import IconCached from "~icons/solar/cloud-check-linear";
   import IconLoader from "~icons/lucide/loader-circle";
@@ -284,6 +283,28 @@
     if (at > 0) queueMicrotask(() => vlist?.scrollToIndex(at, { align: "center" }));
   });
 
+  // Which ends of the chip row are reached, so only the other side fades.
+  let chipFade = $state({ start: true, end: true });
+  const chipEdges: Attachment<HTMLElement> = (el) => {
+    const update = () => {
+      const start = el.scrollLeft <= 1;
+      const end = el.scrollLeft + el.clientWidth >= el.scrollWidth - 1;
+      if (start !== chipFade.start || end !== chipFade.end) chipFade = { start, end };
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    // Another mix brings other chips: the row's box stays, its content width changes.
+    const mo = new MutationObserver(update);
+    mo.observe(el, { childList: true, subtree: true, characterData: true });
+    el.addEventListener("scroll", update, { passive: true });
+    return () => {
+      ro.disconnect();
+      mo.disconnect();
+      el.removeEventListener("scroll", update);
+    };
+  };
+
   function selectChip(id: string) {
     void player.selectChip(id);
   }
@@ -337,13 +358,18 @@
   <div class="flex h-14 shrink-0 items-center justify-between px-5" data-queue-header>
     <h2 class="text-[16px] font-semibold">{t.queue.title}</h2>
     {#if hasUpcoming}
-      <button type="button" class="text-[12.5px] text-ink-3 hover:text-ink" onclick={() => invoke("queue_clear")}>{t.queue.clear}</button>
+      <button type="button" class="-mr-3 h-7 rounded-full px-3 text-[12.5px] text-ink-3 transition-colors hover:bg-fill-2 hover:text-ink" onclick={() => invoke("queue_clear")}>{t.queue.clear}</button>
     {/if}
   </div>
 
   {#if view?.chips?.length}
-    <div class="flex shrink-0 gap-1.5 overflow-x-auto px-5 pb-3 [scrollbar-width:none]" {@attach dragScroll()}>
-      <span class="mr-1 grid shrink-0 place-items-center text-ink-3"><IconRadio class="size-4" /></span>
+    <!-- Chips run off under a fade on whichever side has more of them, not a hard cut. -->
+    <div
+      class="flex shrink-0 gap-1.5 overflow-x-auto px-5 pb-4 [scrollbar-width:none]"
+      style:mask-image="linear-gradient(to right, transparent 0, #000 {chipFade.start ? 0 : 28}px, #000 calc(100% - {chipFade.end ? 0 : 40}px), transparent 100%)"
+      {@attach dragScroll()}
+      {@attach chipEdges}
+    >
       {#each view.chips as c (c.id)}
         <button
           type="button"
