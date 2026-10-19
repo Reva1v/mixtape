@@ -25,6 +25,10 @@
   const FPS = 10;
   /** Side of the pre-filtered copy of the cover. */
   const BAKE = 256;
+  /** Both canvases draw on the CPU: they are tiny, and the first filtered or blended draw
+   * on a GPU canvas stalls the GPU for 100+ ms, so the player's entrance skipped to its
+   * end the first time it opened. */
+  const CPU: CanvasRenderingContext2DSettings = { willReadFrequently: true };
 
   function pose(l: Layer, t: number): Pose {
     // `alternate`: forwards on even cycles, backwards on odd ones.
@@ -67,7 +71,7 @@
       if (stale) return;
       const c = document.createElement("canvas");
       c.width = c.height = BAKE;
-      const ctx = c.getContext("2d")!;
+      const ctx = c.getContext("2d", CPU)!;
       // `object-fit: cover`: the centred square of the picture.
       const s = Math.min(img.naturalWidth, img.naturalHeight);
       ctx.filter = `blur(${((BLUR * BAKE) / side).toFixed(2)}px) saturate(${SATURATE})`;
@@ -83,7 +87,7 @@
   });
 
   function draw() {
-    const ctx = canvas?.getContext("2d");
+    const ctx = canvas?.getContext("2d", CPU);
     if (!ctx || !width || !height) return;
     const W = canvas!.width;
     const H = canvas!.height;

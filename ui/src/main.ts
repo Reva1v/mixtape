@@ -2,7 +2,7 @@ import { mount } from "svelte";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import "./app.css";
 import App from "./App.svelte";
-import { installSpringCss } from "$lib/motion";
+import { installSpringCss, warmUpCompositor } from "$lib/motion";
 import { prefs } from "$lib/stores/prefs.svelte";
 
 installSpringCss();
@@ -38,6 +38,7 @@ const app = mount(App, { target: document.getElementById("app")! });
 
 // Show the window only after the first frame is painted, so there is no white flash.
 requestAnimationFrame(() => requestAnimationFrame(() => void invoke("app_ready")));
+warmUpCompositor();
 
 export default app;
 

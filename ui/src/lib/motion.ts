@@ -170,6 +170,31 @@ export function installSpringCss() {
   root.setProperty("--default-transition-duration", "220ms");
 }
 
+/**
+ * The first backdrop-filter the webview draws stalls the GPU for 50–200 ms while it sets
+ * up the blur pass, and a transition running at that moment skips straight to its end
+ * (first modal, first lyrics panel). An invisible window-sized blur layer drawn for a
+ * few frames once the window is on screen pays that cost up front.
+ */
+export function warmUpCompositor() {
+  const run = () => {
+    const el = document.createElement("div");
+    el.style.cssText =
+      "position:fixed;inset:0;pointer-events:none;opacity:0.01;z-index:-1;backdrop-filter:blur(8px)";
+    document.body.append(el);
+    requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => el.remove())));
+  };
+  const idle = () => requestIdleCallback(run, { timeout: 1500 });
+  if (!document.hidden) return void idle();
+  // Started hidden (autostart to the tray): warm up when the window first shows.
+  const shown = () => {
+    if (document.hidden) return;
+    document.removeEventListener("visibilitychange", shown);
+    idle();
+  };
+  document.addEventListener("visibilitychange", shown);
+}
+
 /** Bottom sheet: slides up from below on a gentle spring, drops away quickly. */
 export function sheet(_node: Element, _opts?: unknown, ctx?: { direction: "in" | "out" | "both" }): TransitionConfig {
   if (reduced()) return { duration: 120, css: (t) => `opacity:${t}` };
