@@ -20,9 +20,6 @@ export const screens = {
     failed: "Something went wrong",
     playback: {
       title: "Playback",
-      crossfade: "Crossfade",
-      crossfadeHint:
-        "The end of a track blends into the start of the next one. Tracks from the same album play without gaps, as intended.",
       duration: "Crossfade duration",
       durationHint: "1 to 12 seconds. When you skip manually, 2 seconds at most.",
       seconds: (n: number) => `${n} s`,

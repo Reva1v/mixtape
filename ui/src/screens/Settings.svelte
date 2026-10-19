@@ -74,6 +74,15 @@
   }
   let fadePreview = $state<number | null>(null);
 
+  // One choice over two prefs: smart transitions fall back to the crossfade until a track
+  // is analysed, so «smart» keeps the crossfade on too.
+  const TRANSITIONS = ["gapless", "smooth", "smart"] as const;
+  type Transition = (typeof TRANSITIONS)[number];
+  const transition = $derived<Transition>(p.smartTransitions ? "smart" : p.crossfade ? "smooth" : "gapless");
+  function setTransition(m: Transition) {
+    void prefs.update({ crossfade: m !== "gapless", smartTransitions: m === "smart" });
+  }
+
   // Start with Windows lives in the registry, not in prefs: read it each time the page opens.
   let autostart = $state<Autostart>("off");
   void invoke<Autostart>("autostart_get").then((v) => (autostart = v));
@@ -158,16 +167,29 @@
   <section class="mb-8">
     <h2 class="mb-3 text-[13px] font-semibold tracking-wide text-ink-3 uppercase">{t.settings.playback.title}</h2>
     <div class="divide-y divide-line overflow-hidden rounded-lg bg-white/[0.04]">
-      {#snippet crossfadeSwitch()}
-        <Switch checked={p.crossfade} label={t.settings.playback.crossfade} onchange={(v) => prefs.update({ crossfade: v })} />
+      {#snippet transitionChoice()}
+        <div class="flex shrink-0 gap-1 rounded-full bg-fill-1 p-1 ring-1 ring-line" role="radiogroup" aria-label={t.transition.title}>
+          {#each TRANSITIONS as m (m)}
+            <button
+              type="button"
+              role="radio"
+              aria-checked={transition === m}
+              class="h-7 rounded-full px-3 text-[12.5px] font-medium whitespace-nowrap transition-colors
+                {transition === m ? 'bg-ink text-black' : 'text-ink-2 hover:bg-fill-2 hover:text-ink'}"
+              onclick={() => setTransition(m)}
+            >
+              {t.transition[m]}
+            </button>
+          {/each}
+        </div>
       {/snippet}
       {@render row(
-        t.settings.playback.crossfade,
-        t.settings.playback.crossfadeHint,
-        crossfadeSwitch,
-        IconCrossfade,
+        t.transition.title,
+        t.transition[`${transition}Hint`],
+        transitionChoice,
+        transition === "smart" ? IconSmart : IconCrossfade,
       )}
-      {#if p.crossfade}
+      {#if transition !== "gapless"}
         {#snippet fadeSlider()}
           <div class="flex w-56 items-center gap-3">
             <Slider
@@ -187,10 +209,6 @@
         {/snippet}
         {@render row(t.settings.playback.duration, t.settings.playback.durationHint, fadeSlider, IconDuration)}
       {/if}
-      {#snippet smartSwitch()}
-        <Switch checked={p.smartTransitions} label={t.smart.title} onchange={(v) => prefs.update({ smartTransitions: v })} />
-      {/snippet}
-      {@render row(t.smart.title, t.smart.hint, smartSwitch, IconSmart)}
       {#snippet mixFullSwitch()}
         <Switch
           checked={p.mixFullscreen}
