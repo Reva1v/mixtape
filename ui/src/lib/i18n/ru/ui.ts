@@ -39,6 +39,8 @@ export const ui: typeof en = {
     signInFailed: "Не удалось войти",
     signInCancelled: "Вход отменён",
     manual: "Не получается? Вставить cookies",
+    /** Accessible name of the field the cookies are pasted into. */
+    cookiesField: "Текст cookies",
     step1: ["Откройте окно инкогнито и войдите в", "."],
     step2: ["Экспортируйте cookies этого сайта расширением вроде", "«Get cookies.txt LOCALLY»", "или", "."],
     step3: "Закройте окно инкогнито, не выходя из аккаунта, и вставьте текст ниже или выберите файл.",

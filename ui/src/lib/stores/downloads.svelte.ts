@@ -25,7 +25,20 @@ import { t } from "$lib/i18n";
 const idle: DownloadsProgress = { running: false, paused: false, done: 0, total: 0, failed: 0, bytesPerSec: 0 };
 
 class Downloads {
-  account = $state<AccountStatus>({ connected: false });
+  #account = $state<AccountStatus>({ connected: false });
+  /** The account the playlist picks were made for: another account's playlists are not offered. */
+  #pickOwner: string | undefined;
+  get account(): AccountStatus {
+    return this.#account;
+  }
+  set account(a: AccountStatus) {
+    this.#account = a;
+    if (a.connected && a.name !== this.#pickOwner) {
+      if (this.#pickOwner !== undefined) this.preview = null;
+      this.#pickOwner = a.name;
+      this.pick.playlistIds = [];
+    }
+  }
   progress = $state.raw<DownloadsProgress>(idle);
   failed = $state.raw<FailedJob[]>([]);
   /** False until the core answers `account_status`. */
@@ -129,6 +142,8 @@ class Downloads {
     await accountDisconnect();
     this.account = { connected: false };
     this.preview = null;
+    this.pick.playlistIds = [];
+    this.#pickOwner = undefined;
   }
 
   async refreshFailed() {

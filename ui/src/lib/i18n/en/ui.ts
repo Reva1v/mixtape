@@ -38,6 +38,8 @@ export const ui = {
     /** The core's message when the sign-in window is closed (src-tauri login_window.rs). */
     signInCancelled: "Sign-in cancelled",
     manual: "Not working? Paste cookies",
+    /** Accessible name of the field the cookies are pasted into. */
+    cookiesField: "Cookies text",
     /** Text before and after the site name. */
     step1: ["Open an incognito window and sign in to", "."],
     /** Before the first extension, its name, "or", and the end (the second one is EditThisCookie). */

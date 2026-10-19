@@ -6,6 +6,8 @@
     value: number;
     max?: number;
     label: string;
+    /** Read out by screen readers instead of the percentage (e.g. "1:23"). */
+    valueText?: string;
     oninput?: (v: number) => void;
     onchange?: (v: number) => void;
     /** Mouse wheel step; defaults to 5 % of `max`. */
@@ -13,7 +15,7 @@
     class?: string;
   }
 
-  let { value, max = 1, label, oninput, onchange, wheelStep, class: cls = "" }: Props = $props();
+  let { value, max = 1, label, valueText, oninput, onchange, wheelStep, class: cls = "" }: Props = $props();
 
   let track: HTMLDivElement;
   let dragging = $state(false);
@@ -70,8 +72,9 @@
   tabindex="0"
   aria-label={label}
   aria-valuemin={0}
-  aria-valuemax={max}
-  aria-valuenow={Math.round(shown)}
+  aria-valuemax={100}
+  aria-valuenow={Math.round(pct)}
+  aria-valuetext={valueText}
   class="group relative flex h-4 cursor-pointer items-center {cls}"
   onpointerdown={down}
   onpointermove={move}

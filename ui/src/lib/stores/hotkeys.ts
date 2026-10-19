@@ -16,13 +16,19 @@ function typing(e: KeyboardEvent) {
   return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
 }
 
+/** Space on a focused control belongs to it (press a button, toggle a switch), not to play/pause. */
+function ownsSpace(e: KeyboardEvent) {
+  const el = e.target as HTMLElement | null;
+  return !!el?.closest?.("button, a[href], summary, [role=button], [role=slider], [role=switch], [role=checkbox], [role=tab], [role=menuitem], [role=option]");
+}
+
 function focusSearch() {
   if (router.current.name !== "search") router.go({ name: "search" });
   layout.searchFocus++;
 }
 
-const seekBy = (ms: number) =>
-  void player.seek(Math.min(Math.max(player.livePosition() + ms, 0), player.state.durationMs));
+// Clamped like the seek bar: never to the very end, which would skip to the next track.
+const seekBy = (ms: number) => void player.scrubTo(player.livePosition() + ms);
 const volumeBy = (d: number) =>
   void player.setVolume(Math.round(Math.min(1, Math.max(0, player.state.volume + d)) * 100) / 100);
 
@@ -129,6 +135,9 @@ export function handleHotkey(e: KeyboardEvent): boolean {
 
   switch (e.code) {
     case "Space":
+      if (ownsSpace(e)) return false;
+      void player.toggle();
+      return true;
     case "KeyK":
       void player.toggle();
       return true;

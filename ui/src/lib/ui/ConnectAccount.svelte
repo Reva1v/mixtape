@@ -114,7 +114,7 @@
       bind:value={text}
       spellcheck="false"
       placeholder="# Netscape HTTP Cookie File&#10;.youtube.com&#9;TRUE&#9;/&#9;TRUE&#9;…"
-      aria-label="Cookies"
+      aria-label={t.connect.cookiesField}
       class="h-36 w-full resize-none rounded-md bg-fill-2 px-3 py-2.5 font-mono text-[12px] leading-relaxed text-ink outline-none ring-1 ring-line
         placeholder:text-ink-3 focus:ring-white/40"
     ></textarea>

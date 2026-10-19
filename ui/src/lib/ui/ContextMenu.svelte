@@ -1,6 +1,7 @@
 <script lang="ts">
   import { menu } from "$lib/stores/overlay.svelte";
   import { rise } from "$lib/motion";
+  import { escapeLayer } from "$lib/stores/escape";
   import IconCheck from "~icons/solar/unread-linear";
 
   let el = $state<HTMLDivElement>();
@@ -16,15 +17,13 @@
     };
   });
 
-  function onKey(e: KeyboardEvent) {
-    if (menu.open && e.key === "Escape") {
-      e.stopPropagation();
-      menu.close();
-    }
-  }
+  // Esc closes only the menu, not the layer it was opened over.
+  $effect(() => {
+    if (menu.open) return escapeLayer(() => menu.close());
+  });
 </script>
 
-<svelte:window onkeydown={onKey} onblur={() => menu.close()} />
+<svelte:window onblur={() => menu.close()} />
 
 {#if menu.open}
   <div

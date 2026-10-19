@@ -2,6 +2,7 @@
   import { untrack, type Snippet } from "svelte";
   import { blurIn, fadeSpring, rise } from "$lib/motion";
   import { visible } from "$lib/stores/visible.svelte";
+  import { escapeLayer } from "$lib/stores/escape";
 
   interface Props {
     open: boolean;
@@ -21,15 +22,11 @@
     return () => untrack(() => visible.modals--);
   });
 
-  function onKey(e: KeyboardEvent) {
-    if (open && e.key === "Escape") {
-      e.stopPropagation();
-      onclose();
-    }
-  }
+  // Esc closes only the topmost layer; see `escapeLayer`.
+  $effect(() => {
+    if (open) return escapeLayer(() => onclose());
+  });
 </script>
-
-<svelte:window onkeydown={onKey} />
 
 {#if open}
   <div

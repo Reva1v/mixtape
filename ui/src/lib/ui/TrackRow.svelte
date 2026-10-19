@@ -46,7 +46,7 @@
       transition-colors duration-100 hover:bg-fill-2 {current ? 'bg-fill-1' : ''}"
     class:no-album={!showAlbum}
     onclick={(e) => !(e.target as HTMLElement).closest("button, a") && (current ? player.toggle() : onplay())}
-    onkeydown={(e) => e.key === "Enter" && (current ? player.toggle() : onplay())}
+    onkeydown={(e) => e.key === "Enter" && e.target === e.currentTarget && (current ? player.toggle() : onplay())}
     oncontextmenu={openMenu}
   >
     <div class="grid place-items-center text-[13px] text-ink-3 tnum">

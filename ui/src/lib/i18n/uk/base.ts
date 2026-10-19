@@ -38,6 +38,7 @@ export const base: typeof en = {
     queue: "Черга",
     lyrics: "Текст",
     fullscreen: "Повноекранний плеєр",
+    position: "Позиція відтворення",
     nothing: "Нічого не грає",
   },
   queue: {

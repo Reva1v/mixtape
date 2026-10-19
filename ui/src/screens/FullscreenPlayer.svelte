@@ -14,6 +14,7 @@
   import { visible } from "$lib/stores/visible.svelte";
   import { router } from "$lib/stores/router.svelte";
   import { menu } from "$lib/stores/overlay.svelte";
+  import { escapeLayer } from "$lib/stores/escape";
   import { t } from "$lib/i18n";
   import { fade } from "svelte/transition";
   import { fadeSpring, pop, pressable, sheet, springs } from "$lib/motion";
@@ -79,13 +80,14 @@
     if (still && now - p.t < 500 && now - openedAt > 400) queueOpen = false;
   }
 
-  function onKey(e: KeyboardEvent) {
-    if (e.key === "Escape") {
-      e.stopPropagation();
+  // Esc closes the queue sheet first, then the player; layers opened over it (menus,
+  // dialogs) take Esc before it does.
+  $effect(() =>
+    escapeLayer(() => {
       if (queueOpen) queueOpen = false;
       else close();
-    }
-  }
+    }),
+  );
 
   function go(r: Parameters<typeof router.go>[0]) {
     close();
@@ -93,7 +95,7 @@
   }
 </script>
 
-<svelte:window onkeydown={onKey} bind:innerHeight={height} />
+<svelte:window bind:innerHeight={height} />
 
 <div class="fixed inset-0 z-40 overflow-hidden bg-[#070709]" transition:fadeSpring data-tauri-drag-region>
   {#key bg}
@@ -109,13 +111,15 @@
   ></div>
 
 
+  <!-- Solid translucent fills, no backdrop-blur: the player fades in and dims under the
+       queue by opacity, and a fading backdrop-filter renders soft in WebView2. -->
   <button
     type="button"
     aria-label={t.fullscreen.collapse}
     data-tip={t.fullscreen.collapseTip}
     data-tip-pos="right"
-    class="absolute top-4 left-4 z-10 grid size-9 place-items-center rounded-full bg-white/8 text-ink-2 backdrop-blur
-      transition-colors hover:bg-white/14 hover:text-ink"
+    class="absolute top-4 left-4 z-10 grid size-9 place-items-center rounded-full bg-white/10 text-ink-2
+      transition-colors hover:bg-white/16 hover:text-ink"
     onclick={close}
   >
     <IconCollapse class="size-[18px]" />
@@ -152,7 +156,7 @@
             type="button"
             aria-label={track.liked ? t.track.unlike : t.track.like}
             data-tip={track.liked ? t.track.unlike : t.track.like}
-            class="absolute right-2.5 bottom-2.5 grid size-7 place-items-center rounded-full bg-black/45 text-ink backdrop-blur transition-colors hover:bg-black/65"
+            class="absolute right-2.5 bottom-2.5 grid size-7 place-items-center rounded-full bg-black/55 text-ink transition-colors hover:bg-black/70"
             {@attach pressable(0.8)}
             onclick={() => setLiked(track, !track.liked)}
           >

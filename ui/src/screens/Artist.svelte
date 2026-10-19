@@ -115,11 +115,17 @@
     if (catalog) void player.play({ kind: "tracks", trackIds: catalog.top.map((t) => t.id) }, i);
   }
 
+  // A newer load (another id, a library change) wins; a late answer from an older one is dropped.
+  let seq = 0;
   async function load() {
+    const n = ++seq;
     try {
-      page = saved.page = await invoke<ArtistPage>("artist_get", { id });
+      const p = await invoke<ArtistPage>("artist_get", { id });
+      if (n !== seq) return;
+      page = saved.page = p;
+      error = null;
     } catch (e) {
-      error = (e as Error).message;
+      if (n === seq) error = (e as Error).message;
     }
   }
 

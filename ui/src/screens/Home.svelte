@@ -265,7 +265,7 @@
         class="group flex h-14 min-w-0 cursor-pointer snap-start items-center gap-3 rounded-md px-2 text-left transition-colors duration-100 hover:bg-fill-2
           {current ? 'bg-fill-1' : ''}"
         onclick={(e) => !(e.target as HTMLElement).closest("button") && activate(s, i)}
-        onkeydown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), activate(s, i))}
+        onkeydown={(e) => (e.key === "Enter" || e.key === " ") && e.target === e.currentTarget && (e.preventDefault(), activate(s, i))}
         oncontextmenu={(e) => (e.preventDefault(), menu.show(itemMenu(i), e.clientX, e.clientY))}
       >
         <div class="relative">
@@ -317,7 +317,7 @@
           tabindex="0"
           class="flex h-14 min-w-0 cursor-pointer items-center gap-3.5 overflow-hidden rounded-[5px] bg-white/[0.055] pr-3 text-left transition-colors hover:bg-white/[0.09]"
           onclick={() => openAlbum(a)}
-          onkeydown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), openAlbum(a))}
+          onkeydown={(e) => (e.key === "Enter" || e.key === " ") && e.target === e.currentTarget && (e.preventDefault(), openAlbum(a))}
           oncontextmenu={(e) => (e.preventDefault(), menu.show(albumMenu(a), e.clientX, e.clientY))}
         >
           <Cover coverKey={a.coverKey} size={56} rounded="sm" class="rounded-none" />

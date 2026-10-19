@@ -33,13 +33,19 @@
   // svelte-ignore state_referenced_locally
   const rows = new Fixed<Track>(page?.tracks ?? []);
 
+  // A newer load (another id, a library change) wins; a late answer from an older one is dropped.
+  let seq = 0;
   async function load() {
+    const n = ++seq;
     try {
-      page = await invoke<AlbumPage>("album_get", { id });
-      remember(id, page);
-      rows.items = page.tracks;
+      const p = await invoke<AlbumPage>("album_get", { id });
+      if (n !== seq) return;
+      page = p;
+      error = null;
+      remember(id, p);
+      rows.items = p.tracks;
     } catch (e) {
-      error = (e as Error).message;
+      if (n === seq) error = (e as Error).message;
     }
   }
 

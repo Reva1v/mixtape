@@ -38,6 +38,7 @@ export const base = {
     queue: "Queue",
     lyrics: "Lyrics",
     fullscreen: "Full-screen player",
+    position: "Playback position",
     nothing: "Nothing is playing",
   },
   queue: {

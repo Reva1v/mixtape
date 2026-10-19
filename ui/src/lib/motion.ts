@@ -239,10 +239,16 @@ export function dragScroll(): Attachment<HTMLElement> {
       startLeft = el.scrollLeft;
       lastT = e.timeStamp;
       velocity = 0;
+      // The button may be released outside the shelf (before the drag captured the
+      // pointer): the window still hears it, so the shelf never stays "pressed".
+      window.addEventListener("pointerup", up, true);
+      window.addEventListener("pointercancel", up, true);
     }
 
     function move(e: PointerEvent) {
       if (!pressed) return;
+      // Released where no listener heard it (outside the window): end the press.
+      if (e.buttons === 0) return up(e);
       const dx = e.clientX - startX;
       if (!dragging) {
         if (Math.abs(dx) < THRESHOLD) return;
@@ -260,12 +266,19 @@ export function dragScroll(): Attachment<HTMLElement> {
     }
 
     function up(e: PointerEvent) {
+      window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("pointercancel", up, true);
       if (!pressed) return;
       pressed = false;
       if (!dragging) return;
       if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
-      // Swallow the click that follows the drag.
-      el.addEventListener("click", (c) => (c.preventDefault(), c.stopPropagation()), { capture: true, once: true });
+      // Swallow the click that follows the drag (only a real release is followed by one,
+      // and only right away, so a stray listener never eats a later click).
+      if (e.type === "pointerup") {
+        const swallow = (c: MouseEvent) => (c.preventDefault(), c.stopPropagation());
+        el.addEventListener("click", swallow, { capture: true, once: true });
+        setTimeout(() => el.removeEventListener("click", swallow, { capture: true }));
+      }
       setTimeout(() => (dragging = false));
       // Glide with exponential decay, then hand back to CSS snapping.
       let prev = performance.now();
@@ -295,6 +308,8 @@ export function dragScroll(): Attachment<HTMLElement> {
     el.addEventListener("dragstart", noNativeDrag);
     return () => {
       stopGlide();
+      window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("pointercancel", up, true);
       el.removeEventListener("pointerdown", down);
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerup", up);

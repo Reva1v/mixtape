@@ -148,7 +148,8 @@
   }
 
   function down(ev: PointerEvent, i: number, uid: number) {
-    if (building || ev.button !== 0 || (ev.target as HTMLElement).closest("button")) return;
+    // While the last drop is still gliding into place, a new press waits for it.
+    if (building || drag?.settling || ev.button !== 0 || (ev.target as HTMLElement).closest("button")) return;
     drag = {
       uid,
       from: i,
@@ -163,7 +164,38 @@
       replace: false,
     };
     window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up, { once: true });
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+  }
+
+  function unlisten() {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    window.removeEventListener("pointercancel", cancel);
+    cancelAnimationFrame(raf);
+  }
+
+  /** Clears the drag after the settle animation, unless a newer one has started since. */
+  function clearLater(d: Drag, then?: () => void) {
+    setTimeout(() => {
+      if (drag !== d) return;
+      then?.();
+      if (drag === d) drag = null;
+    }, 220);
+  }
+
+  // The system took the pointer away (alt-tab, touch cancel): put the row back, change nothing.
+  function cancel() {
+    unlisten();
+    const d = drag;
+    if (!d || d.settling) return;
+    if (!d.active) {
+      drag = null;
+      return;
+    }
+    d.settling = true;
+    d.dy = 0;
+    clearLater(d);
   }
 
   function update() {
@@ -204,10 +236,9 @@
   }
 
   function up() {
-    window.removeEventListener("pointermove", move);
-    cancelAnimationFrame(raf);
+    unlisten();
     const d = drag;
-    if (!d) return;
+    if (!d || d.settling) return;
     if (d.active && d.replace) {
       playInstead(d);
       return;
@@ -216,7 +247,7 @@
       if (d.active) {
         d.settling = true;
         d.dy = 0;
-        setTimeout(() => (drag = null), 220);
+        clearLater(d);
       } else {
         // A press without movement is a click: play that track.
         drag = null;

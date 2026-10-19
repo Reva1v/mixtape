@@ -81,15 +81,36 @@
     return () => clearTimeout(id);
   });
 
+  // Every load bumps `seq`; an answer that comes back after a newer load started is dropped,
+  // so a fast Tracks → Albums switch never renders track rows in the Albums grid.
+  let seq = 0;
+  // The kind the current `rows` were loaded for; a different kind always gets a fresh Paged.
+  let rowsKind: ViewKind | null = null;
+
   async function load(k: ViewKind, s: ViewSort, f = filter) {
+    const n = ++seq;
     const info = await invoke<ViewInfo>("library_view", { kind: k, sort: s, filter: f || null });
+    if (n !== seq) return;
     const fetch = async (offset: number, limit: number) =>
       (await invoke<Rows>("library_rows", { viewId: info.viewId, offset, limit })).items as unknown[];
-    if (rows && viewId !== null && k === kind) rows.reset(info.count, fetch);
+    if (rows && viewId !== null && rowsKind === k) rows.reset(info.count, fetch);
     else rows = new Paged<unknown>(info.count, fetch);
+    rowsKind = k;
     viewId = info.viewId;
     loaded = true;
   }
+
+  // A tab switch drops the old rows at once: the grid for the new kind never draws the old kind's rows.
+  let lastKind: ViewKind | null = null;
+  $effect.pre(() => {
+    if (lastKind !== null && lastKind !== kind) {
+      rows = null;
+      rowsKind = null;
+      viewId = null;
+      loaded = false;
+    }
+    lastKind = kind;
+  });
 
   $effect(() => {
     if (!sorts[kind].some((s) => s.id === sort)) sort = sorts[kind][0].id;

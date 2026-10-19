@@ -56,11 +56,12 @@
 
   $effect(() => {
     const q = query.trim();
+    const mine = ++seq;
     if (!q) {
       result = null;
+      tracks.items = [];
       return;
     }
-    const mine = ++seq;
     const timer = setTimeout(async () => {
       const r = await invoke<SearchResult>("library_search", { query: q, limit: 30 });
       if (mine !== seq) return;
@@ -112,7 +113,7 @@
             tabindex="0"
             class="group flex h-14 cursor-pointer items-center gap-3 rounded-md px-2 transition-colors hover:bg-fill-2"
             onclick={() => openRecent(item)}
-            onkeydown={(e) => e.key === "Enter" && openRecent(item)}
+            onkeydown={(e) => e.key === "Enter" && e.target === e.currentTarget && openRecent(item)}
           >
             {#if item.kind === "query"}
               <span class="grid size-10 shrink-0 place-items-center rounded-md bg-fill-1 text-ink-3 ring-1 ring-line"><IconSearch class="size-4" /></span>

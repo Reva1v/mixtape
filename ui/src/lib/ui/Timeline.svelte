@@ -27,7 +27,8 @@
   <span class="w-10 text-right text-[11.5px] text-ink-3 tnum">{formatTime(scrub ?? pos)}</span>
   <Slider
     class="flex-1"
-    label={t.player.fullscreen}
+    label={t.player.position}
+    valueText={formatTime(scrub ?? pos)}
     value={pos}
     max={duration || 1}
     wheelStep={5000}

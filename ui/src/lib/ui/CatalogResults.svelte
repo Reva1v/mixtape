@@ -159,7 +159,7 @@
             else if (top.kind === "artist") router.go({ name: "artist", id: top.artist.id });
             else router.go({ name: "playlist", id: top.playlist.id });
           }}
-          onkeydown={(e) => e.key === "Enter" && (e.currentTarget as HTMLElement).click()}
+          onkeydown={(e) => e.key === "Enter" && e.target === e.currentTarget && (e.currentTarget as HTMLElement).click()}
           oncontextmenu={(e) => {
             e.preventDefault();
             const items =
