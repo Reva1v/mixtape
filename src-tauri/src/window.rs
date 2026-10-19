@@ -35,6 +35,8 @@ pub fn frame_plugin<R: Runtime>() -> TauriPlugin<R> {
 /// where the window stays hidden until the tray icon or a second launch shows it.
 pub fn install(app: &AppHandle, in_tray: bool) {
     let Some(window) = app.get_webview_window(MAIN) else { return };
+    // The window-state plugin has restored the bounds by now.
+    fit_work_area(&window);
     if in_tray {
         IN_TRAY.store(true, Ordering::SeqCst);
         sync_webview(&window);
@@ -64,6 +66,44 @@ pub fn app_ready(window: tauri::WebviewWindow, state: tauri::State<'_, std::sync
     window.set_focus().map_err(|e| e.to_string())?;
     tracing::info!(elapsed_ms = state.started.elapsed().as_millis() as u64, "window shown");
     Ok(())
+}
+
+/// A rectangle in physical pixels: x, y, width, height.
+type Bounds = (i32, i32, i32, i32);
+
+/// `rect` moved and, if it must, shrunk to lie inside `area`.
+fn fit_into(rect: Bounds, area: Bounds) -> Bounds {
+    let (ax, ay, aw, ah) = area;
+    let w = rect.2.min(aw);
+    let h = rect.3.min(ah);
+    (rect.0.clamp(ax, ax + aw - w), rect.1.clamp(ay, ay + ah - h), w, h)
+}
+
+/// Keeps the window inside the work area of its screen. The restored bounds can reach
+/// under the taskbar (saved while the taskbar was elsewhere or hidden, on another
+/// screen layout, or while the window was snapped).
+pub fn fit_work_area(w: &WebviewWindow) {
+    if w.is_maximized().unwrap_or(false) || w.is_minimized().unwrap_or(false) {
+        return;
+    }
+    let (Ok(pos), Ok(outer), Ok(inner), Ok(Some(monitor))) =
+        (w.outer_position(), w.outer_size(), w.inner_size(), w.current_monitor())
+    else {
+        return;
+    };
+    let a = monitor.work_area();
+    let area = (a.position.x, a.position.y, a.size.width as i32, a.size.height as i32);
+    let rect = (pos.x, pos.y, outer.width as i32, outer.height as i32);
+    let fitted = fit_into(rect, area);
+    if fitted == rect {
+        return;
+    }
+    tracing::info!(?rect, ?area, "window moved into the work area");
+    if (fitted.2, fitted.3) != (rect.2, rect.3) {
+        let frame = (outer.width as i32 - inner.width as i32, outer.height as i32 - inner.height as i32);
+        let _ = w.set_size(tauri::PhysicalSize::new((fitted.2 - frame.0).max(1) as u32, (fitted.3 - frame.1).max(1) as u32));
+    }
+    let _ = w.set_position(tauri::PhysicalPosition::new(fitted.0, fitted.1));
 }
 
 /// Brings the window back from the tray, the taskbar or behind other windows.
@@ -161,3 +201,25 @@ fn set_webview_visible(window: &tauri::WebviewWindow, visible: bool) {
 
 #[cfg(not(windows))]
 fn set_webview_visible(_window: &tauri::WebviewWindow, _visible: bool) {}
+
+#[cfg(test)]
+mod tests {
+    use super::fit_into;
+
+    const AREA: (i32, i32, i32, i32) = (0, 0, 1920, 1032);
+
+    #[test]
+    fn a_window_inside_stays() {
+        assert_eq!(fit_into((100, 100, 1280, 800), AREA), (100, 100, 1280, 800));
+    }
+
+    #[test]
+    fn a_window_under_the_taskbar_moves_up_and_shrinks() {
+        // Right half restored with the full screen height: the bottom is under the taskbar.
+        assert_eq!(fit_into((960, 0, 960, 1080), AREA), (960, 0, 960, 1032));
+        assert_eq!(fit_into((300, 400, 1280, 800), AREA), (300, 232, 1280, 800));
+        // Off the left and top edges, and on a second screen.
+        assert_eq!(fit_into((-50, -20, 800, 600), AREA), (0, 0, 800, 600));
+        assert_eq!(fit_into((3000, 1200, 800, 600), (1920, 0, 2560, 1400)), (3000, 800, 800, 600));
+    }
+}

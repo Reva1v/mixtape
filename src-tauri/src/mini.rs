@@ -290,6 +290,8 @@ fn leave(app: &AppHandle) {
     overlay(&w, true);
     if normal.is_some_and(|n| n.maximized) {
         let _ = w.maximize();
+    } else {
+        crate::window::fit_work_area(&w);
     }
     let _ = app.emit("window:mini", false);
     crate::window::show_main(app);
