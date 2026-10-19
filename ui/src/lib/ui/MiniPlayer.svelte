@@ -44,12 +44,10 @@
     }, live);
   });
 
-  // Press anywhere on the bar's empty space: playback jumps there at once; keep holding
-  // and drag to scrub — the fill and a time bubble follow the pointer, the audio catches
-  // up a few times a second, and the release lands exactly.
-  const SCRUB_SEEK_MS = 180;
+  // Press anywhere on the bar's empty space and release: playback jumps there. Holding
+  // and dragging scrubs: the fill and a time bubble follow the pointer, and nothing
+  // happens to playback until the release, so holding at the end never ends the track.
   let bar = $state<HTMLElement>();
-  let lastSeek = 0;
   function scrubTo(e: PointerEvent) {
     if (!bar || !player.state.durationMs) return;
     const r = bar.getBoundingClientRect();
@@ -59,7 +57,6 @@
   }
   function seekNow() {
     if (!scrub) return;
-    lastSeek = performance.now();
     void player.scrubTo(scrub.ms);
   }
 
@@ -133,18 +130,15 @@
       return;
     }
     scrubTo(e);
-    seekNow();
   }}
   onpointermove={(e) => {
     // A press handed to a button turns into a scrub only when dragged away.
     if (forward && Math.hypot(e.clientX - forward.x, e.clientY - forward.y) > 8) {
       forward = null;
       scrubTo(e);
-      seekNow();
     }
     if (!scrub) return;
     scrubTo(e);
-    if (performance.now() - lastSeek > SCRUB_SEEK_MS) seekNow();
   }}
   onpointerup={(e) => {
     if (forward) {
