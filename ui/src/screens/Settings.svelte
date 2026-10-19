@@ -164,6 +164,10 @@
         {/snippet}
         {@render row(t.settings.playback.duration, t.settings.playback.durationHint, fadeSlider)}
       {/if}
+      {#snippet smartSwitch()}
+        <Switch checked={p.smartTransitions} label={t.smart.title} onchange={(v) => prefs.update({ smartTransitions: v })} />
+      {/snippet}
+      {@render row(t.smart.title, t.smart.hint, smartSwitch)}
       {#snippet mixFullSwitch()}
         <Switch
           checked={p.mixFullscreen}

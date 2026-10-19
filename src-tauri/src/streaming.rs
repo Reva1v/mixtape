@@ -26,7 +26,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{Notify, OnceCell};
 
 /// A download in progress (or just finished) for one track.
@@ -297,6 +297,9 @@ impl AppStreams {
             tracing::info!(n = evicted.len(), "stream cache trimmed");
         }
         let _ = self.app.emit("queue:changed", ());
+        if let Some(st) = self.app.try_state::<Arc<crate::state::AppState>>() {
+            st.analyzer.kick();
+        }
     }
 
     /// Stops downloads nobody waits for any more and removes their partial files.

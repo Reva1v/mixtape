@@ -2645,6 +2645,7 @@ dependencies = [
  "mixtape-library",
  "serde",
  "serde_json",
+ "tempfile",
  "tracing",
  "ts-rs",
 ]

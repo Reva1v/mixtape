@@ -41,6 +41,9 @@ pub struct Prefs {
     pub mix_fullscreen: bool,
     /// Tracks play at a similar loudness (loud ones turned down, like YouTube Music).
     pub normalize_volume: bool,
+    /// «Умные переходы (бета)»: beat-matched DJ-style transitions between analysed tracks
+    /// (like Apple Music's AutoMix); tracks are analysed in the background while it is on.
+    pub smart_transitions: bool,
     /// Interface language; absent until chosen, then the Windows display language decides.
     #[ts(optional)]
     pub language: Option<Lang>,
@@ -55,7 +58,7 @@ pub struct Prefs {
 
 impl Default for Prefs {
     fn default() -> Self {
-        Self { smooth_background: true, crossfade: false, crossfade_sec: 6, mix_fullscreen: false, language: None, auto_update: true, icon_style: IconStyle::Outline, close_to_tray: true, discord_presence: true, normalize_volume: true }
+        Self { smooth_background: true, crossfade: false, crossfade_sec: 6, mix_fullscreen: false, language: None, auto_update: true, icon_style: IconStyle::Outline, close_to_tray: true, discord_presence: true, normalize_volume: true, smart_transitions: false }
     }
 }
 
@@ -72,6 +75,15 @@ impl Prefs {
         let lang = self.language.unwrap_or_default();
         mixtape_core::l10n::set_lang(lang);
         st.yt.set_language(lang.code());
+    }
+
+    /// Hands the playback preferences to the player (and the analyser behind smart
+    /// transitions).
+    pub fn apply_playback(&self, st: &AppState) {
+        st.player.set_crossfade(self.crossfade_ms());
+        st.player.set_normalization(self.normalize_volume);
+        st.player.set_smart_transitions(self.smart_transitions);
+        st.analyzer.set_enabled(self.smart_transitions);
     }
 
     /// Crossfade in ms as the player wants it (0 = off, gapless).
@@ -91,9 +103,8 @@ pub async fn prefs_set(state: State<'_, Arc<AppState>>, prefs: Prefs) -> CmdResu
     let st = state.inner().clone();
     blocking(move || {
         settings::set(&st.db, KEY, &prefs)?;
-        st.player.set_crossfade(prefs.crossfade_ms());
+        prefs.apply_playback(&st);
         crate::discord::set_enabled(&st, prefs.discord_presence);
-        st.player.set_normalization(prefs.normalize_volume);
         Prefs::load(&st).apply_language(&st);
         Ok(())
     })

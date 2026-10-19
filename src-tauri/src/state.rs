@@ -4,7 +4,8 @@ use crate::media::Media;
 use mixtape_artwork::CoverStore;
 use mixtape_library::views::ViewCache;
 use mixtape_library::{DataPaths, Db};
-use mixtape_player::{PlaybackState, Player};
+use mixtape_player::analyzer::AnalyzerHooks;
+use mixtape_player::{Analyzer, PlaybackState, Player};
 use mixtape_sync::downloader::{Downloader, DownloadsProgress};
 use mixtape_sync::lyrics::Lrclib;
 use mixtape_yt::innertube::InnerTube;
@@ -23,6 +24,8 @@ pub struct AppState {
     pub covers: CoverStore,
     pub views: ViewCache,
     pub player: Arc<Player>,
+    /// Background track analysis for smart transitions (on while they are).
+    pub analyzer: Analyzer,
     /// Where `PlaybackState` updates go; set by `player_subscribe`.
     pub player_channel: Mutex<Option<Channel<PlaybackState>>>,
     pub media: Media,
@@ -97,6 +100,11 @@ impl AppState {
         )?;
         streams.set_player(&player);
         tracing::debug!("player started");
+        let analyzer = Analyzer::start(
+            db.clone(),
+            paths.root.clone(),
+            AnalyzerHooks::for_player(&player, mixtape_win::enter_background_mode),
+        )?;
         let downloads = Downloader::start(
             tauri::async_runtime::handle().inner(),
             db.clone(),
@@ -112,6 +120,7 @@ impl AppState {
             covers,
             views: ViewCache::default(),
             player,
+            analyzer,
             player_channel: Mutex::new(None),
             media: Media::default(),
             started,

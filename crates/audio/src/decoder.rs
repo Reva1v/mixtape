@@ -347,6 +347,9 @@ impl Decoder {
                 if last {
                     return Ok(false);
                 }
+                // Counting from `pos` (a seek near the start reopens instead of seeking), the
+                // next packet starts where this one ended.
+                self.pos = end.max(0) as u64;
                 continue;
             }
             let (a, b) = ((from - start) as usize, (end - start) as usize);

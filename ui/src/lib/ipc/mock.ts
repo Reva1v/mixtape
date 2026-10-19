@@ -434,7 +434,7 @@ mockIPC(
       case "app_ready":
         return null;
       case "prefs_get":
-        return { smoothBackground: true, crossfade: false, crossfadeSec: 6, mixFullscreen: false, autoUpdate: true, iconStyle: "outline", language: lang, closeToTray: true, discordPresence: true, normalizeVolume: true };
+        return { smoothBackground: true, crossfade: false, crossfadeSec: 6, mixFullscreen: false, autoUpdate: true, iconStyle: "outline", language: lang, closeToTray: true, discordPresence: true, normalizeVolume: true, smartTransitions: false };
       case "prefs_set":
         return null;
       case "autostart_get":

@@ -7,9 +7,9 @@ use crate::mix::{MixPage, MixSession, MoreRequest};
 use crate::prefetch::{self, StreamProvider};
 use crate::queue::{Queue, QueueContext, Repeat};
 use crate::state::{PlaybackState, QueueEntry, QueueView, Status};
-use mixtape_audio::{Engine, EngineEvent, Source};
+use mixtape_audio::{Engine, EngineEvent, Source, TrackAnalysis};
 use mixtape_core::{AppError, AppResult, ErrorKind, Track, TrackId, tr, trf};
-use mixtape_library::{Db, repo, settings, stats};
+use mixtape_library::{Db, analysis, repo, settings, stats};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
@@ -266,7 +266,33 @@ impl Player {
             .ok_or_else(|| err(ErrorKind::NotFound, tr("The track isn't downloaded yet", "Трек ще не завантажено", "Трек ещё не скачан")))?;
         let mut src = Source::file(id.as_str(), self.data_root.join(&media.path), self.track_gain(id));
         src.hint_ext = Some(media.container);
+        src.analysis = self.track_analysis(id);
         Ok(src)
+    }
+
+    /// The stored analysis of a track for smart transitions, if it is current and usable.
+    fn track_analysis(&self, id: &TrackId) -> Option<Arc<TrackAnalysis>> {
+        let stored = self.db.read(|c| analysis::get(c, id)).ok().flatten()?;
+        let a = crate::analyzer::to_audio(&stored)?;
+        a.usable().then(|| Arc::new(a))
+    }
+
+    /// The analysis of `id` was stored: a playing or queued source of it picks it up.
+    pub fn refresh_analysis(&self, id: &TrackId) {
+        // Like `refresh_gain`: the stream callbacks hand sources over under this lock.
+        let _inner = self.lock();
+        self.engine.set_analysis(id.as_str(), self.track_analysis(id));
+    }
+
+    /// Smart transitions («Умные переходы») on or off; off, the crossfade setting applies.
+    pub fn set_smart_transitions(&self, on: bool) {
+        self.engine.set_smart(on);
+    }
+
+    /// The current track and the one that plays after it, if any.
+    pub fn upcoming(&self) -> Vec<TrackId> {
+        let inner = self.lock();
+        inner.queue.current().into_iter().chain(inner.queue.peek_next(true)).map(|i| i.track_id.clone()).collect()
     }
 
     /// Normalisation gain of a track from what is known about its loudness (0 dB if nothing).
@@ -384,6 +410,7 @@ impl Player {
                         // Under the lock, so a `refresh_gain` cannot slip in between.
                         let inner = p.lock();
                         src.gain_db = p.track_gain(&id2);
+                        src.analysis = p.track_analysis(&id2);
                         let at = inner.live_position().max(start_ms);
                         p.engine.load(src, at, true);
                     }
@@ -789,6 +816,7 @@ impl Player {
                     return;
                 }
                 src.gain_db = p.track_gain(&id2);
+                src.analysis = p.track_analysis(&id2);
                 inner.next_request = None;
                 inner.pending_next = Some(id2);
                 p.engine.set_next(Some(src));

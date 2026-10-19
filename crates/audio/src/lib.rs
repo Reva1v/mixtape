@@ -4,14 +4,17 @@
 //! The engine thread owns every decoder and pushes interleaved stereo f32 at the device rate
 //! into a lock-free ring; the device callback only pops from it. See [`Engine`].
 
+pub mod analysis;
 mod crossfade;
 mod decoder;
 mod engine;
+mod fft;
 mod gain;
 mod loudness;
 mod output;
 mod pipeline;
 mod resample;
+mod smart;
 mod sparse;
 mod timeline;
 
@@ -19,6 +22,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+pub use analysis::{ANALYSIS_VERSION, Key, TrackAnalysis, analyze_file};
 pub use decoder::{ProbeInfo, probe};
 pub use engine::{Engine, EngineEvent};
 pub use gain::gain_for;
@@ -60,6 +64,8 @@ pub struct Source {
     /// Whether the transition into this source may crossfade (see
     /// [`Engine::set_crossfade`]); `false` keeps it gapless, e.g. within an album.
     pub crossfade: bool,
+    /// Tempo, key and structure for smart transitions, once the track was analysed.
+    pub analysis: Option<Arc<TrackAnalysis>>,
 }
 
 /// Opens the byte stream on the engine thread, so a slow source never blocks the caller. It may
@@ -88,6 +94,7 @@ impl Source {
             gain_db,
             hint_ext,
             crossfade: true,
+            analysis: None,
         }
     }
 
@@ -104,6 +111,7 @@ impl Source {
             gain_db,
             hint_ext: Some(ext.to_ascii_lowercase()),
             crossfade: true,
+            analysis: None,
         }
     }
 }
@@ -137,6 +145,7 @@ impl fmt::Debug for Source {
             .field("open", &self.open)
             .field("gain_db", &self.gain_db)
             .field("crossfade", &self.crossfade)
+            .field("analysis", &self.analysis.is_some())
             .finish()
     }
 }
