@@ -129,7 +129,28 @@ pub fn on_resized(w: &WebviewWindow) {
     }
     let w2 = w.clone();
     // After the frame plugin's own WM_SIZE handling, which shows the overlay again.
-    let _ = w.run_on_main_thread(move || overlay(&w2, false));
+    let _ = w.run_on_main_thread(move || {
+        overlay(&w2, false);
+        keep_size(&w2);
+    });
+}
+
+/// Windows Snap ignores the size limits: dragging the strip onto a screen edge or a
+/// snap layout zone stretches it to the zone. Put it back to the strip size.
+fn keep_size(w: &WebviewWindow) {
+    if w.is_minimized().unwrap_or(false) {
+        return;
+    }
+    if w.is_maximized().unwrap_or(false) {
+        let _ = w.unmaximize();
+    }
+    let (Ok(size), Ok(scale)) = (w.inner_size(), w.scale_factor()) else {
+        return;
+    };
+    let want = ((WIDTH * scale).round() as i64, (HEIGHT * scale).round() as i64);
+    if (size.width as i64 - want.0).abs() > 1 || (size.height as i64 - want.1).abs() > 1 {
+        let _ = w.set_size(LogicalSize::new(WIDTH, HEIGHT));
+    }
 }
 
 pub fn toggle(app: &AppHandle) {
