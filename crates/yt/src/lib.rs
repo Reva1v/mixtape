@@ -11,6 +11,7 @@ pub mod limits;
 pub mod loudness;
 pub mod meta;
 pub mod parse;
+pub mod playlist_edit;
 pub mod radio;
 pub mod resolver;
 pub mod search;
