@@ -13,7 +13,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["process", "io-util"] }
 tracing.workspace = true
-reqwest = { version = "0.13", default-features = false, features = ["native-tls", "http2", "json", "gzip", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2", "json", "gzip", "stream"] }
 sha1 = "0.10"
 fastrand = "2"
 

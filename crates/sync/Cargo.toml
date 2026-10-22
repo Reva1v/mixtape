@@ -19,7 +19,7 @@ ts-rs.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "process"] }
 tracing.workspace = true
-reqwest = { version = "0.13", default-features = false, features = ["native-tls", "http2", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2", "stream"] }
 url = "2.5"
 md-5 = "0.10"
 
