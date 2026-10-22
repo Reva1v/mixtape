@@ -379,7 +379,9 @@ mod tests {
     fn built_in_clients_parse() {
         let clients = parse_clients(DEFAULT_CLIENTS).unwrap();
         assert!(clients.len() >= 3);
-        assert_eq!(clients[0].client_name, "ANDROID_VR");
+        // visionOS first: the VR clients now mostly answer with the bot check.
+        assert_eq!(clients[0].client_name, "VISIONOS");
+        assert!(clients.iter().any(|c| c.client_name == "ANDROID_VR"));
         assert!(clients.iter().any(|c| c.endpoint == Endpoint::Reel));
     }
 

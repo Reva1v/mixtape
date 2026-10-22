@@ -1,5 +1,17 @@
 [
   {
+    "name": "visionOS",
+    "clientName": "VISIONOS",
+    "clientId": 101,
+    "clientVersion": "0.1",
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+    "deviceMake": "Apple",
+    "deviceModel": "RealityDevice14,1",
+    "osName": "visionOS",
+    "osVersion": "1.3.21O771",
+    "endpoint": "player"
+  },
+  {
     "name": "Android VR 1.61",
     "clientName": "ANDROID_VR",
     "clientId": 28,
@@ -23,18 +35,6 @@
     "osName": "Android",
     "osVersion": "12",
     "androidSdkVersion": "32",
-    "endpoint": "player"
-  },
-  {
-    "name": "visionOS",
-    "clientName": "VISIONOS",
-    "clientId": 101,
-    "clientVersion": "0.1",
-    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
-    "deviceMake": "Apple",
-    "deviceModel": "RealityDevice14,1",
-    "osName": "visionOS",
-    "osVersion": "1.3.21O771",
     "endpoint": "player"
   },
   {
