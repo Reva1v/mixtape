@@ -56,6 +56,20 @@ impl Cookies {
         Ok(cookies)
     }
 
+    /// Cookies from a `Cookie:` header value (`a=1; b=2`), as a web view hands them out for
+    /// music.youtube.com: names and values only, so they are filed under `.youtube.com`.
+    pub fn from_header(header: &str) -> Result<Self> {
+        let mut text = String::from("# Netscape HTTP Cookie File\n");
+        for pair in header.split(';') {
+            let Some((name, value)) = pair.trim().split_once('=') else { continue };
+            if name.is_empty() || name.contains(['\t', '\n']) || value.contains(['\t', '\n']) {
+                continue;
+            }
+            text.push_str(&format!(".youtube.com\tTRUE\t/\tTRUE\t0\t{name}\t{value}\n"));
+        }
+        Self::parse(&text)
+    }
+
     pub fn len(&self) -> usize {
         self.items.len()
     }
@@ -201,6 +215,17 @@ fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_a_web_view_cookie_header() {
+        let c = Cookies::from_header("VISITOR_INFO1_LIVE=v; SAPISID=plain; __Secure-3PAPISID=three; SID=s=id;bad").unwrap();
+        assert_eq!(c.len(), 4);
+        assert_eq!(c.sapisid(), Some("plain"));
+        // A value may itself hold `=`.
+        assert!(c.header().contains("SID=s=id"));
+        assert!(c.to_netscape().contains(".youtube.com\tTRUE\t/\tTRUE\t0\tSAPISID\tplain"));
+        assert!(Cookies::from_header("PREF=f6=40000000; YSC=x").is_err(), "no sign-in cookie");
+    }
 
     const NETSCAPE: &str = "# Netscape HTTP Cookie File\n\
         .youtube.com\tTRUE\t/\tTRUE\t1826751447\t__Secure-1PAPISID\tone\n\

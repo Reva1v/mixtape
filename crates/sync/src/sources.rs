@@ -89,12 +89,37 @@ pub async fn run<Y: YtMusic>(
     plan: &SyncPlan,
     stage: impl Fn(SyncStage),
 ) -> Result<SyncReport, YtError> {
+    sync(yt, http, db, covers, plan, stage, true).await
+}
+
+/// [`run`] without queueing downloads: the library's metadata and covers only, for a
+/// device that streams what it plays (the Android app).
+pub async fn run_metadata<Y: YtMusic>(
+    yt: &Y,
+    http: &reqwest::Client,
+    db: &Db,
+    covers: &CoverStore,
+    plan: &SyncPlan,
+    stage: impl Fn(SyncStage),
+) -> Result<SyncReport, YtError> {
+    sync(yt, http, db, covers, plan, stage, false).await
+}
+
+async fn sync<Y: YtMusic>(
+    yt: &Y,
+    http: &reqwest::Client,
+    db: &Db,
+    covers: &CoverStore,
+    plan: &SyncPlan,
+    stage: impl Fn(SyncStage),
+    enqueue: bool,
+) -> Result<SyncReport, YtError> {
     let collected = collect(yt, db, plan, &stage).await?;
     let reached = !collected.network_failed;
     stage(SyncStage::Covers { done: 0, total: 0 });
     let covers = fetch_covers(http, covers, &collected, Detail::Full, &stage).await;
     stage(SyncStage::Saving);
-    let report = save(db, collected, covers, true).map_err(crate::catalog::lib_err)?;
+    let report = save(db, collected, covers, enqueue).map_err(crate::catalog::lib_err)?;
     // The schedule counts from here; a sync cut short by the network is tried again sooner.
     if reached {
         let _ = db.write(|t| ytm::source_synced(t, PLAN_SOURCE, None));

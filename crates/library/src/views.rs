@@ -89,11 +89,31 @@ fn word_filter(column: &str, filter: &str) -> (String, Vec<String>) {
     (sql, args)
 }
 
+/// What counts as "in the library" for a view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Scope {
+    /// Tracks with audio on disk, and the albums and artists behind them (the desktop).
+    #[default]
+    Downloaded,
+    /// What was synced from YouTube Music whether or not its audio is on disk: saved
+    /// albums, subscribed artists, all synced tracks (the Android app, which streams).
+    Synced,
+}
+
 /// [`build`] narrowed to rows matching every word of `filter` (the library's own search box).
 pub fn build_filtered(conn: &Connection, kind: ViewKind, sort: ViewSort, filter: &str) -> Result<ViewIds> {
+    build_scoped(conn, kind, sort, filter, Scope::Downloaded)
+}
+
+/// [`build_filtered`] with what counts as the library set by `scope`.
+pub fn build_scoped(conn: &Connection, kind: ViewKind, sort: ViewSort, filter: &str, scope: Scope) -> Result<ViewIds> {
+    let in_library = match scope {
+        Scope::Downloaded => IN_LIBRARY,
+        Scope::Synced => "t.state <> 'local'",
+    };
     Ok(match kind {
         ViewKind::Tracks | ViewKind::Liked => {
-            let scope = if kind == ViewKind::Liked { "t.liked = 1" } else { IN_LIBRARY };
+            let scope = if kind == ViewKind::Liked { "t.liked = 1" } else { in_library };
             let order = match (kind, sort) {
                 (ViewKind::Liked, ViewSort::Recent) => "t.liked_at DESC".to_owned(),
                 (_, ViewSort::Recent) => "t.added_at DESC, t.rowid DESC".to_owned(),
@@ -119,22 +139,35 @@ pub fn build_filtered(conn: &Connection, kind: ViewKind, sort: ViewSort, filter:
                 _ => "last_added DESC",
             };
             let (words, args) = word_filter("al.search_text", filter);
-            let sql = format!(
-                "SELECT al.id, MAX(t.added_at) AS last_added FROM albums al
-                 JOIN tracks t ON t.album_id = al.id AND {IN_LIBRARY}
-                 WHERE 1 = 1{words}
-                 GROUP BY al.id ORDER BY {order}"
-            );
+            let sql = match scope {
+                Scope::Downloaded => format!(
+                    "SELECT al.id, MAX(t.added_at) AS last_added FROM albums al
+                     JOIN tracks t ON t.album_id = al.id AND {IN_LIBRARY}
+                     WHERE 1 = 1{words}
+                     GROUP BY al.id ORDER BY {order}"
+                ),
+                Scope::Synced => format!(
+                    "SELECT al.id, MAX(t.added_at) AS last_added FROM albums al
+                     LEFT JOIN tracks t ON t.album_id = al.id
+                     WHERE al.in_library = 1{words}
+                     GROUP BY al.id ORDER BY {order}"
+                ),
+            };
             ViewIds::Albums(collect(conn, &sql, &args, AlbumId)?)
         }
         ViewKind::Artists => {
             let (words, args) = word_filter("ar.search_text", filter);
-            let sql = format!(
-                "SELECT ar.id FROM artists ar WHERE (ar.in_library = 1 OR EXISTS (
-                    SELECT 1 FROM track_artists ta JOIN tracks t ON t.id = ta.track_id
-                    WHERE ta.artist_id = ar.id AND {IN_LIBRARY})){words}
-                 ORDER BY ar.name COLLATE NOCASE"
-            );
+            let sql = match scope {
+                Scope::Downloaded => format!(
+                    "SELECT ar.id FROM artists ar WHERE (ar.in_library = 1 OR EXISTS (
+                        SELECT 1 FROM track_artists ta JOIN tracks t ON t.id = ta.track_id
+                        WHERE ta.artist_id = ar.id AND {IN_LIBRARY})){words}
+                     ORDER BY ar.name COLLATE NOCASE"
+                ),
+                Scope::Synced => {
+                    format!("SELECT ar.id FROM artists ar WHERE ar.in_library = 1{words} ORDER BY ar.name COLLATE NOCASE")
+                }
+            };
             ViewIds::Artists(collect(conn, &sql, &args, ArtistId)?)
         }
         ViewKind::Playlists => {
@@ -229,6 +262,31 @@ mod tests {
         assert_eq!(ids(ViewKind::Tracks, ""), ["2", "1"]);
         assert_eq!(ids(ViewKind::Albums, "album"), ["MPb"]);
         assert_eq!(ids(ViewKind::Artists, "bet"), ["UCb"]);
+    }
+
+    #[test]
+    fn synced_scope_counts_what_is_not_downloaded() {
+        let (_d, db) = db();
+        db.write(|t| {
+            upsert_track(t, &meta("1", "Saved", ("UCa", "Alpha"), Some(("MPa", "Saved album"))))?;
+            upsert_track(t, &meta("2", "Other", ("UCb", "Beta"), Some(("MPb", "Other album"))))?;
+            crate::ytm::set_album_in_library(t, &mixtape_core::AlbumId::from("MPa"))?;
+            t.execute("UPDATE artists SET in_library = 1 WHERE id = 'UCb'", [])?;
+            Ok(())
+        })
+        .unwrap();
+        let synced = |kind| db.read(|c| build_scoped(c, kind, ViewSort::Title, "", Scope::Synced)).unwrap();
+        match synced(ViewKind::Albums) {
+            ViewIds::Albums(v) => assert_eq!(v, [mixtape_core::AlbumId::from("MPa")]),
+            _ => panic!(),
+        }
+        match synced(ViewKind::Artists) {
+            ViewIds::Artists(v) => assert_eq!(v, [mixtape_core::ArtistId::from("UCb")]),
+            _ => panic!(),
+        }
+        assert_eq!(synced(ViewKind::Tracks).len(), 2, "remote tracks count");
+        // The desktop's scope is unchanged: nothing is downloaded.
+        assert!(db.read(|c| build(c, ViewKind::Albums, ViewSort::Title)).unwrap().is_empty());
     }
 
     #[test]
