@@ -286,70 +286,99 @@ async fn fetch_covers(
     Covers { available, palettes }
 }
 
+/// Rows written per transaction: the writer is shared with the player and the screens, so a
+/// large library goes in short transactions instead of one that holds the database for the
+/// whole save.
+const SAVE_CHUNK: usize = 500;
+
 fn save(db: &Db, c: Collected, covers: Covers, enqueue: bool) -> mixtape_library::Result<SyncReport> {
     let mut report = SyncReport { errors: c.errors.clone(), ..Default::default() };
     report.tracks = c.tracks.iter().map(|t| &t.id).collect::<HashSet<_>>().len();
-    let queued = db.write(move |t| {
-        // Full album pages first: they carry type, year and artists.
-        for a in &c.albums {
-            let key = a.card.id.to_string();
-            repo::upsert_album(
-                t,
-                &AlbumMeta {
-                    id: a.card.id.clone(),
-                    title: a.card.title.clone(),
-                    artists: a.card.artists.clone(),
-                    year: a.card.year,
-                    album_type: a.card.album_type.unwrap_or(AlbumType::Album),
-                    cover_key: covers.key(&key),
-                    palette: covers.palette(&key),
-                    track_count: Some(a.tracks.len() as u32),
-                },
-            )?;
-        }
-        let mut queued = 0;
-        let mut seen = HashSet::new();
-        for tr in &c.tracks {
-            if !seen.insert(tr.id.clone()) {
-                continue;
-            }
-            let key = cover_key(tr);
-            let cover = covers.key(&key);
-            // Albums known only from a track row: create them once with what we have.
-            if let Some(AlbumRef { id, title }) = &tr.album
-                && !ytm::album_exists(t, id)?
-            {
+    let c = Arc::new(c);
+    let covers = Arc::new(covers);
+    // Full album pages first: they carry type, year and artists.
+    for range in chunks(c.albums.len()) {
+        let (c, covers) = (c.clone(), covers.clone());
+        db.write(move |t| {
+            for a in &c.albums[range] {
+                let key = a.card.id.to_string();
                 repo::upsert_album(
                     t,
                     &AlbumMeta {
-                        id: id.clone(),
-                        title: title.clone(),
-                        artists: tr.artists.clone(),
-                        year: None,
-                        album_type: if title == &tr.title { AlbumType::Single } else { AlbumType::Album },
-                        cover_key: cover.clone(),
+                        id: a.card.id.clone(),
+                        title: a.card.title.clone(),
+                        artists: a.card.artists.clone(),
+                        year: a.card.year,
+                        album_type: a.card.album_type.unwrap_or(AlbumType::Album),
+                        cover_key: covers.key(&key),
                         palette: covers.palette(&key),
-                        track_count: None,
+                        track_count: Some(a.tracks.len() as u32),
                     },
                 )?;
             }
-            repo::upsert_track(
-                t,
-                &TrackMeta {
-                    id: tr.id.clone(),
-                    title: tr.title.clone(),
-                    artists: tr.artists.clone(),
-                    album: tr.album.clone(),
-                    track_no: tr.track_no,
-                    duration_ms: tr.duration_ms,
-                    cover_key: cover,
-                },
-            )?;
-            let source = c.sources.get(&tr.id).map(String::as_str).unwrap_or("sync");
-            if enqueue && jobs::enqueue(t, &tr.id, source)?.is_some() {
-                queued += 1;
+            Ok(())
+        })?;
+    }
+    let mut seen = HashSet::new();
+    let unique: Vec<usize> = (0..c.tracks.len()).filter(|&i| seen.insert(c.tracks[i].id.clone())).collect();
+    let unique = Arc::new(unique);
+    let mut queued = 0;
+    for range in chunks(unique.len()) {
+        let (c, covers, unique) = (c.clone(), covers.clone(), unique.clone());
+        queued += db.write(move |t| {
+            let mut queued = 0;
+            for &i in &unique[range] {
+                let tr = &c.tracks[i];
+                let key = cover_key(tr);
+                let cover = covers.key(&key);
+                // Albums known only from a track row: create them once with what we have.
+                if let Some(AlbumRef { id, title }) = &tr.album
+                    && !ytm::album_exists(t, id)?
+                {
+                    repo::upsert_album(
+                        t,
+                        &AlbumMeta {
+                            id: id.clone(),
+                            title: title.clone(),
+                            artists: tr.artists.clone(),
+                            year: None,
+                            album_type: if title == &tr.title { AlbumType::Single } else { AlbumType::Album },
+                            cover_key: cover.clone(),
+                            palette: covers.palette(&key),
+                            track_count: None,
+                        },
+                    )?;
+                }
+                repo::upsert_track(
+                    t,
+                    &TrackMeta {
+                        id: tr.id.clone(),
+                        title: tr.title.clone(),
+                        artists: tr.artists.clone(),
+                        album: tr.album.clone(),
+                        track_no: tr.track_no,
+                        duration_ms: tr.duration_ms,
+                        cover_key: cover,
+                    },
+                )?;
+                let source = c.sources.get(&tr.id).map(String::as_str).unwrap_or("sync");
+                if enqueue && jobs::enqueue(t, &tr.id, source)?.is_some() {
+                    queued += 1;
+                }
             }
-        }
+            Ok(queued)
+        })?;
+    }
+    // Each playlist in a transaction of its own: a mirror is rewritten as a whole.
+    for i in 0..c.playlists.len() {
+        let (c, covers) = (c.clone(), covers.clone());
+        db.write(move |t| {
+            let (id, title, thumb, items) = &c.playlists[i];
+            let cover = thumb.as_ref().and_then(|_| covers.key(id.as_str()));
+            ytm::mirror_playlist(t, id, title, cover.as_deref(), items)
+        })?;
+    }
+    db.write(move |t| {
         for id in &c.saved_albums {
             ytm::set_album_in_library(t, id)?;
         }
@@ -357,21 +386,21 @@ fn save(db: &Db, c: Collected, covers: Covers, enqueue: bool) -> mixtape_library
             ytm::apply_remote_likes(t, liked)?;
             ytm::source_synced(t, "liked", None)?;
         }
-        for (id, title, thumb, items) in &c.playlists {
-            let cover = thumb.as_ref().and_then(|_| covers.key(id.as_str()));
-            ytm::mirror_playlist(t, id, title, cover.as_deref(), items)?;
-        }
         for (what, err) in &c.errors {
             ytm::source_synced(t, what, Some(err))?;
         }
         for (id, name) in &c.artists_read {
             ytm::set_artist_synced(t, id, name)?;
         }
-        ytm::link_artists_by_name(t)?;
-        Ok(queued)
+        ytm::link_artists_by_name(t)
     })?;
     report.queued = queued;
     Ok(report)
+}
+
+/// `0..len` cut into ranges of [`SAVE_CHUNK`].
+fn chunks(len: usize) -> impl Iterator<Item = std::ops::Range<usize>> {
+    (0..len).step_by(SAVE_CHUNK).map(move |s| s..(s + SAVE_CHUNK).min(len))
 }
 
 /// Marks subscribed artists as library artists (shown on the Artists screen).
