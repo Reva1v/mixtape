@@ -9,7 +9,7 @@ use mixtape_library::repo::{self, FileLocation, MediaFile};
 use mixtape_library::{Db, jobs};
 use mixtape_yt::YtError;
 use mixtape_yt::limits::{Outcome, Pacer};
-use mixtape_yt::resolver::{BATCH_SIZE, ResolvedStream, StreamResolver};
+use mixtape_yt::resolver::{BATCH_SIZE, Resolve, ResolvedStream};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -102,7 +102,7 @@ pub struct Downloader {
 struct Inner {
     rt: tokio::runtime::Handle,
     db: Db,
-    resolver: Arc<StreamResolver>,
+    resolver: Arc<dyn Resolve>,
     http: reqwest::Client,
     pacer: Pacer,
     root: PathBuf,
@@ -156,7 +156,7 @@ impl Downloader {
     pub fn start(
         rt: &tokio::runtime::Handle,
         db: Db,
-        resolver: Arc<StreamResolver>,
+        resolver: Arc<dyn Resolve>,
         http: reqwest::Client,
         root: PathBuf,
         hooks: Arc<dyn Hooks>,
@@ -491,8 +491,8 @@ fn store_download(t: &rusqlite::Connection, media: &MediaFile) -> mixtape_librar
 }
 
 /// The URL for `id`. On a cache miss the next queued tracks are resolved in the same
-/// yt-dlp run (one process per [`BATCH_SIZE`] tracks instead of one per track), so their
-/// jobs find the URL cached. Runs inside the caller's pacer slot.
+/// batch where the resolver can batch (one yt-dlp run per [`BATCH_SIZE`] tracks instead of
+/// one per track), so their jobs find the URL cached. Runs inside the caller's pacer slot.
 async fn resolve_with_lookahead(inner: &Arc<Inner>, id: &TrackId) -> Result<ResolvedStream, YtError> {
     if let Some(s) = inner.resolver.cached(id) {
         return Ok(s);
@@ -502,7 +502,7 @@ async fn resolve_with_lookahead(inner: &Arc<Inner>, id: &TrackId) -> Result<Reso
     ids.extend(ahead.into_iter().filter(|t| t != id && inner.resolver.cached(t).is_none()).take(BATCH_SIZE - 1));
     inner
         .resolver
-        .resolve(&ids)
+        .resolve_batch(&ids)
         .await
         .into_iter()
         .next()
@@ -611,7 +611,7 @@ mod tests {
     async fn idle_and_repeated_progress_is_not_sent_again() {
         let dir = tempfile::tempdir().unwrap();
         let db = Db::open(&dir.path().join("t.db")).unwrap();
-        let resolver = Arc::new(StreamResolver::new(
+        let resolver = Arc::new(mixtape_yt::resolver::StreamResolver::new(
             "Z:/nope/yt-dlp.exe".into(),
             "deno.exe".into(),
             dir.path().join("tmp"),

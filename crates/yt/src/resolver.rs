@@ -90,6 +90,9 @@ impl ResolvedStream {
     }
 }
 
+/// The answer of [`Resolve::resolve_batch`]: each id with its result, in order.
+pub type BatchFuture<'a> = Pin<Box<dyn Future<Output = Vec<(TrackId, Result<ResolvedStream>)>> + Send + 'a>>;
+
 /// The answer of [`Resolve::resolve_one`].
 pub type ResolveFuture<'a> = Pin<Box<dyn Future<Output = Result<ResolvedStream>> + Send + 'a>>;
 
@@ -99,6 +102,20 @@ pub trait Resolve: Send + Sync {
     fn resolve_one<'a>(&'a self, id: &'a TrackId) -> ResolveFuture<'a>;
     /// Forgets the cached URL, e.g. after googlevideo answered 403.
     fn invalidate(&self, id: &TrackId);
+    /// A URL still in memory, without asking YouTube.
+    fn cached(&self, _id: &TrackId) -> Option<ResolvedStream> {
+        None
+    }
+    /// Several ids in one go where the resolver can batch them (one yt-dlp run); by default
+    /// only the first id is resolved and the rest are left for later calls.
+    fn resolve_batch<'a>(&'a self, ids: &'a [TrackId]) -> BatchFuture<'a> {
+        Box::pin(async move {
+            match ids.first() {
+                Some(id) => vec![(id.clone(), self.resolve_one(id).await)],
+                None => Vec::new(),
+            }
+        })
+    }
 }
 
 impl Resolve for StreamResolver {
@@ -108,6 +125,14 @@ impl Resolve for StreamResolver {
 
     fn invalidate(&self, id: &TrackId) {
         StreamResolver::invalidate(self, id);
+    }
+
+    fn cached(&self, id: &TrackId) -> Option<ResolvedStream> {
+        StreamResolver::cached(self, id)
+    }
+
+    fn resolve_batch<'a>(&'a self, ids: &'a [TrackId]) -> BatchFuture<'a> {
+        Box::pin(StreamResolver::resolve(self, ids))
     }
 }
 

@@ -23,6 +23,27 @@ pub const DEFAULT_CLIENTS: &str = include_str!("clients.json");
 const API: &str = "https://youtubei.googleapis.com/youtubei/v1";
 /// Audio formats in order of preference: Opus 160k, AAC 128k, then the smaller ones.
 const ITAGS: [u64; 5] = [251, 140, 250, 249, 139];
+/// [`Quality::Normal`]: Opus ~70k first, to save space and data.
+const ITAGS_NORMAL: [u64; 5] = [250, 249, 139, 251, 140];
+
+/// Which audio format a resolver prefers.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Quality {
+    /// Opus 160k (or AAC 128k).
+    #[default]
+    High,
+    /// Opus ~70k: about half the size.
+    Normal,
+}
+
+impl Quality {
+    fn itags(self) -> &'static [u64] {
+        match self {
+            Self::High => &ITAGS,
+            Self::Normal => &ITAGS_NORMAL,
+        }
+    }
+}
 /// Lifetime assumed when the URL carries no `expire=`.
 const FALLBACK_TTL_SECS: u64 = 5 * 60 * 60;
 
@@ -69,6 +90,7 @@ pub struct DirectResolver {
     gl: String,
     visitor_data: RwLock<Option<String>>,
     cache: Mutex<HashMap<TrackId, ResolvedStream>>,
+    quality: Quality,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -92,7 +114,14 @@ impl DirectResolver {
             gl: gl.to_owned(),
             visitor_data: RwLock::new(None),
             cache: Mutex::new(HashMap::new()),
+            quality: Quality::High,
         }
+    }
+
+    /// Prefers the formats of `quality` (downloads in «Обычное» quality).
+    pub fn with_quality(mut self, quality: Quality) -> Self {
+        self.quality = quality;
+        self
     }
 
     /// Sends the requests to `api` instead of YouTube (tests).
@@ -180,7 +209,7 @@ impl DirectResolver {
             Endpoint::Player => &v,
             Endpoint::Reel => v.get("playerResponse").unwrap_or(&v),
         };
-        parse_player(player, now_unix())
+        parse_player_with(player, now_unix(), self.quality)
     }
 }
 
@@ -196,6 +225,10 @@ impl Resolve for DirectResolver {
 
     fn invalidate(&self, id: &TrackId) {
         lock(&self.cache).remove(id);
+    }
+
+    fn cached(&self, id: &TrackId) -> Option<ResolvedStream> {
+        DirectResolver::cached(self, id)
     }
 }
 
@@ -261,6 +294,12 @@ fn is_bot_check(reason: &str) -> bool {
 
 /// The best audio stream of a player response, at `now` (unix seconds).
 pub fn parse_player(v: &Value, now: u64) -> Result<ResolvedStream> {
+    parse_player_with(v, now, Quality::High)
+}
+
+/// [`parse_player`] picking the format by `quality`.
+pub fn parse_player_with(v: &Value, now: u64, quality: Quality) -> Result<ResolvedStream> {
+    let itags = quality.itags();
     let ps = &v["playabilityStatus"];
     let status = ps["status"].as_str().unwrap_or("");
     if status != "OK" {
@@ -288,7 +327,7 @@ pub fn parse_player(v: &Value, now: u64) -> Result<ResolvedStream> {
         .collect();
     let rank = |f: &Value| {
         let itag = f["itag"].as_u64().unwrap_or(0);
-        ITAGS.iter().position(|&t| t == itag).unwrap_or(ITAGS.len())
+        itags.iter().position(|&t| t == itag).unwrap_or(itags.len())
     };
     let best = audio
         .into_iter()
@@ -342,6 +381,12 @@ mod tests {
         assert!(clients.len() >= 3);
         assert_eq!(clients[0].client_name, "ANDROID_VR");
         assert!(clients.iter().any(|c| c.endpoint == Endpoint::Reel));
+    }
+
+    #[test]
+    fn normal_quality_prefers_the_smaller_opus() {
+        let s = parse_player_with(&fixture("player_ok.json"), 0, Quality::Normal).unwrap();
+        assert_eq!(s.itag, 249);
     }
 
     #[test]

@@ -3,8 +3,11 @@
 
 use std::path::Path;
 
-/// Downloads pause below this much free space (2 GiB).
+/// Downloads pause below this much free space (2 GiB; 500 MiB on a phone).
+#[cfg(not(target_os = "android"))]
 pub const MIN_FREE: u64 = 2 * 1024 * 1024 * 1024;
+#[cfg(target_os = "android")]
+pub const MIN_FREE: u64 = 500 * 1024 * 1024;
 
 /// Bytes available to the current user on the volume holding `path`. The path itself
 /// may not exist yet; its nearest existing ancestor is queried.
