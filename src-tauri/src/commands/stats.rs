@@ -9,11 +9,14 @@ use tauri::State;
 
 /// The recap of `period`. `tz_offset_min` is local time minus UTC in minutes (the
 /// negated `Date.getTimezoneOffset()`), so hours and days are the user's local ones.
+/// `device` (a `DeviceTotal.device`) keeps only that device's plays; `byDevice` always
+/// covers all of them.
 #[tauri::command]
 pub async fn stats_get(
     state: State<'_, Arc<AppState>>,
     period: StatsPeriod,
     tz_offset_min: i32,
+    device: Option<String>,
 ) -> CmdResult<ListeningStats> {
     let st = state.inner().clone();
     // A sane offset only: real ones are within ±14 h.
@@ -21,7 +24,7 @@ pub async fn stats_get(
     blocking(move || {
         Ok(st.db.read(|c| {
             let since = stats::period_start(c, period, repo::now_ms(), offset_ms)?;
-            stats::listening(c, since, offset_ms)
+            stats::listening_for(c, since, offset_ms, device.as_deref())
         })?)
     })
     .await

@@ -3,6 +3,7 @@ pub mod library;
 pub mod dev;
 pub mod home;
 pub mod mix;
+pub mod peer;
 pub mod lyrics;
 pub mod player;
 pub mod settings;

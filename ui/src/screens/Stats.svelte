@@ -1,10 +1,15 @@
 <script lang="ts" module>
   import type { ListeningStats as Cached } from "$lib/ipc/bindings/ListeningStats";
   import type { StatsPeriod as Period } from "$lib/ipc/bindings/StatsPeriod";
-  // The last recap of each period and the period chosen: coming back renders at full
-  // height at once; a fresh copy replaces it quietly.
-  const cache = new Map<Period, Cached>();
+  // The last recap of each period and device and the ones chosen: coming back renders at
+  // full height at once; a fresh copy replaces it quietly.
+  const cache = new Map<string, Cached>();
+  const key = (p: Period, device: string) => `${p}|${device}`;
   let lastPeriod: Period = "month";
+  /** A device id (`DeviceTotal.device`), or "" for all devices. */
+  let lastDevice = "";
+  /** Names of the devices seen in any recap, so a chosen one stays in the list. */
+  const deviceNames = new Map<string, { thisDevice: boolean; name?: string }>();
 
   /** One bar chart: a value, an axis label and a tooltip per bar. */
   export type Bars = { values: number[]; labels: string[]; tips: string[] };
@@ -12,6 +17,7 @@
 
 <script lang="ts">
   import { invoke, on } from "$lib/ipc";
+  import type { DeviceTotal } from "$lib/ipc/bindings/DeviceTotal";
   import type { ListeningStats } from "$lib/ipc/bindings/ListeningStats";
   import type { StatsPeriod } from "$lib/ipc/bindings/StatsPeriod";
   import type { TopArtist } from "$lib/ipc/bindings/TopArtist";
@@ -32,8 +38,9 @@
   import IconChart from "~icons/solar/chart-2-bold";
 
   let period = $state<StatsPeriod>(lastPeriod);
-  let stats = $state.raw<ListeningStats | null>(cache.get(lastPeriod) ?? null);
-  const top = new Fixed<Track>(cache.get(lastPeriod)?.topTracks.map((x) => x.track) ?? []);
+  let device = $state(lastDevice);
+  let stats = $state.raw<ListeningStats | null>(cache.get(key(lastPeriod, lastDevice)) ?? null);
+  const top = new Fixed<Track>(cache.get(key(lastPeriod, lastDevice))?.topTracks.map((x) => x.track) ?? []);
 
   const periods = $derived<{ id: StatsPeriod; label: string }[]>([
     { id: "week", label: t.stats.period.week },
@@ -42,22 +49,29 @@
     { id: "all", label: t.stats.period.all },
   ]);
 
-  async function load(p: StatsPeriod) {
+  async function load(p: StatsPeriod, d: string) {
     // Local hours and days: the core gets this computer's offset from UTC.
-    const s = await invoke<ListeningStats>("stats_get", { period: p, tzOffsetMin: -new Date().getTimezoneOffset() });
-    cache.set(p, s);
-    if (p !== period) return;
+    const s = await invoke<ListeningStats>("stats_get", {
+      period: p,
+      tzOffsetMin: -new Date().getTimezoneOffset(),
+      device: d || null,
+    });
+    cache.set(key(p, d), s);
+    for (const x of s.byDevice) deviceNames.set(x.device, { thisDevice: x.thisDevice, name: x.name });
+    if (p !== period || d !== device) return;
     stats = s;
     top.items = s.topTracks.map((x) => x.track);
   }
 
   $effect(() => {
     const p = period;
+    const d = device;
     lastPeriod = p;
-    const hit = cache.get(p);
+    lastDevice = d;
+    const hit = cache.get(key(p, d));
     stats = hit ?? null;
     top.items = hit?.topTracks.map((x) => x.track) ?? [];
-    void load(p);
+    void load(p, d);
   });
 
   // A new play in the log (or changed track rows): re-read once things settle.
@@ -65,7 +79,7 @@
     let timer: ReturnType<typeof setTimeout> | undefined;
     const later = () => {
       clearTimeout(timer);
-      timer = setTimeout(() => void load(period), 1500);
+      timer = setTimeout(() => void load(period, device), 1500);
     };
     const offs = [on("stats:changed", later), on("library:changed", later)];
     return () => {
@@ -124,6 +138,27 @@
     },
   );
 
+  // ---- Devices (stats synced with the phone) ----
+
+  const deviceLabel = (x: { thisDevice: boolean; name?: string }) =>
+    x.thisDevice ? t.stats.thisDevice : (x.name ?? t.stats.otherDevice);
+
+  /** This device first, then by listening time. */
+  const split = $derived<DeviceTotal[]>(
+    [...(stats?.byDevice ?? [])].sort((a, b) => Number(b.thisDevice) - Number(a.thisDevice) || b.listenedMs - a.listenedMs),
+  );
+  const splitTotal = $derived(split.reduce((sum, x) => sum + x.listenedMs, 0));
+
+  // Shown once plays came from more than one device (or a device is chosen).
+  const deviceOptions = $derived.by<{ id: string; label: string }[]>(() => {
+    if (split.length < 2 && !device) return [];
+    const ids = [...new Set([...split.map((x) => x.device), ...(device ? [device] : [])])];
+    return [
+      { id: "", label: t.stats.allDevices },
+      ...ids.map((id) => ({ id, label: deviceLabel(deviceNames.get(id) ?? { thisDevice: false }) })),
+    ];
+  });
+
   const asArtist = (a: TopArtist) => ({ id: a.id!, name: a.name, imageKey: a.imageKey, inLibrary: true, palette: [] });
 
   function playTop(i: number) {
@@ -173,7 +208,12 @@
 <div class="pb-12">
   <div class="flex items-end justify-between gap-4 px-8 pt-10 pb-6">
     <h1 class="text-[28px] font-bold tracking-tight">{t.stats.title}</h1>
-    <Select bind:value={period} options={periods} label={t.stats.period.label} />
+    <div class="flex items-center gap-2">
+      {#if deviceOptions.length}
+        <Select bind:value={device} options={deviceOptions} label={t.stats.allDevices} />
+      {/if}
+      <Select bind:value={period} options={periods} label={t.stats.period.label} />
+    </div>
   </div>
 
   {#if !stats}
@@ -193,7 +233,7 @@
       {/if}
     </EmptyState>
   {:else}
-    <div class="mb-10 grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-3 px-8">
+    <div class="{split.length > 1 ? 'mb-4' : 'mb-10'} grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-3 px-8">
       {@render tile(t.stats.listened, duration(stats.listenedMs))}
       {@render tile(t.stats.plays, [{ value: num.format(stats.plays), unit: "" }])}
       {@render tile(t.stats.tracks, [{ value: num.format(stats.tracks), unit: "" }])}
@@ -206,6 +246,24 @@
         )}
       {/if}
     </div>
+
+    {#if split.length > 1}
+      <!-- «This PC 26 h · Pixel 12 h · Total 38 h»: the period across all devices. -->
+      <div class="mb-10 flex flex-wrap items-baseline gap-x-2 gap-y-1 px-8 text-[13px] text-ink-3">
+        {#each split as x, i (x.device)}
+          {#if i > 0}<span aria-hidden="true">·</span>{/if}
+          <button
+            type="button"
+            class="rounded-sm transition-colors hover:text-ink {device === x.device ? 'text-ink' : ''}"
+            onclick={() => (device = device === x.device ? "" : x.device)}
+          >
+            {deviceLabel(x)} <span class="font-medium text-ink-2 tnum">{durationText(x.listenedMs)}</span>
+          </button>
+        {/each}
+        <span aria-hidden="true">·</span>
+        <span>{t.stats.total} <span class="font-medium text-ink-2 tnum">{durationText(splitTotal)}</span></span>
+      </div>
+    {/if}
 
     <section class="mb-10">
       {@render section(t.stats.topTracks)}

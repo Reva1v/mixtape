@@ -9,6 +9,7 @@ import { integrations } from "./integrations";
 import { normalize } from "./normalize";
 import { smart } from "./smart";
 import { spotify } from "./spotify";
+import { phone } from "./phone";
 
 export const en = {
   ...base,
@@ -20,6 +21,7 @@ export const en = {
   ...normalize,
   ...smart,
   ...spotify,
+  ...phone,
   updates,
   iconStyle,
 };

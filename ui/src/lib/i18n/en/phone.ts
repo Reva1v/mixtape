@@ -1,0 +1,28 @@
+// Settings → «Phone»: stats sync with Mixtape on the phone (lib/ui/PhoneSettings.svelte).
+export const phone = {
+  phone: {
+    title: "Phone",
+    notPaired: "Phone not paired",
+    notPairedHint: "Pair Mixtape on your phone to combine listening statistics. Plays are exchanged directly over your home network or Tailscale, without a cloud.",
+    pair: "Pair phone",
+    scanTitle: "Scan the code with your phone",
+    scanHint: "On the phone: Profile → «Sync with PC» → «Scan QR code». The phone must be on the same network as this PC or in Tailscale.",
+    expiresIn: (time: string) => `The code is valid for ${time}`,
+    expired: "The code has expired",
+    newCode: "Show a new code",
+    cancel: "Cancel",
+    firewall: "Windows Firewall may block the phone",
+    firewallHint: "Allow incoming connections to Mixtape on private networks. Windows will ask for confirmation.",
+    firewallAllow: "Allow in firewall",
+    firewallAdded: "Firewall rule added",
+    pairedWith: (name: string) => `Paired: ${name}`,
+    lastExchange: (when: string) => `Last exchange: ${when}`,
+    neverExchanged: "No exchange yet: open Mixtape on the phone",
+    notListening: "Sync is unavailable: port 47821 is busy",
+    unpair: "Unpair",
+    unpairConfirm: "Unpair the phone? The plays already exchanged stay.",
+    unpaired: "Phone unpaired",
+    paired: (name: string) => `Phone paired: ${name}`,
+    failed: "Couldn't pair the phone",
+  },
+};

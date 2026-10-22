@@ -27,6 +27,7 @@
   import Switch from "$lib/ui/Switch.svelte";
   import Slider from "$lib/ui/Slider.svelte";
   import IntegrationsSettings from "$lib/ui/IntegrationsSettings.svelte";
+  import PhoneSettings from "$lib/ui/PhoneSettings.svelte";
   import { coverUrl, invoke } from "$lib/ipc";
   import { prompt, toasts } from "$lib/stores/overlay.svelte";
   import { downloads } from "$lib/stores/downloads.svelte";
@@ -249,6 +250,8 @@
   </section>
 
   <IntegrationsSettings {row} />
+
+  <PhoneSettings {row} />
 
   {#snippet choice(options: number[], current: number | undefined, label: (n: number) => string, pick: (n: number) => void)}
     <div class="flex shrink-0 gap-1 rounded-full bg-fill-1 p-1 ring-1 ring-line">

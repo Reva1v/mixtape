@@ -4,7 +4,8 @@
 // library. Commands it doesn't know fail the way a missing core does.
 //
 // URL switches: `lang=en|uk|ru` (interface language), `mock=off` (no account),
-// `scene=home|album|library|stats|fullscreen|queue|mini` (open that screen with a track playing).
+// `scene=home|album|library|stats|fullscreen|queue|mini` (open that screen with a track playing),
+// `peer=paired|firewall` (Settings → «Phone» paired, or not paired with the firewall rule missing).
 
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
@@ -15,6 +16,7 @@ import type { HomePage } from "./bindings/HomePage";
 import type { HomeShelf } from "./bindings/HomeShelf";
 import type { Lang } from "./bindings/Lang";
 import type { ListeningStats } from "./bindings/ListeningStats";
+import type { PairStart, PeerStatus } from "./peer";
 import type { Lyrics } from "./bindings/Lyrics";
 import type { PlaybackState } from "./bindings/PlaybackState";
 import type { QueueView } from "./bindings/QueueView";
@@ -379,10 +381,27 @@ setInterval(() => {
 // ---- Listening statistics ----
 
 /** A made-up recap; longer periods scale the numbers up. `?stats=empty` shows the empty state. */
-function demoStats(period: string): ListeningStats {
+/** Devices of the demo log: this PC and a paired phone, with their share of the plays. */
+const DEVICES = [
+  { device: "demo-pc", thisDevice: true, share: 0.68 },
+  { device: "demo-phone", name: "Pixel 8", thisDevice: false, share: 0.32 },
+];
+
+function demoStats(period: string, device?: string): ListeningStats {
+  const all = demoStatsFor(period, 1);
+  const one = DEVICES.find((d) => d.device === device);
+  const s = one ? demoStatsFor(period, one.share) : all;
+  // The split is over all devices whatever the filter, like the core's.
+  const byDevice = all.plays
+    ? DEVICES.map(({ share, ...d }) => ({ ...d, listenedMs: Math.round(all.listenedMs * share), plays: Math.round(all.plays * share) }))
+    : [];
+  return { ...s, byDevice };
+}
+
+function demoStatsFor(period: string, share: number): ListeningStats {
   const empty: ListeningStats = { listenedMs: 0, plays: 0, tracks: 0, artists: 0, topTracks: [], topArtists: [], topAlbums: [], byHour: Array(24).fill(0), byWeekday: Array(7).fill(0), byDevice: [] };
   if (params.get("stats") === "empty") return empty;
-  const scale = { week: 1, month: 4.3, year: 38, all: 52 }[period] ?? 1;
+  const scale = ({ week: 1, month: 4.3, year: 38, all: 52 }[period] ?? 1) * share;
   const n = (x: number) => Math.round(x * scale);
   const MIN = 60_000;
   // An evening listener: a morning commute bump, a quiet afternoon, most after dinner.
@@ -408,6 +427,29 @@ function demoStats(period: string): ListeningStats {
     topDay: { dayMs: new Date(2026, 9, 10).getTime(), plays: 31, listenedMs: 196 * MIN },
     byDevice: [],
   };
+}
+
+// ---- Phone sync (Settings → «Phone») ----
+
+let peer: PeerStatus =
+  params.get("peer") === "paired"
+    ? { paired: true, peerName: "Pixel 8", pairedAt: Date.now() - 86_400_000 * 3, lastExchange: Date.now() - 1_800_000, listening: true, firewall: "ok" }
+    : { paired: false, listening: false, firewall: "unknown" };
+
+/** A QR-looking grid (not a readable code: the mock has no encoder). */
+function demoQr(): string {
+  const n = 33;
+  const r = rng(hash("pair"));
+  let d = "";
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (r() > 0.55) d += `M${x + 4} ${y + 4}h1v1h-1z`;
+  const w = n + 8;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${w}" shape-rendering="crispEdges"><rect width="${w}" height="${w}" fill="#ffffff"/><path fill="#000000" d="${d}"/></svg>`;
+}
+
+function setPeer(next: Partial<PeerStatus>): PeerStatus {
+  peer = { ...peer, ...next };
+  void emit("peer:status", peer);
+  return peer;
 }
 
 // ---- Library views ----
@@ -531,7 +573,20 @@ mockIPC(
       case "queue_jump":
         return null;
       case "stats_get":
-        return demoStats(a.period as string);
+        return demoStats(a.period as string, (a.device as string | null) ?? undefined);
+      case "peer_status":
+        return peer;
+      case "peer_pair_start": {
+        setPeer({ listening: true, firewall: params.get("peer") === "firewall" ? "missing" : "ok" });
+        const start: PairStart = { uri: "mixtape://pair?v=1", svg: demoQr(), expiresAt: Date.now() + 300_000 };
+        return start;
+      }
+      case "peer_pair_cancel":
+        return setPeer({ listening: peer.paired });
+      case "peer_unpair":
+        return setPeer({ paired: false, peerName: undefined, pairedAt: undefined, lastExchange: undefined, listening: false });
+      case "peer_firewall_add":
+        return setPeer({ firewall: "ok" });
       case "integrations_status":
         return { lastfmAvailable: true, lastfmUser: account.connected ? "demo" : undefined, lastfmPending: false, discordAvailable: true };
       case "storage_get":

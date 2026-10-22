@@ -71,6 +71,8 @@ pub fn run() {
             lastfm::install(&state);
             net::spawn(state.clone());
             commands::sync::spawn_auto_sync(state.clone());
+            // The phone sync server, when a phone is paired.
+            commands::peer::spawn(state.clone());
             // Pending likes, artist pictures, unused covers: once, after start.
             background::spawn(state.clone());
             updates::spawn(state.clone());
@@ -159,6 +161,11 @@ pub fn run() {
             commands::player::queue_jump,
             commands::lyrics::lyrics_get,
             commands::stats::stats_get,
+            commands::peer::peer_status,
+            commands::peer::peer_pair_start,
+            commands::peer::peer_pair_cancel,
+            commands::peer::peer_unpair,
+            commands::peer::peer_firewall_add,
             // A development helper (imports any folder by path): never in release builds.
             #[cfg(debug_assertions)]
             commands::dev::dev_import_folder,

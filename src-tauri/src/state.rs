@@ -39,6 +39,8 @@ pub struct AppState {
     pub syncing: AtomicBool,
     /// Last network probe succeeded (see `net.rs`).
     pub online: AtomicBool,
+    /// Stats sync with the phone: the server and the pairing code on screen.
+    pub peer: crate::commands::peer::PeerState,
     lrclib: OnceLock<Lrclib>,
 }
 
@@ -130,6 +132,7 @@ impl AppState {
             downloads_channel: Mutex::new(None),
             syncing: AtomicBool::new(false),
             online: AtomicBool::new(true),
+            peer: Default::default(),
             lrclib: OnceLock::new(),
         })
     }

@@ -11,6 +11,11 @@ export const stats = {
       year: "This year",
       all: "All time",
     },
+    /** The device filter and the per-device split under the totals. */
+    allDevices: "All devices",
+    thisDevice: "This PC",
+    otherDevice: "Other device",
+    total: "Total",
     listened: "Listening time",
     plays: "Plays",
     tracks: "Tracks",
