@@ -380,7 +380,7 @@ setInterval(() => {
 
 /** A made-up recap; longer periods scale the numbers up. `?stats=empty` shows the empty state. */
 function demoStats(period: string): ListeningStats {
-  const empty: ListeningStats = { listenedMs: 0, plays: 0, tracks: 0, artists: 0, topTracks: [], topArtists: [], topAlbums: [], byHour: Array(24).fill(0), byWeekday: Array(7).fill(0) };
+  const empty: ListeningStats = { listenedMs: 0, plays: 0, tracks: 0, artists: 0, topTracks: [], topArtists: [], topAlbums: [], byHour: Array(24).fill(0), byWeekday: Array(7).fill(0), byDevice: [] };
   if (params.get("stats") === "empty") return empty;
   const scale = { week: 1, month: 4.3, year: 38, all: 52 }[period] ?? 1;
   const n = (x: number) => Math.round(x * scale);
@@ -406,6 +406,7 @@ function demoStats(period: string): ListeningStats {
     byHour: hourShape.map((x) => (x * listenedMs) / 141),
     byWeekday: dayShape.map((x) => (x * listenedMs) / 70),
     topDay: { dayMs: new Date(2026, 9, 10).getTime(), plays: 31, listenedMs: 196 * MIN },
+    byDevice: [],
   };
 }
 

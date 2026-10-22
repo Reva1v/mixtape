@@ -112,8 +112,10 @@ impl Drop for Lease<'_> {
 mod tests {
     use super::*;
 
+    /// Settings rows besides `device_id`, which every database has.
     fn settings_count(db: &Db) -> i64 {
-        db.read(|c| Ok(c.query_row("SELECT count(*) FROM settings", [], |r| r.get(0))?)).unwrap()
+        db.read(|c| Ok(c.query_row("SELECT count(*) FROM settings WHERE key <> 'device_id'", [], |r| r.get(0))?))
+            .unwrap()
     }
 
     #[test]

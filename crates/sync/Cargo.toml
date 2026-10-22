@@ -22,6 +22,14 @@ tracing.workspace = true
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2", "stream"] }
 url = "2.5"
 md-5 = "0.10"
+# Phone ↔ PC stats sync (`peer`): the frames are sealed with ChaCha20-Poly1305 under keys
+# HKDF-SHA256 derives from the pairing key; mDNS finds the PC without system services.
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+hkdf = "0.12"
+sha2 = "0.10"
+getrandom = "0.3"
+base64 = "0.22"
+mdns-sd = { version = "0.21", default-features = false }
 
 # Same major as Tauri 2 so only one copy of `windows` is compiled.
 [target.'cfg(windows)'.dependencies]

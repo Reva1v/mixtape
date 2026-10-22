@@ -15,7 +15,15 @@ const MIGRATIONS_SLICE: &[M<'static>] = &[
     M::up(include_str!("../migrations/006_track_loudness.sql")),
     M::up(include_str!("../migrations/007_track_analysis.sql")),
     M::up(include_str!("../migrations/008_media_containers.sql")),
+    M::up(include_str!("../migrations/009_play_events_device.sql")),
 ];
+
+/// Creates `settings.device_id` (a random UUID v4, as JSON) when it is missing. Migration 009
+/// makes it the same way; this covers a row deleted by hand.
+const ENSURE_DEVICE_ID: &str = "INSERT OR IGNORE INTO settings(key, value) VALUES ('device_id', '\"' ||
+    lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' ||
+    substr(lower(hex(randomblob(2))), 2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) ||
+    substr(lower(hex(randomblob(2))), 2) || '-' || lower(hex(randomblob(6))) || '\"')";
 
 fn migrations() -> Migrations<'static> {
     Migrations::from_slice(MIGRATIONS_SLICE)
@@ -34,6 +42,7 @@ pub fn open_writer(path: &Path) -> Result<Connection> {
     conn.pragma_update(None, "cache_size", -16_000)?; // ~16 MB
     conn.busy_timeout(Duration::from_secs(5))?;
     migrations().to_latest(&mut conn)?;
+    conn.execute(ENSURE_DEVICE_ID, [])?;
     Ok(conn)
 }
 
@@ -115,6 +124,49 @@ mod tests {
         conn.execute("DELETE FROM tracks WHERE id = 'b'", []).unwrap();
         let n: i64 = conn.query_row("SELECT COUNT(*) FROM media_files", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn v8_play_events_get_this_device_and_seq() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        {
+            let mut conn = Connection::open(&path).unwrap();
+            Migrations::from_slice(&MIGRATIONS_SLICE[..8]).to_latest(&mut conn).unwrap();
+            conn.execute("INSERT INTO tracks(id, title) VALUES ('a', 'A')", []).unwrap();
+            conn.execute(
+                "INSERT INTO play_events(id, track_id, started_at, listened_ms) VALUES (3, 'a', 10, 1), (7, 'a', 20, 2)",
+                [],
+            )
+            .unwrap();
+        }
+        let conn = open_writer(&path).unwrap();
+        let device = crate::settings::device_id(&conn).unwrap();
+        assert_eq!(device.len(), 36);
+        assert_eq!(&device[14..15], "4", "UUID v4: {device}");
+        assert!("89ab".contains(&device[19..20]), "UUID variant: {device}");
+        let rows: Vec<(i64, String, i64)> = conn
+            .prepare("SELECT id, device, seq FROM play_events ORDER BY id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(rows, [(3, device.clone(), 3), (7, device.clone(), 7)]);
+        // A global id is unique.
+        assert!(conn
+            .execute("INSERT INTO play_events(track_id, started_at, listened_ms, device, seq) VALUES ('a', 1, 1, ?1, 7)", [&device])
+            .is_err());
+        // Ids never go back, even after the last row is gone: new local plays continue after 7.
+        conn.execute("DELETE FROM play_events WHERE id = 7", []).unwrap();
+        crate::stats::record(&conn, &mixtape_core::TrackId::from("a"), 30, 3).unwrap();
+        let last: (i64, i64) =
+            conn.query_row("SELECT id, seq FROM play_events WHERE started_at = 30", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!(last, (8, 8));
+        // Reopening keeps the same id.
+        drop(conn);
+        let conn = open_writer(&path).unwrap();
+        assert_eq!(crate::settings::device_id(&conn).unwrap(), device);
     }
 
     #[test]

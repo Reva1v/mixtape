@@ -76,6 +76,23 @@ pub struct TopDay {
     pub listened_ms: u64,
 }
 
+/// One device's share of a period (phone ↔ PC sync, specs 007).
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct DeviceTotal {
+    /// The device's id (`play_events.device`); what [`listening_for`] filters by.
+    pub device: String,
+    /// This device's name, or the paired device's; `None` for a device no longer known.
+    #[ts(optional)]
+    pub name: Option<String>,
+    /// The device this database belongs to.
+    pub this_device: bool,
+    #[ts(type = "number")]
+    pub listened_ms: u64,
+    pub plays: u32,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
@@ -97,12 +114,19 @@ pub struct ListeningStats {
     pub by_weekday: Vec<u64>,
     #[ts(optional)]
     pub top_day: Option<TopDay>,
+    /// The period by device, most listened first. Always over all devices, also when the
+    /// rest is filtered to one.
+    pub by_device: Vec<DeviceTotal>,
 }
 
-/// Logs one play.
+/// Logs one play of this device. Its global id is `(settings.device_id, id)`: `seq` is the
+/// id the row is about to get, the next AUTOINCREMENT value after `sqlite_sequence`.
 pub fn record(conn: &Connection, id: &TrackId, started_at: i64, listened_ms: u64) -> Result<()> {
     conn.prepare_cached(
-        "INSERT INTO play_events(track_id, started_at, listened_ms) VALUES (?1, ?2, ?3)",
+        "INSERT INTO play_events(track_id, started_at, listened_ms, device, seq)
+         VALUES (?1, ?2, ?3,
+            (SELECT json_extract(value, '$') FROM settings WHERE key = 'device_id'),
+            COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'play_events'), 0) + 1)",
     )?
     .execute(params![id.as_str(), started_at, listened_ms as i64])?;
     Ok(())
@@ -130,11 +154,23 @@ pub fn period_start(
     })
 }
 
-/// The recap of everything played since `since` (Unix ms).
+/// The recap of everything played since `since` (Unix ms), on every device.
 pub fn listening(conn: &Connection, since: i64, offset_ms: i64) -> Result<ListeningStats> {
+    listening_for(conn, since, offset_ms, None)
+}
+
+/// [`listening`] of the plays logged on `device` only (`None`: every device).
+/// [`ListeningStats::by_device`] still covers every device.
+pub fn listening_for(
+    conn: &Connection,
+    since: i64,
+    offset_ms: i64,
+    device: Option<&str>,
+) -> Result<ListeningStats> {
     let mut s = ListeningStats {
         by_hour: vec![0; 24],
         by_weekday: vec![0; 7],
+        by_device: by_device(conn, since)?,
         ..Default::default()
     };
 
@@ -144,9 +180,10 @@ pub fn listening(conn: &Connection, since: i64, offset_ms: i64) -> Result<Listen
     let mut per: HashMap<String, (u32, u64)> = HashMap::new();
     {
         let mut stmt = conn.prepare_cached(
-            "SELECT started_at, listened_ms, track_id FROM play_events WHERE started_at >= ?1",
+            "SELECT started_at, listened_ms, track_id FROM play_events
+             WHERE started_at >= ?1 AND (?2 IS NULL OR device = ?2)",
         )?;
-        let mut rows = stmt.query([since])?;
+        let mut rows = stmt.query(params![since, device])?;
         while let Some(r) = rows.next()? {
             let (at, ms): (i64, i64) = (r.get(0)?, r.get(1)?);
             let ms = ms.max(0) as u64;
@@ -220,9 +257,10 @@ pub fn listening(conn: &Connection, since: i64, offset_ms: i64) -> Result<Listen
              FROM tracks t
              LEFT JOIN track_artists ta ON ta.track_id = t.id
              LEFT JOIN artists a ON a.id = ta.artist_id
-             WHERE t.id IN (SELECT track_id FROM play_events WHERE started_at >= ?1)",
+             WHERE t.id IN (SELECT track_id FROM play_events
+                            WHERE started_at >= ?1 AND (?2 IS NULL OR device = ?2))",
         )?;
-        let mut rows = stmt.query([since])?;
+        let mut rows = stmt.query(params![since, device])?;
         while let Some(r) = rows.next()? {
             let track: String = r.get(0)?;
             let Some(&(plays, ms)) = per.get(&track) else {
@@ -294,6 +332,44 @@ pub fn listening(conn: &Connection, since: i64, offset_ms: i64) -> Result<Listen
         })
         .collect();
     Ok(s)
+}
+
+/// Plays and time since `since` per device, named from the settings and the pairing.
+fn by_device(conn: &Connection, since: i64) -> Result<Vec<DeviceTotal>> {
+    let me = crate::settings::device_id(conn)?;
+    let peer = crate::peer_store::pairing(conn)?;
+    let mut stmt = conn.prepare_cached(
+        "SELECT device, COALESCE(SUM(MAX(listened_ms, 0)), 0), COUNT(*) FROM play_events
+         WHERE started_at >= ?1 GROUP BY device",
+    )?;
+    let rows = stmt.query_map([since], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (device, ms, plays) = row?;
+        let this_device = device == me;
+        let name = if this_device {
+            Some(crate::settings::device_name(conn)?)
+        } else {
+            peer.as_ref()
+                .filter(|p| p.peer_device == device)
+                .map(|p| p.peer_name.clone())
+        };
+        out.push(DeviceTotal {
+            device,
+            name,
+            this_device,
+            listened_ms: ms as u64,
+            plays: plays as u32,
+        });
+    }
+    out.sort_unstable_by(|a, b| {
+        b.listened_ms
+            .cmp(&a.listened_ms)
+            .then_with(|| a.device.cmp(&b.device))
+    });
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -420,6 +496,77 @@ mod tests {
             "c",
             "c: 2 plays, 9 min"
         );
+    }
+
+    #[test]
+    fn filters_by_device_and_splits_by_device() {
+        use crate::peer_store::{Pairing, PeerEvent, PeerTrack, merge_events, save_pairing};
+        let (_d, db) = db();
+        db.write(|t| {
+            seed(t)?;
+            record(t, &TrackId::from("a"), MONDAY, 3 * MIN)?;
+            record(t, &TrackId::from("b"), MONDAY + HOUR_MS, 2 * MIN)?;
+            let ev = |seq, track: &str, ms| PeerEvent {
+                device: "phone".into(),
+                seq,
+                started_at: MONDAY + 2 * HOUR_MS,
+                listened_ms: ms,
+                track: PeerTrack {
+                    id: TrackId::from(track),
+                    title: track.into(),
+                    artists: Vec::new(),
+                    album: None,
+                    duration_ms: 0,
+                },
+            };
+            merge_events(t, &[ev(1, "c", 4 * MIN), ev(2, "c", 4 * MIN), ev(3, "a", MIN)])?;
+            t.execute(
+                "INSERT INTO settings(key, value) VALUES ('device_name', '\"Desktop\"')",
+                [],
+            )?;
+            save_pairing(
+                t,
+                &Pairing {
+                    peer_device: "phone".into(),
+                    peer_name: "Galaxy".into(),
+                    key: [0; 32],
+                    addresses: Vec::new(),
+                    last_address: None,
+                    paired_at: 0,
+                    last_exchange: None,
+                },
+            )
+        })
+        .unwrap();
+        let me = db.read(crate::settings::device_id).unwrap();
+
+        let all = db.read(|c| listening(c, i64::MIN, 0)).unwrap();
+        assert_eq!((all.plays, all.listened_ms), (5, 14 * MIN));
+        let split: Vec<(&str, Option<&str>, bool, u64, u32)> = all
+            .by_device
+            .iter()
+            .map(|d| (d.device.as_str(), d.name.as_deref(), d.this_device, d.listened_ms, d.plays))
+            .collect();
+        assert_eq!(
+            split,
+            [
+                ("phone", Some("Galaxy"), false, 9 * MIN, 3),
+                (me.as_str(), Some("Desktop"), true, 5 * MIN, 2)
+            ]
+        );
+
+        let phone = db.read(|c| listening_for(c, i64::MIN, 0, Some("phone"))).unwrap();
+        assert_eq!((phone.plays, phone.listened_ms, phone.tracks), (3, 9 * MIN, 2));
+        assert_eq!(phone.top_tracks[0].track.id.as_str(), "c");
+        assert_eq!(phone.by_hour[2], 9 * MIN);
+        assert_eq!(phone.by_device, all.by_device, "the split ignores the filter");
+        let artists: Vec<&str> = phone.top_artists.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(artists, ["Y", "Z", "X"], "c twice, a once");
+
+        let mine = db.read(|c| listening_for(c, i64::MIN, 0, Some(&me))).unwrap();
+        assert_eq!((mine.plays, mine.listened_ms), (2, 5 * MIN));
+        let none = db.read(|c| listening_for(c, i64::MIN, 0, Some("tablet"))).unwrap();
+        assert_eq!((none.plays, none.by_device.len()), (0, 2));
     }
 
     #[test]
