@@ -1,0 +1,14 @@
+{
+  "responseContext": { "visitorData": "CgtWaXNpdG9yRGF0YQ%3D%3D" },
+  "playabilityStatus": { "status": "OK" },
+  "streamingData": {
+    "expiresInSeconds": "21540",
+    "adaptiveFormats": [
+      { "itag": 137, "mimeType": "video/mp4; codecs=\"avc1.640028\"", "url": "https://rr1---sn-test.googlevideo.com/videoplayback?expire=1761170000&itag=137", "contentLength": "50000000", "approxDurationMs": "213041" },
+      { "itag": 140, "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"", "url": "https://rr1---sn-test.googlevideo.com/videoplayback?expire=1761170000&itag=140", "contentLength": "3448000", "approxDurationMs": "213041" },
+      { "itag": 249, "mimeType": "audio/webm; codecs=\"opus\"", "url": "https://rr1---sn-test.googlevideo.com/videoplayback?expire=1761170000&itag=249", "contentLength": "1300000", "approxDurationMs": "213041" },
+      { "itag": 251, "mimeType": "audio/webm; codecs=\"opus\"", "url": "https://rr1---sn-test.googlevideo.com/videoplayback?expire=1761170000&itag=251", "contentLength": "3456789", "approxDurationMs": "213041" }
+    ]
+  },
+  "videoDetails": { "videoId": "dQw4w9WgXcQ", "title": "Never Gonna Give You Up", "lengthSeconds": "213", "author": "Rick Astley - Topic" }
+}

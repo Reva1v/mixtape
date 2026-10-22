@@ -1,0 +1,8 @@
+{
+  "playabilityStatus": { "status": "OK" },
+  "streamingData": {
+    "adaptiveFormats": [
+      { "itag": 251, "mimeType": "audio/webm; codecs=\"opus\"", "signatureCipher": "s=AAA&sp=sig&url=https%3A%2F%2Frr1---sn-test.googlevideo.com%2Fvideoplayback%3Fitag%3D251", "contentLength": "3456789" }
+    ]
+  }
+}

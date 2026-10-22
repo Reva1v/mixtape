@@ -110,6 +110,14 @@ SOFTWARE.
 The SIL Open Font License 1.1 (Inter) is at https://openfontlicense.org; CC BY 4.0 (Solar)
 at https://creativecommons.org/licenses/by/4.0/legalcode.
 
+## Borrowed from ReVanced
+
+The InnerTube clients in `crates/yt/src/clients.json` (names, ids, versions, device and user
+agent parameters) and the shape of their `player` / `reel/reel_item_watch` requests in
+`crates/yt/src/direct.rs` follow the "Spoof video streams" patch of ReVanced
+(https://gitlab.com/revanced/revanced-patches, `extensions/shared/library/.../spoof/ClientType.java`
+and `requests/PlayerRoutes.java`), © ReVanced contributors, GPL-3.0.
+
 ## Rust crates
 
 The app is built from many Rust crates (Tauri, symphonia, cpal, rusqlite with bundled SQLite,

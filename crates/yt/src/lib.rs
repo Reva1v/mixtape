@@ -4,10 +4,12 @@
 
 pub mod api;
 pub mod auth;
+pub mod direct;
 pub mod home;
 pub mod innertube;
 pub mod limits;
 pub mod loudness;
+pub mod meta;
 pub mod parse;
 pub mod radio;
 pub mod resolver;

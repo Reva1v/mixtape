@@ -10,7 +10,9 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fmt;
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
@@ -85,6 +87,27 @@ impl ResolvedStream {
     /// Whether the URL is still good enough to start a download at `now` (unix seconds).
     pub fn is_fresh(&self, now: u64) -> bool {
         now + EXPIRY_MARGIN_SECS < self.expires_at
+    }
+}
+
+/// The answer of [`Resolve::resolve_one`].
+pub type ResolveFuture<'a> = Pin<Box<dyn Future<Output = Result<ResolvedStream>> + Send + 'a>>;
+
+/// Something that turns a video id into a direct audio URL: yt-dlp on the desktop,
+/// [`crate::direct::DirectResolver`] on Android.
+pub trait Resolve: Send + Sync {
+    fn resolve_one<'a>(&'a self, id: &'a TrackId) -> ResolveFuture<'a>;
+    /// Forgets the cached URL, e.g. after googlevideo answered 403.
+    fn invalidate(&self, id: &TrackId);
+}
+
+impl Resolve for StreamResolver {
+    fn resolve_one<'a>(&'a self, id: &'a TrackId) -> ResolveFuture<'a> {
+        Box::pin(StreamResolver::resolve_one(self, id))
+    }
+
+    fn invalidate(&self, id: &TrackId) {
+        StreamResolver::invalidate(self, id);
     }
 }
 
