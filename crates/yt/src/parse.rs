@@ -37,7 +37,9 @@ pub fn find_all<'a>(v: &'a Value, key: &str) -> Vec<&'a Value> {
 
 pub fn find_first<'a>(v: &'a Value, key: &str) -> Option<&'a Value> {
     match v {
-        Value::Object(o) => o.get(key).or_else(|| o.values().find_map(|c| find_first(c, key))),
+        Value::Object(o) => o
+            .get(key)
+            .or_else(|| o.values().find_map(|c| find_first(c, key))),
         Value::Array(a) => a.iter().find_map(|c| find_first(c, key)),
         _ => None,
     }
@@ -49,11 +51,17 @@ pub fn text(v: Option<&Value>) -> String {
     if let Some(s) = v.get("simpleText").and_then(Value::as_str) {
         return s.to_owned();
     }
-    runs(Some(v)).iter().filter_map(|r| r.get("text").and_then(Value::as_str)).collect()
+    runs(Some(v))
+        .iter()
+        .filter_map(|r| r.get("text").and_then(Value::as_str))
+        .collect()
 }
 
 pub fn runs(v: Option<&Value>) -> &[Value] {
-    v.and_then(|v| v.get("runs")).and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[])
+    v.and_then(|v| v.get("runs"))
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
 }
 
 fn run_text(run: &Value) -> &str {
@@ -77,7 +85,13 @@ pub fn thumbnail(v: &Value) -> Option<String> {
         .max_by_key(|t| t.get("width").and_then(Value::as_u64).unwrap_or(0))
         .and_then(|t| t.get("url"))
         .and_then(Value::as_str)
-        .map(|u| if u.starts_with("//") { format!("https:{u}") } else { u.to_owned() })
+        .map(|u| {
+            if u.starts_with("//") {
+                format!("https:{u}")
+            } else {
+                u.to_owned()
+            }
+        })
 }
 
 /// "3:37" / "1:02:03" → milliseconds.
@@ -132,41 +146,63 @@ pub fn artists_from_runs(runs: &[Value]) -> Vec<ArtistRef> {
         let name = run_text(run).trim();
         let linked = browse_id(run);
         match (linked, page_type(run)) {
-            (Some(id), Some("MUSIC_PAGE_TYPE_ARTIST" | "MUSIC_PAGE_TYPE_USER_CHANNEL")) => {
-                out.push(ArtistRef { id: Some(ArtistId::new(id)), name: name.to_owned() })
-            }
+            (Some(id), Some("MUSIC_PAGE_TYPE_ARTIST" | "MUSIC_PAGE_TYPE_USER_CHANNEL")) => out
+                .push(ArtistRef {
+                    id: Some(ArtistId::new(id)),
+                    name: name.to_owned(),
+                }),
             (Some(_), _) => {}
             (None, _) if is_separator(name) => {}
-            (None, _) => out.push(ArtistRef { id: None, name: name.to_owned() }),
+            (None, _) => out.push(ArtistRef {
+                id: None,
+                name: name.to_owned(),
+            }),
         }
     }
     out
 }
 
 fn is_separator(s: &str) -> bool {
-    matches!(s, "" | "," | "&" | "•" | "и" | "і" | "та" | "and" | "x" | "×" | "feat." | "ft.")
+    matches!(
+        s,
+        "" | "," | "&" | "•" | "и" | "і" | "та" | "and" | "x" | "×" | "feat." | "ft."
+    )
 }
 
 fn album_from_runs(runs: &[Value]) -> Option<AlbumRef> {
     runs.iter().find_map(|r| {
         let id = browse_id(r)?;
-        (page_type(r) == Some("MUSIC_PAGE_TYPE_ALBUM") || id.starts_with("MPRE"))
-            .then(|| AlbumRef { id: AlbumId::new(id), title: run_text(r).to_owned() })
+        (page_type(r) == Some("MUSIC_PAGE_TYPE_ALBUM") || id.starts_with("MPRE")).then(|| {
+            AlbumRef {
+                id: AlbumId::new(id),
+                title: run_text(r).to_owned(),
+            }
+        })
     })
 }
 
 pub fn video_kind(v: &Value) -> VideoKind {
     match find_first(v, "musicVideoType").and_then(Value::as_str) {
         Some("MUSIC_VIDEO_TYPE_ATV") => VideoKind::Audio,
-        Some("MUSIC_VIDEO_TYPE_OMV" | "MUSIC_VIDEO_TYPE_UGC" | "MUSIC_VIDEO_TYPE_OFFICIAL_SOURCE_MUSIC") => {
-            VideoKind::Video
-        }
+        Some(
+            "MUSIC_VIDEO_TYPE_OMV"
+            | "MUSIC_VIDEO_TYPE_UGC"
+            | "MUSIC_VIDEO_TYPE_OFFICIAL_SOURCE_MUSIC",
+        ) => VideoKind::Video,
         _ => VideoKind::Unknown,
     }
 }
 
 fn flex_column(item: &Value, i: usize) -> Option<&Value> {
-    at(item, &["flexColumns", &i.to_string(), "musicResponsiveListItemFlexColumnRenderer", "text"])
+    at(
+        item,
+        &[
+            "flexColumns",
+            &i.to_string(),
+            "musicResponsiveListItemFlexColumnRenderer",
+            "text",
+        ],
+    )
 }
 
 /// A song row (`musicResponsiveListItemRenderer`) from a playlist, album or likes shelf.
@@ -180,7 +216,9 @@ pub fn list_item_track(item: &Value) -> Option<YtTrack> {
     let col2 = runs(flex_column(item, 2));
     let mut artists = artists_from_runs(col1);
     // Album pages put play counts in column 1 and no artists at all.
-    if col1.iter().all(|r| browse_id(r).is_none()) && col1.len() == 1 && leading_number(run_text(&col1[0])).is_some()
+    if col1.iter().all(|r| browse_id(r).is_none())
+        && col1.len() == 1
+        && leading_number(run_text(&col1[0])).is_some()
     {
         artists.clear();
     }
@@ -190,7 +228,10 @@ pub fn list_item_track(item: &Value) -> Option<YtTrack> {
         .map(|t| text(Some(t)))
         .find_map(|s| duration_ms(&s))
         .unwrap_or(0);
-    let track_no = item.get("index").map(|i| text(Some(i))).and_then(|s| s.trim().parse().ok());
+    let track_no = item
+        .get("index")
+        .map(|i| text(Some(i)))
+        .and_then(|s| s.trim().parse().ok());
     Some(YtTrack {
         id: TrackId::new(video_id),
         title,
@@ -217,10 +258,15 @@ pub fn two_row_album(item: &Value) -> Option<YtAlbumCard> {
         title: run_text(title_run).to_owned(),
         artists: artists_from_runs(sub)
             .into_iter()
-            .filter(|a| a.id.is_some() || (album_type(&a.name).is_none() && year(&a.name).is_none()))
+            .filter(|a| {
+                a.id.is_some() || (album_type(&a.name).is_none() && year(&a.name).is_none())
+            })
             .collect(),
         year: sub.iter().find_map(|r| year(run_text(r))),
-        album_type: sub.first().and_then(|r| album_type(run_text(r))).or_else(|| album_type(&sub_text)),
+        album_type: sub
+            .first()
+            .and_then(|r| album_type(run_text(r)))
+            .or_else(|| album_type(&sub_text)),
         thumbnail: item.get("thumbnailRenderer").and_then(thumbnail),
     })
 }
@@ -237,7 +283,10 @@ pub fn two_row_playlist(item: &Value) -> Option<YtPlaylistCard> {
     Some(YtPlaylistCard {
         id: PlaylistId::new(id),
         title: run_text(title_run).to_owned(),
-        author: sub.iter().find(|r| browse_id(r).is_some()).map(|r| run_text(r).to_owned()),
+        author: sub
+            .iter()
+            .find(|r| browse_id(r).is_some())
+            .map(|r| run_text(r).to_owned()),
         track_count: sub.iter().rev().find_map(|r| leading_number(run_text(r))),
         thumbnail: item.get("thumbnailRenderer").and_then(thumbnail),
     })
@@ -274,7 +323,10 @@ pub fn panel_track(item: &Value) -> Option<YtTrack> {
     let video_id = item.get("videoId").and_then(Value::as_str)?;
     let byline = runs(item.get("longBylineText"));
     // Artists come before the first " • ".
-    let first_dot = byline.iter().position(|r| run_text(r).trim() == "•").unwrap_or(byline.len());
+    let first_dot = byline
+        .iter()
+        .position(|r| run_text(r).trim() == "•")
+        .unwrap_or(byline.len());
     Some(YtTrack {
         id: TrackId::new(video_id),
         title: text(item.get("title")),
@@ -291,7 +343,11 @@ pub fn panel_track(item: &Value) -> Option<YtTrack> {
 pub fn shelf_items(page: &Value) -> (Vec<&Value>, Option<String>) {
     for key in ["musicPlaylistShelfRenderer", "musicShelfRenderer"] {
         if let Some(shelf) = find_first(page, key) {
-            let contents = shelf.get("contents").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+            let contents = shelf
+                .get("contents")
+                .and_then(Value::as_array)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
             let token = continuation(contents).or_else(|| next_continuation(shelf));
             return (contents.iter().collect(), token);
         }
@@ -304,10 +360,20 @@ pub fn continuation_items(resp: &Value) -> (Vec<&Value>, Option<String>) {
     if let Some(items) = find_first(resp, "continuationItems").and_then(Value::as_array) {
         return (items.iter().collect(), continuation(items));
     }
-    if let Some(c) = resp.get("continuationContents").and_then(Value::as_object).and_then(|o| o.values().next()) {
-        let items = c.get("contents").or_else(|| c.get("items")).and_then(Value::as_array);
+    if let Some(c) = resp
+        .get("continuationContents")
+        .and_then(Value::as_object)
+        .and_then(|o| o.values().next())
+    {
+        let items = c
+            .get("contents")
+            .or_else(|| c.get("items"))
+            .and_then(Value::as_array);
         let items = items.map(Vec::as_slice).unwrap_or(&[]);
-        return (items.iter().collect(), continuation(items).or_else(|| next_continuation(c)));
+        return (
+            items.iter().collect(),
+            continuation(items).or_else(|| next_continuation(c)),
+        );
     }
     (Vec::new(), None)
 }
@@ -315,21 +381,35 @@ pub fn continuation_items(resp: &Value) -> (Vec<&Value>, Option<String>) {
 fn continuation(items: &[Value]) -> Option<String> {
     items.iter().rev().find_map(|i| {
         let r = i.get("continuationItemRenderer")?;
-        find_first(r, "token").and_then(Value::as_str).map(str::to_owned)
+        find_first(r, "token")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
     })
 }
 
 fn next_continuation(shelf: &Value) -> Option<String> {
-    at(shelf, &["continuations", "0", "nextContinuationData", "continuation"])
-        .and_then(Value::as_str)
-        .map(str::to_owned)
+    at(
+        shelf,
+        &["continuations", "0", "nextContinuationData", "continuation"],
+    )
+    .and_then(Value::as_str)
+    .map(str::to_owned)
 }
 
 /// Grid items (`musicTwoRowItemRenderer`) of a library tab or "see all" page.
 pub fn grid_items(page: &Value) -> (Vec<&Value>, Option<String>) {
-    let Some(grid) = find_first(page, "gridRenderer") else { return (Vec::new(), None) };
-    let items = grid.get("items").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
-    (items.iter().collect(), continuation(items).or_else(|| next_continuation(grid)))
+    let Some(grid) = find_first(page, "gridRenderer") else {
+        return (Vec::new(), None);
+    };
+    let items = grid
+        .get("items")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    (
+        items.iter().collect(),
+        continuation(items).or_else(|| next_continuation(grid)),
+    )
 }
 
 #[cfg(test)]
@@ -363,7 +443,13 @@ mod tests {
         let t = list_item_track(&row).unwrap();
         assert_eq!(t.id.as_str(), "abcdefghijk");
         assert_eq!(t.title, "Song");
-        assert_eq!(t.artists.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(), ["A", "B"]);
+        assert_eq!(
+            t.artists
+                .iter()
+                .map(|a| a.name.as_str())
+                .collect::<Vec<_>>(),
+            ["A", "B"]
+        );
         assert_eq!(t.album.unwrap().id.as_str(), "MPREb_x");
         assert_eq!(t.duration_ms, 217_000);
         assert_eq!(t.thumbnail.as_deref(), Some("https://x/a=w120-h120"));
@@ -446,7 +532,10 @@ mod tests {
     #[test]
     fn ukrainian_labels() {
         assert_eq!(album_type("Сингл"), Some(AlbumType::Single));
-        assert_eq!(album_type("Сингли та міні-альбоми"), Some(AlbumType::Single));
+        assert_eq!(
+            album_type("Сингли та міні-альбоми"),
+            Some(AlbumType::Single)
+        );
         assert_eq!(album_type("Міні-альбом"), Some(AlbumType::Ep));
         assert_eq!(album_type("Альбом"), Some(AlbumType::Album));
         assert_eq!(album_type("Альбоми"), Some(AlbumType::Album));
@@ -458,7 +547,10 @@ mod tests {
             json!({"text": " та "}),
             json!({"text": "C"}),
         ];
-        let names: Vec<String> = artists_from_runs(&runs).into_iter().map(|a| a.name).collect();
+        let names: Vec<String> = artists_from_runs(&runs)
+            .into_iter()
+            .map(|a| a.name)
+            .collect();
         assert_eq!(names, ["A", "B", "C"]);
     }
 }

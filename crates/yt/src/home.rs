@@ -5,7 +5,7 @@
 
 use crate::api::{YtAlbumCard, YtArtistCard, YtPlaylistCard, YtTrack};
 use crate::innertube::InnerTube;
-use crate::parse::{self, at, find_first, runs, text};
+use crate::parse::{self, at, find_all, find_first, runs, text};
 use crate::{Result, YtError};
 use mixtape_core::{ArtistRef, PlaylistId, TrackId, tr};
 use serde_json::Value;
@@ -42,6 +42,41 @@ pub struct HomeShelf {
 pub struct HomePage {
     pub shelves: Vec<HomeShelf>,
     pub continuation: Option<String>,
+}
+
+/// A filter chip above the home feed («Релакс», «Энергия»): the feed for a mood is the
+/// same browse with the chip's params.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HomeChip {
+    pub title: String,
+    pub params: String,
+    pub selected: bool,
+}
+
+/// The home feed with its chips (they come with the first page only).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HomeFeed {
+    pub chips: Vec<HomeChip>,
+    pub shelves: Vec<HomeShelf>,
+}
+
+/// The chip cloud of a first page; chips without params (none to browse) are skipped.
+pub fn chips(resp: &Value) -> Vec<HomeChip> {
+    find_all(resp, "chipCloudChipRenderer")
+        .into_iter()
+        .filter_map(|c| {
+            let params = at(c, &["navigationEndpoint", "browseEndpoint", "params"])?.as_str()?;
+            let title = text(c.get("text")).trim().to_owned();
+            (!title.is_empty() && !params.is_empty()).then(|| HomeChip {
+                title,
+                params: params.to_owned(),
+                selected: c
+                    .get("isSelected")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            })
+        })
+        .collect()
 }
 
 /// A `browse` response (first page or continuation) → shelves. Shelves without a single
@@ -217,7 +252,17 @@ impl InnerTube {
     /// `browse FEmusic_home`, then its continuations until `max_shelves` shelves are
     /// collected or the feed ends.
     pub async fn home(&self, max_shelves: usize) -> Result<Vec<HomeShelf>> {
-        let mut page = parse_page(&self.browse("FEmusic_home").await?);
+        Ok(self.home_feed(None, max_shelves).await?.shelves)
+    }
+
+    /// The home feed and its chips; with `chip` (a chip's params) the feed for that mood.
+    pub async fn home_feed(&self, chip: Option<&str>, max_shelves: usize) -> Result<HomeFeed> {
+        let first = match chip {
+            Some(params) => self.browse_params("FEmusic_home", params).await?,
+            None => self.browse("FEmusic_home").await?,
+        };
+        let chips = chips(&first);
+        let mut page = parse_page(&first);
         let mut shelves = std::mem::take(&mut page.shelves);
         let mut pages = 1;
         while shelves.len() < max_shelves
@@ -231,10 +276,15 @@ impl InnerTube {
         shelves.truncate(max_shelves);
         if shelves.is_empty() && max_shelves > 0 {
             return Err(YtError::Parse(
-                tr("the home page has no shelves", "на головній немає жодної добірки", "на главной нет ни одной подборки").into(),
+                tr(
+                    "the home page has no shelves",
+                    "на головній немає жодної добірки",
+                    "на главной нет ни одной подборки",
+                )
+                .into(),
             ));
         }
-        Ok(shelves)
+        Ok(HomeFeed { chips, shelves })
     }
 }
 
@@ -279,6 +329,43 @@ mod tests {
             .iter()
             .find(|s| s.title == title)
             .unwrap_or_else(|| panic!("no «{title}» in {titles:?}"))
+    }
+
+    #[test]
+    fn chips_carry_their_params() {
+        let page = json!({ "header": { "chipCloudRenderer": { "chips": [
+            { "chipCloudChipRenderer": {
+                "text": { "runs": [{ "text": "Релакс" }] },
+                "navigationEndpoint": { "browseEndpoint": { "browseId": "FEmusic_home", "params": "ggMPOg1" } },
+                "isSelected": true
+            } },
+            { "chipCloudChipRenderer": {
+                "text": { "runs": [{ "text": "Энергия" }] },
+                "navigationEndpoint": { "browseEndpoint": { "browseId": "FEmusic_home", "params": "ggMPOg2" } }
+            } },
+            { "chipCloudChipRenderer": {
+                "text": { "runs": [{ "text": "Без параметров" }] },
+                "navigationEndpoint": { "browseEndpoint": { "browseId": "FEmusic_home" } }
+            } }
+        ] } } });
+        let got = chips(&page);
+        assert_eq!(
+            got,
+            vec![
+                HomeChip {
+                    title: "Релакс".into(),
+                    params: "ggMPOg1".into(),
+                    selected: true
+                },
+                HomeChip {
+                    title: "Энергия".into(),
+                    params: "ggMPOg2".into(),
+                    selected: false
+                },
+            ]
+        );
+        // The sanitized fixture's chips have no params: nothing to browse, nothing shown.
+        assert!(chips(&fixture("browse_home.json")).is_empty());
     }
 
     #[test]
