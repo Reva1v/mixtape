@@ -28,9 +28,7 @@ pub struct Cookies {
 
 impl fmt::Debug for Cookies {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_list()
-            .entries(self.items.iter().map(|c| &c.name))
-            .finish()
+        f.debug_list().entries(self.items.iter().map(|c| &c.name)).finish()
     }
 }
 
@@ -43,10 +41,7 @@ impl Cookies {
         } else {
             parse_netscape(text)
         };
-        let items: Vec<Cookie> = items
-            .into_iter()
-            .filter(|c| is_youtube(&c.domain))
-            .collect();
+        let items: Vec<Cookie> = items.into_iter().filter(|c| is_youtube(&c.domain)).collect();
         let cookies = Self { items };
         if cookies.sapisid().is_none() {
             return Err(YtError::Unavailable(
@@ -66,15 +61,11 @@ impl Cookies {
     pub fn from_header(header: &str) -> Result<Self> {
         let mut text = String::from("# Netscape HTTP Cookie File\n");
         for pair in header.split(';') {
-            let Some((name, value)) = pair.trim().split_once('=') else {
-                continue;
-            };
+            let Some((name, value)) = pair.trim().split_once('=') else { continue };
             if name.is_empty() || name.contains(['\t', '\n']) || value.contains(['\t', '\n']) {
                 continue;
             }
-            text.push_str(&format!(
-                ".youtube.com\tTRUE\t/\tTRUE\t0\t{name}\t{value}\n"
-            ));
+            text.push_str(&format!(".youtube.com\tTRUE\t/\tTRUE\t0\t{name}\t{value}\n"));
         }
         Self::parse(&text)
     }
@@ -99,8 +90,7 @@ impl Cookies {
     }
 
     fn sapisid(&self) -> Option<&str> {
-        self.get("SAPISID")
-            .or_else(|| self.get("__Secure-3PAPISID"))
+        self.get("SAPISID").or_else(|| self.get("__Secure-3PAPISID"))
     }
 
     /// `Cookie:` header for requests to music.youtube.com.
@@ -112,11 +102,7 @@ impl Cookies {
             .items
             .iter()
             .filter(|c| c.domain.ends_with("youtube.com"))
-            .chain(
-                self.items
-                    .iter()
-                    .filter(|c| !c.domain.ends_with("youtube.com")),
-            );
+            .chain(self.items.iter().filter(|c| !c.domain.ends_with("youtube.com")));
         for c in ordered {
             if seen.insert(c.name.as_str()) {
                 if !out.is_empty() {
@@ -151,11 +137,7 @@ impl Cookies {
     pub fn to_netscape(&self) -> String {
         let mut out = String::from("# Netscape HTTP Cookie File\n");
         for c in &self.items {
-            let sub = if c.domain.starts_with('.') {
-                "TRUE"
-            } else {
-                "FALSE"
-            };
+            let sub = if c.domain.starts_with('.') { "TRUE" } else { "FALSE" };
             let secure = if c.secure { "TRUE" } else { "FALSE" };
             out.push_str(&format!(
                 "{}\t{sub}\t{}\t{secure}\t{}\t{}\t{}\n",
@@ -168,10 +150,7 @@ impl Cookies {
 
 fn is_youtube(domain: &str) -> bool {
     let d = domain.trim_start_matches('.');
-    d == "youtube.com"
-        || d.ends_with(".youtube.com")
-        || d == "google.com"
-        || d.ends_with(".google.com")
+    d == "youtube.com" || d.ends_with(".youtube.com") || d == "google.com" || d.ends_with(".google.com")
 }
 
 fn parse_netscape(text: &str) -> Vec<Cookie> {
@@ -200,20 +179,17 @@ fn parse_netscape(text: &str) -> Vec<Cookie> {
 
 /// EditThisCookie / Cookie-Editor export: `[{domain, path, secure, expirationDate, name, value}]`.
 fn parse_json(text: &str) -> Result<Vec<Cookie>> {
-    let value: serde_json::Value = serde_json::from_str(text).map_err(|e| {
-        YtError::Unavailable(trf!(
-            "Couldn't read the cookies JSON: {e}",
-            "Не вдалося прочитати JSON cookies: {e}",
-            "не получилось прочитать JSON cookies: {e}",
-        ))
-    })?;
+    let value: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| {
+            YtError::Unavailable(trf!(
+                "Couldn't read the cookies JSON: {e}",
+                "Не вдалося прочитати JSON cookies: {e}",
+                "не получилось прочитать JSON cookies: {e}",
+            ))
+        })?;
     let list = match &value {
         serde_json::Value::Array(a) => a.as_slice(),
-        serde_json::Value::Object(o) => o
-            .get("cookies")
-            .and_then(|v| v.as_array())
-            .map(|a| a.as_slice())
-            .unwrap_or(&[]),
+        serde_json::Value::Object(o) => o.get("cookies").and_then(|v| v.as_array()).map(|a| a.as_slice()).unwrap_or(&[]),
         _ => &[],
     };
     Ok(list
@@ -224,11 +200,7 @@ fn parse_json(text: &str) -> Result<Vec<Cookie>> {
                 domain: s("domain")?,
                 path: s("path").unwrap_or_else(|| "/".into()),
                 secure: c.get("secure").and_then(|v| v.as_bool()).unwrap_or(false),
-                expires: c
-                    .get("expirationDate")
-                    .and_then(|v| v.as_f64())
-                    .map(|v| v as u64)
-                    .unwrap_or(0),
+                expires: c.get("expirationDate").and_then(|v| v.as_f64()).map(|v| v as u64).unwrap_or(0),
                 name: s("name")?,
                 value: s("value")?,
             })
@@ -246,22 +218,13 @@ mod tests {
 
     #[test]
     fn reads_a_web_view_cookie_header() {
-        let c = Cookies::from_header(
-            "VISITOR_INFO1_LIVE=v; SAPISID=plain; __Secure-3PAPISID=three; SID=s=id;bad",
-        )
-        .unwrap();
+        let c = Cookies::from_header("VISITOR_INFO1_LIVE=v; SAPISID=plain; __Secure-3PAPISID=three; SID=s=id;bad").unwrap();
         assert_eq!(c.len(), 4);
         assert_eq!(c.sapisid(), Some("plain"));
         // A value may itself hold `=`.
         assert!(c.header().contains("SID=s=id"));
-        assert!(
-            c.to_netscape()
-                .contains(".youtube.com\tTRUE\t/\tTRUE\t0\tSAPISID\tplain")
-        );
-        assert!(
-            Cookies::from_header("PREF=f6=40000000; YSC=x").is_err(),
-            "no sign-in cookie"
-        );
+        assert!(c.to_netscape().contains(".youtube.com\tTRUE\t/\tTRUE\t0\tSAPISID\tplain"));
+        assert!(Cookies::from_header("PREF=f6=40000000; YSC=x").is_err(), "no sign-in cookie");
     }
 
     const NETSCAPE: &str = "# Netscape HTTP Cookie File\n\
@@ -282,10 +245,7 @@ mod tests {
     fn netscape_keeps_youtube_cookies_and_httponly_lines() {
         let c = Cookies::parse(NETSCAPE).unwrap();
         assert_eq!(c.len(), 4);
-        assert_eq!(
-            c.header(),
-            "__Secure-1PAPISID=one; __Secure-3PAPISID=three; SAPISID=plain; SID=sid"
-        );
+        assert_eq!(c.header(), "__Secure-1PAPISID=one; __Secure-3PAPISID=three; SAPISID=plain; SID=sid");
     }
 
     #[test]

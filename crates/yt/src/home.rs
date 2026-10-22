@@ -276,12 +276,7 @@ impl InnerTube {
         shelves.truncate(max_shelves);
         if shelves.is_empty() && max_shelves > 0 {
             return Err(YtError::Parse(
-                tr(
-                    "the home page has no shelves",
-                    "на головній немає жодної добірки",
-                    "на главной нет ни одной подборки",
-                )
-                .into(),
+                tr("the home page has no shelves", "на головній немає жодної добірки", "на главной нет ни одной подборки").into(),
             ));
         }
         Ok(HomeFeed { chips, shelves })

@@ -204,25 +204,12 @@ async fn fetch_first(client: &reqwest::Client, urls: &[String]) -> Result<Vec<u8
         }
         match read_limited(resp, MAX_IMAGE_BYTES).await {
             Ok(body) if !body.is_empty() => return Ok(body),
-            Ok(_) => {
-                last = Some(YtError::Unavailable(
-                    tr("Cover is empty", "Обкладинка порожня", "Обложка пустая").into(),
-                ))
-            }
+            Ok(_) => last = Some(YtError::Unavailable(tr("Cover is empty", "Обкладинка порожня", "Обложка пустая").into())),
             Err(BodyError::Http(e)) => last = Some(YtError::from(e)),
             Err(e @ BodyError::TooLarge(_)) => last = Some(YtError::Unavailable(e.to_string())),
         }
     }
-    Err(last.unwrap_or_else(|| {
-        YtError::Unavailable(
-            tr(
-                "No cover link",
-                "Немає посилання на обкладинку",
-                "Нет ссылки на обложку",
-            )
-            .into(),
-        )
-    }))
+    Err(last.unwrap_or_else(|| YtError::Unavailable(tr("No cover link", "Немає посилання на обкладинку", "Нет ссылки на обложку").into())))
 }
 
 #[cfg(test)]
@@ -371,11 +358,7 @@ mod tests {
                     };
                     // `/huge.jpg` announces more than an image may be.
                     let huge = path == "/huge.jpg";
-                    let len = if huge {
-                        MAX_IMAGE_BYTES + 1
-                    } else {
-                        body.len()
-                    };
+                    let len = if huge { MAX_IMAGE_BYTES + 1 } else { body.len() };
                     let status = if huge { "200 OK" } else { status };
                     let resp = format!(
                         "HTTP/1.1 {status}\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n{body}"
@@ -409,9 +392,6 @@ mod tests {
 
         let huge = [format!("{base}/huge.jpg")];
         let err = fetch_first(&client, &huge).await.unwrap_err();
-        assert!(
-            matches!(err, YtError::Unavailable(ref s) if s.contains("larger")),
-            "{err:?}"
-        );
+        assert!(matches!(err, YtError::Unavailable(ref s) if s.contains("larger")), "{err:?}");
     }
 }

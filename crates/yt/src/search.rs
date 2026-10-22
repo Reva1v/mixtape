@@ -536,9 +536,7 @@ fn playlist(row: &Row<'_>, id: &str) -> Option<YtPlaylistCard> {
         .map(|s| s.iter().map(run_text).collect::<String>())
         .find(|s| {
             let s = s.to_lowercase();
-            ["трек", "track", "песн", "песен", "пісн", "пісен", "song"]
-                .iter()
-                .any(|w| s.contains(w))
+            ["трек", "track", "песн", "песен", "пісн", "пісен", "song"].iter().any(|w| s.contains(w))
         })
         .and_then(|s| parse::leading_number(&s));
     Some(YtPlaylistCard {
@@ -877,14 +875,7 @@ mod tests {
         };
         assert_eq!(p.author.as_deref(), Some("YouTube Music"));
         assert_eq!(p.track_count, Some(35));
-        for (count, want) in [
-            ("12 пісень", 12),
-            ("3 пісні", 3),
-            ("1 пісня", 1),
-            ("25 песен", 25),
-            ("101 трек", 101),
-            ("40 треків", 40),
-        ] {
+        for (count, want) in [("12 пісень", 12), ("3 пісні", 3), ("1 пісня", 1), ("25 песен", 25), ("101 трек", 101), ("40 треків", 40)] {
             let uk = row(
                 json!({"text": "Плейлист"}),
                 vec![

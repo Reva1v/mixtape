@@ -291,11 +291,7 @@ impl StreamResolver {
             let mut out: Vec<(TrackId, Result<ResolvedStream>)> = bad
                 .into_iter()
                 .map(|id| {
-                    let reason = trf!(
-                        "invalid id {id}",
-                        "неправильний id {id}",
-                        "неверный id {id}"
-                    );
+                    let reason = trf!("invalid id {id}", "неправильний id {id}", "неверный id {id}");
                     (id, Err(YtError::Unavailable(reason)))
                 })
                 .collect();
@@ -423,11 +419,7 @@ impl StreamResolver {
         guard.disarm();
         let failure = match finished {
             Ok(Ok(_)) => None,
-            Ok(Err(e)) => Some(trf!(
-                "wait failed: {e}",
-                "помилка очікування: {e}",
-                "ошибка ожидания yt-dlp: {e}"
-            )),
+            Ok(Err(e)) => Some(trf!("wait failed: {e}", "помилка очікування: {e}", "ошибка ожидания yt-dlp: {e}")),
             Err(_) => {
                 kill_tree(pid, &mut child).await;
                 let secs = self.timeout.as_secs();
@@ -609,23 +601,16 @@ async fn kill_tree(pid: Option<u32>, child: &mut Child) {
 /// collects its output. After `timeout`, or when the returned future is dropped, the whole
 /// process tree is killed. `Err` carries a reason in the app
 /// language when the process did not start or did not finish; the exit code is not checked.
-pub async fn run_capture(
-    mut cmd: Command,
-    timeout: Duration,
-) -> std::result::Result<(String, String), String> {
+pub async fn run_capture(mut cmd: Command, timeout: Duration) -> std::result::Result<(String, String), String> {
     cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
-    let mut child = cmd.spawn().map_err(|e| {
-        trf!(
-            "couldn't start yt-dlp: {e}",
-            "не вдалося запустити yt-dlp: {e}",
-            "не удалось запустить yt-dlp: {e}"
-        )
-    })?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| trf!("couldn't start yt-dlp: {e}", "не вдалося запустити yt-dlp: {e}", "не удалось запустить yt-dlp: {e}"))?;
     let pid = child.id();
     let mut guard = TreeGuard(pid);
     let mut stdout = child.stdout.take();
@@ -633,11 +618,7 @@ pub async fn run_capture(
     let mut out = Vec::new();
     let mut err = Vec::new();
     let finished = tokio::time::timeout(timeout, async {
-        let (_, _, status) = tokio::join!(
-            read_all(&mut stdout, &mut out),
-            read_all(&mut stderr, &mut err),
-            child.wait()
-        );
+        let (_, _, status) = tokio::join!(read_all(&mut stdout, &mut out), read_all(&mut stderr, &mut err), child.wait());
         status
     })
     .await;
@@ -645,23 +626,12 @@ pub async fn run_capture(
     // could soon belong to someone else.
     guard.disarm();
     match finished {
-        Ok(Ok(_)) => Ok((
-            String::from_utf8_lossy(&out).into_owned(),
-            String::from_utf8_lossy(&err).into_owned(),
-        )),
-        Ok(Err(e)) => Err(trf!(
-            "yt-dlp wait failed: {e}",
-            "помилка очікування yt-dlp: {e}",
-            "ошибка ожидания yt-dlp: {e}"
-        )),
+        Ok(Ok(_)) => Ok((String::from_utf8_lossy(&out).into_owned(), String::from_utf8_lossy(&err).into_owned())),
+        Ok(Err(e)) => Err(trf!("yt-dlp wait failed: {e}", "помилка очікування yt-dlp: {e}", "ошибка ожидания yt-dlp: {e}")),
         Err(_) => {
             kill_tree(pid, &mut child).await;
             let secs = timeout.as_secs();
-            Err(trf!(
-                "yt-dlp didn't answer in {secs} s",
-                "yt-dlp не відповів за {secs} с",
-                "yt-dlp не ответил за {secs} с"
-            ))
+            Err(trf!("yt-dlp didn't answer in {secs} s", "yt-dlp не відповів за {secs} с", "yt-dlp не ответил за {secs} с"))
         }
     }
 }
@@ -736,50 +706,45 @@ pub fn no_data() -> YtError {
 
 /// Builds a [`ResolvedStream`] from one `-J` object.
 fn parse_info(v: &Value, now: u64) -> Result<ResolvedStream> {
-    let f = selected_format(v).ok_or_else(|| {
-        YtError::Parse(
+    let f = selected_format(v)
+        .ok_or_else(|| YtError::Parse(
             tr(
                 "yt-dlp picked no format",
                 "у відповіді yt-dlp немає вибраного формату",
                 "в ответе yt-dlp нет выбранного формата",
             )
             .into(),
-        )
-    })?;
+        ))?;
     let url = f
         .get("url")
         .and_then(Value::as_str)
-        .ok_or_else(|| {
-            YtError::Parse(
-                tr(
-                    "yt-dlp gave no stream link",
-                    "у відповіді yt-dlp немає посилання на потік",
-                    "в ответе yt-dlp нет ссылки на поток",
-                )
-                .into(),
+        .ok_or_else(|| YtError::Parse(
+            tr(
+                "yt-dlp gave no stream link",
+                "у відповіді yt-dlp немає посилання на потік",
+                "в ответе yt-dlp нет ссылки на поток",
             )
-        })?
+            .into(),
+        ))?
         .to_owned();
     let format_id = f
         .get("format_id")
         .and_then(Value::as_str)
         .unwrap_or_default();
     let digits: String = format_id.chars().take_while(char::is_ascii_digit).collect();
-    let itag: u32 = digits.parse().map_err(|_| {
-        YtError::Parse(trf!(
+    let itag: u32 = digits
+        .parse()
+        .map_err(|_| YtError::Parse(trf!(
             "unknown yt-dlp format: {format_id:?}",
             "незрозумілий формат yt-dlp: {format_id:?}",
             "непонятный формат yt-dlp: {format_id:?}",
-        ))
-    })?;
-    let container =
-        Container::detect(f.get("ext").and_then(Value::as_str), itag).ok_or_else(|| {
-            YtError::Parse(trf!(
-                "unexpected format {format_id}",
-                "неочікуваний формат {format_id}",
-                "неожиданный формат {format_id}",
-            ))
-        })?;
+        )))?;
+    let container = Container::detect(f.get("ext").and_then(Value::as_str), itag)
+        .ok_or_else(|| YtError::Parse(trf!(
+            "unexpected format {format_id}",
+            "неочікуваний формат {format_id}",
+            "неожиданный формат {format_id}",
+        )))?;
     let size = as_u64(f.get("filesize")).or_else(|| as_u64(f.get("filesize_approx")));
     let duration_ms = v
         .get("duration")
@@ -877,37 +842,17 @@ pub fn classify(message: &str) -> YtError {
     ]) {
         YtError::RateLimited
     } else if has(&["copyright", "umg", "content id", "who has blocked it"]) {
-        unavailable(tr(
-            "Blocked by the copyright holder",
-            "Заблоковано правовласником",
-            "Заблокировано правообладателем",
-        ))
+        unavailable(tr("Blocked by the copyright holder", "Заблоковано правовласником", "Заблокировано правообладателем"))
     } else if has(&["in your country", "geo restricted", "geo-restricted"]) {
-        unavailable(tr(
-            "Not available in your country",
-            "Недоступно у вашій країні",
-            "Недоступно в вашей стране",
-        ))
+        unavailable(tr("Not available in your country", "Недоступно у вашій країні", "Недоступно в вашей стране"))
     } else if has(&["requested format is not available"]) {
-        unavailable(tr(
-            "No suitable audio track",
-            "Немає відповідної аудіодоріжки",
-            "Нет подходящей аудиодорожки",
-        ))
+        unavailable(tr("No suitable audio track", "Немає відповідної аудіодоріжки", "Нет подходящей аудиодорожки"))
     } else if has(&["private video"]) {
         unavailable(tr("Private video", "Приватне відео", "Приватное видео"))
     } else if has(&["members-only", "join this channel"]) {
-        unavailable(tr(
-            "Channel members only",
-            "Лише для спонсорів каналу",
-            "Только для спонсоров канала",
-        ))
+        unavailable(tr("Channel members only", "Лише для спонсорів каналу", "Только для спонсоров канала"))
     } else if has(&["premium"]) {
-        unavailable(tr(
-            "YouTube Premium only",
-            "Лише для YouTube Premium",
-            "Только для YouTube Premium",
-        ))
+        unavailable(tr("YouTube Premium only", "Лише для YouTube Premium", "Только для YouTube Premium"))
     } else if has(&[
         "removed by the uploader",
         "has been removed",
@@ -915,11 +860,7 @@ pub fn classify(message: &str) -> YtError {
     ]) {
         unavailable(tr("Video removed", "Відео видалено", "Видео удалено"))
     } else if has(&["premieres in", "live event will begin", "this live event"]) {
-        unavailable(tr(
-            "The stream or premiere hasn't started yet",
-            "Трансляція або прем'єра ще не почалася",
-            "Трансляция или премьера ещё не началась",
-        ))
+        unavailable(tr("The stream or premiere hasn't started yet", "Трансляція або прем'єра ще не почалася", "Трансляция или премьера ещё не началась"))
     } else if has(&[
         "video unavailable",
         "video is unavailable",
@@ -927,11 +868,7 @@ pub fn classify(message: &str) -> YtError {
         "isn't available",
         "no longer available",
     ]) {
-        unavailable(tr(
-            "Video unavailable",
-            "Відео недоступне",
-            "Видео недоступно",
-        ))
+        unavailable(tr("Video unavailable", "Відео недоступне", "Видео недоступно"))
     } else if has(&[
         "sign in",
         "cookies are no longer valid",
@@ -1250,7 +1187,10 @@ mod tests {
             .await;
         assert_eq!(res.len(), 3);
         assert_eq!(res[0].1.as_ref().unwrap().itag, 251);
-        assert_eq!(unavailable(res[1].1.as_ref().unwrap_err()), "Private video");
+        assert_eq!(
+            unavailable(res[1].1.as_ref().unwrap_err()),
+            "Private video"
+        );
         assert_eq!(res[2].1.as_ref().unwrap().itag, 251);
 
         let seen = std::fs::read_to_string(dir.join("seen.txt")).unwrap();
@@ -1327,10 +1267,7 @@ mod tests {
         let call = tokio::time::timeout(Duration::from_millis(700), r.resolve_one(&id));
         assert!(call.await.is_err(), "the call is cut off");
         tokio::time::sleep(Duration::from_secs(5)).await;
-        assert!(
-            !dir.join("late.txt").exists(),
-            "a grandchild outlived the call"
-        );
+        assert!(!dir.join("late.txt").exists(), "a grandchild outlived the call");
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1341,20 +1278,10 @@ mod tests {
         let r = StreamResolver::new(script, "deno.exe".into(), dir.join("tmp"));
         let res = r.resolve(&ids(&["dQw4w9WgXcQ", "../evil"])).await;
         assert_eq!(res[0].1.as_ref().unwrap().itag, 251);
-        assert!(
-            matches!(res[1].1, Err(YtError::Unavailable(_))),
-            "{:?}",
-            res[1].1
-        );
+        assert!(matches!(res[1].1, Err(YtError::Unavailable(_))), "{:?}", res[1].1);
         let calls = std::fs::read_to_string(dir.join("calls.txt")).unwrap();
-        assert!(
-            calls.starts_with("--ignore-config --no-plugin-dirs "),
-            "{calls}"
-        );
-        assert!(
-            calls.contains(" -- \"https://www.youtube.com/watch?v=dQw4w9WgXcQ\""),
-            "{calls}"
-        );
+        assert!(calls.starts_with("--ignore-config --no-plugin-dirs "), "{calls}");
+        assert!(calls.contains(" -- \"https://www.youtube.com/watch?v=dQw4w9WgXcQ\""), "{calls}");
         assert!(!calls.contains("evil"), "{calls}");
         std::fs::remove_dir_all(&dir).ok();
     }
