@@ -397,6 +397,8 @@ impl Player {
             self.emit_state(&mut inner);
         } else {
             self.emit_state(&mut inner);
+            // `prefetch` takes the lock again.
+            drop(inner);
         }
         if streamed {
             self.prefetch();
