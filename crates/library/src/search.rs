@@ -3,6 +3,7 @@
 
 use crate::Result;
 use crate::normalize::{normalize, swap_layout};
+use crate::views::Scope;
 use mixtape_core::{AlbumId, ArtistId, PlaylistId, TrackId};
 use rusqlite::{Connection, params};
 
@@ -25,6 +26,16 @@ fn like_escape(s: &str) -> String {
 }
 
 pub fn search(conn: &Connection, query: &str, limit: usize) -> Result<SearchIds> {
+    search_scoped(conn, query, limit, Scope::Downloaded)
+}
+
+/// [`search`] with what counts as the library set by `scope`: `Synced` also finds tracks
+/// that are only liked, in a playlist or on a saved album, and saved albums and artists.
+pub fn search_scoped(conn: &Connection, query: &str, limit: usize, scope: Scope) -> Result<SearchIds> {
+    let (in_tracks, in_albums, in_artists) = match scope {
+        Scope::Downloaded => (DOWNLOADED_TRACKS, LIBRARY_ALBUMS, LIBRARY_ARTISTS),
+        Scope::Synced => (SYNCED_TRACKS, "x.in_library = 1", "x.in_library = 1"),
+    };
     let q = normalize(query);
     if q.is_empty() {
         return Ok(SearchIds::default());
@@ -36,13 +47,13 @@ pub fn search(conn: &Connection, query: &str, limit: usize) -> Result<SearchIds>
         if room == 0 {
             break;
         }
-        for id in tracks(conn, variant, room)? {
+        for id in tracks(conn, variant, room, in_tracks)? {
             if !out.tracks.contains(&id) {
                 out.tracks.push(id);
             }
         }
-        push_unique(&mut out.albums, like_ids(conn, "albums", variant, limit, AlbumId, LIBRARY_ALBUMS)?, limit);
-        push_unique(&mut out.artists, like_ids(conn, "artists", variant, limit, ArtistId, LIBRARY_ARTISTS)?, limit);
+        push_unique(&mut out.albums, like_ids(conn, "albums", variant, limit, AlbumId, in_albums)?, limit);
+        push_unique(&mut out.artists, like_ids(conn, "artists", variant, limit, ArtistId, in_artists)?, limit);
         push_unique(&mut out.playlists, like_ids(conn, "playlists", variant, limit, PlaylistId, "1")?, limit);
     }
     Ok(out)
@@ -59,32 +70,37 @@ fn push_unique<T: PartialEq>(dst: &mut Vec<T>, src: Vec<T>, limit: usize) {
     }
 }
 
+const DOWNLOADED_TRACKS: &str = "t.state IN ('downloaded', 'broken')";
+const SYNCED_TRACKS: &str = "(t.state IN ('downloaded', 'broken') OR t.liked = 1
+    OR EXISTS (SELECT 1 FROM playlist_items pi WHERE pi.track_id = t.id)
+    OR EXISTS (SELECT 1 FROM albums al WHERE al.id = t.album_id AND al.in_library = 1))";
+
 const LIBRARY_ALBUMS: &str =
     "EXISTS (SELECT 1 FROM tracks t WHERE t.album_id = x.id AND t.state IN ('downloaded', 'broken'))";
 const LIBRARY_ARTISTS: &str = "(x.in_library = 1 OR EXISTS (SELECT 1 FROM track_artists ta JOIN tracks t ON t.id = ta.track_id
     WHERE ta.artist_id = x.id AND t.state IN ('downloaded', 'broken')))";
 
-fn tracks(conn: &Connection, q: &str, limit: usize) -> Result<Vec<TrackId>> {
+fn tracks(conn: &Connection, q: &str, limit: usize, in_library: &str) -> Result<Vec<TrackId>> {
     // Trigram FTS needs at least three characters; shorter queries match word starts.
     let rows: Vec<String> = if q.chars().count() >= 3 {
-        let mut stmt = conn.prepare_cached(
+        let mut stmt = conn.prepare_cached(&format!(
             "SELECT t.id FROM tracks_fts f JOIN tracks t ON t.rowid = f.rowid
              LEFT JOIN play_stats p ON p.track_id = t.id
-             WHERE tracks_fts MATCH ?1 AND t.state IN ('downloaded', 'broken')
+             WHERE tracks_fts MATCH ?1 AND {in_library}
              ORDER BY (t.search_text LIKE ?2 ESCAPE '\\') DESC, COALESCE(p.play_count, 0) DESC
-             LIMIT ?3",
-        )?;
+             LIMIT ?3"
+        ))?;
         let prefix = format!("{}%", like_escape(q));
         stmt.query_map(params![fts_phrase(q), prefix, limit as i64], |r| r.get(0))?
             .collect::<std::result::Result<_, _>>()?
     } else {
-        let mut stmt = conn.prepare_cached(
+        let mut stmt = conn.prepare_cached(&format!(
             "SELECT t.id FROM tracks t LEFT JOIN play_stats p ON p.track_id = t.id
-             WHERE t.state IN ('downloaded', 'broken')
+             WHERE {in_library}
                AND (t.search_text LIKE ?1 ESCAPE '\\' OR t.search_text LIKE ?2 ESCAPE '\\')
              ORDER BY (t.search_text LIKE ?1 ESCAPE '\\') DESC, COALESCE(p.play_count, 0) DESC
-             LIMIT ?3",
-        )?;
+             LIMIT ?3"
+        ))?;
         let e = like_escape(q);
         stmt.query_map(params![format!("{e}%"), format!("% {e}%"), limit as i64], |r| r.get(0))?
             .collect::<std::result::Result<_, _>>()?
@@ -151,6 +167,21 @@ mod tests {
         assert_eq!(ids(&r.tracks), ["2"]);
         let r = db.read(|c| search(c, "100%", 10)).unwrap();
         assert!(r.tracks.is_empty());
+    }
+
+    #[test]
+    fn synced_scope_finds_liked_remote_tracks() {
+        let (_d, db) = db();
+        db.write(|t| {
+            upsert_track(t, &meta("1", "Liked Remote", ("UCa", "Someone"), None))?;
+            upsert_track(t, &meta("2", "Feed Remote", ("UCb", "Someone Else"), None))?;
+            crate::repo::set_liked(t, &TrackId::from("1"), true)
+        })
+        .unwrap();
+        let synced = db.read(|c| search_scoped(c, "remote", 10, Scope::Synced)).unwrap();
+        assert_eq!(ids(&synced.tracks), ["1"]);
+        let downloaded = db.read(|c| search(c, "remote", 10)).unwrap();
+        assert!(downloaded.tracks.is_empty());
     }
 
     #[test]

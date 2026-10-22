@@ -115,6 +115,12 @@ pub fn parse_page(resp: &Value) -> HomePage {
 /// A carousel section → shelf; `None` for other sections (chips, tastebuilder) and for
 /// carousels left empty after parsing.
 pub fn shelf(section: &Value) -> Option<HomeShelf> {
+    // A plain list shelf (chart rows) has its title on the renderer itself.
+    if let Some(list) = section.get("musicShelfRenderer") {
+        let items: Vec<HomeItem> = list.get("contents").and_then(Value::as_array).into_iter().flatten().filter_map(item).collect();
+        let title = text(list.get("title")).trim().to_owned();
+        return (!items.is_empty()).then_some(HomeShelf { title, items });
+    }
     let carousel = section
         .get("musicCarouselShelfRenderer")
         .or_else(|| section.get("musicImmersiveCarouselShelfRenderer"))?;
@@ -248,7 +254,72 @@ fn two_row_track(card: &Value, video_id: &str) -> Option<YtTrack> {
     })
 }
 
+/// A mood or genre tile of `FEmusic_moods_and_genres`: opens
+/// `FEmusic_moods_and_genres_category` with its params.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Category {
+    pub title: String,
+    pub params: String,
+}
+
+/// A titled group of tiles («Настроения и события», «Жанры»).
+#[derive(Debug, Clone, PartialEq)]
+pub struct CategoryGroup {
+    pub title: String,
+    pub items: Vec<Category>,
+}
+
+/// The tile grids of the moods-and-genres page; tiles without params are skipped.
+pub fn categories(resp: &Value) -> Vec<CategoryGroup> {
+    find_all(resp, "gridRenderer")
+        .into_iter()
+        .filter_map(|grid| {
+            let title = grid.get("header").and_then(|h| find_first(h, "title")).map(|t| text(Some(t))).unwrap_or_default().trim().to_owned();
+            let items: Vec<Category> = grid
+                .get("items")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|i| {
+                    let b = i.get("musicNavigationButtonRenderer")?;
+                    let params = at(b, &["clickCommand", "browseEndpoint", "params"])?.as_str()?;
+                    let title = text(b.get("buttonText")).trim().to_owned();
+                    (!title.is_empty()).then(|| Category { title, params: params.to_owned() })
+                })
+                .collect();
+            (!items.is_empty()).then_some(CategoryGroup { title, items })
+        })
+        .collect()
+}
+
 impl InnerTube {
+    /// Shelves of any browse page built like the home feed (charts, new releases, a mood
+    /// category), following continuations up to `max_shelves`.
+    pub async fn browse_shelves(&self, browse_id: &str, params: Option<&str>, max_shelves: usize) -> Result<Vec<HomeShelf>> {
+        let first = match params {
+            Some(p) => self.browse_params(browse_id, p).await?,
+            None => self.browse(browse_id).await?,
+        };
+        let mut page = parse_page(&first);
+        let mut shelves = std::mem::take(&mut page.shelves);
+        let mut pages = 1;
+        while shelves.len() < max_shelves
+            && pages < MAX_HOME_PAGES
+            && let Some(token) = page.continuation.take()
+        {
+            page = parse_page(&self.browse_continuation(&token).await?);
+            shelves.append(&mut page.shelves);
+            pages += 1;
+        }
+        shelves.truncate(max_shelves);
+        Ok(shelves)
+    }
+
+    /// The tiles of `FEmusic_moods_and_genres`.
+    pub async fn mood_categories(&self) -> Result<Vec<CategoryGroup>> {
+        Ok(categories(&self.browse("FEmusic_moods_and_genres").await?))
+    }
+
     /// `browse FEmusic_home`, then its continuations until `max_shelves` shelves are
     /// collected or the feed ends.
     pub async fn home(&self, max_shelves: usize) -> Result<Vec<HomeShelf>> {
@@ -324,6 +395,37 @@ mod tests {
             .iter()
             .find(|s| s.title == title)
             .unwrap_or_else(|| panic!("no «{title}» in {titles:?}"))
+    }
+
+    #[test]
+    fn list_shelves_and_category_tiles() {
+        let list = json!({ "musicShelfRenderer": {
+            "title": { "runs": [{ "text": "Топ" }] },
+            "contents": [{ "musicResponsiveListItemRenderer": {
+                "flexColumns": [
+                    { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{
+                        "text": "Song", "navigationEndpoint": { "watchEndpoint": { "videoId": "vid00000001",
+                        "watchEndpointMusicSupportedConfigs": { "watchEndpointMusicConfig": { "musicVideoType": "MUSIC_VIDEO_TYPE_ATV" } } } } }] } } },
+                    { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "Artist" }] } } }
+                ]
+            } }]
+        } });
+        let got = super::shelf(&list).expect("a list shelf");
+        assert_eq!(got.title, "Топ");
+        assert_eq!(got.items.len(), 1);
+
+        let page = json!({ "contents": [{ "gridRenderer": {
+            "header": { "gridHeaderRenderer": { "title": { "runs": [{ "text": "Жанры" }] } } },
+            "items": [
+                { "musicNavigationButtonRenderer": { "buttonText": { "runs": [{ "text": "Рок" }] },
+                  "clickCommand": { "browseEndpoint": { "browseId": "FEmusic_moods_and_genres_category", "params": "ggMProck" } } } },
+                { "musicNavigationButtonRenderer": { "buttonText": { "runs": [{ "text": "Пусто" }] } } }
+            ]
+        } }] });
+        assert_eq!(
+            categories(&page),
+            vec![CategoryGroup { title: "Жанры".into(), items: vec![Category { title: "Рок".into(), params: "ggMProck".into() }] }]
+        );
     }
 
     #[test]
