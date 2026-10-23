@@ -67,8 +67,18 @@ pub fn is_allowed(url: &str) -> bool {
         && u.username().is_empty()
         && u.password().is_none()
         && u.port().is_none()
-        && IMAGE_HOSTS.iter().any(|d| on_domain(&host, d))
+        && (IMAGE_HOSTS.iter().any(|d| on_domain(&host, d))
+            || IMAGE_PATHS
+                .iter()
+                .any(|(h, p)| host == *h && u.path().starts_with(p)))
 }
+
+/// Hosts that serve more than images, allowed only under their image paths: the generated
+/// art of YouTube Music mixes and the stock art of «Liked music».
+const IMAGE_PATHS: [(&str, &str); 2] = [
+    ("music.youtube.com", "/image/"),
+    ("www.gstatic.com", "/youtube/media/ytm/images/"),
+];
 
 fn shape(url: &str) -> Shape<'_> {
     let Some((_, rest)) = url.split_once("://") else {
@@ -312,6 +322,8 @@ mod tests {
             "https://i.scdn.co/image/ab67616d0000b273",
             "https://i1.sndcdn.com/artworks-000067273316-smsiqx-t500x500.jpg",
             "https://f4.bcbits.com/img/a1270682128_5.jpg",
+            "https://music.youtube.com/image/mixart?r=ENEBFAE",
+            "https://www.gstatic.com/youtube/media/ytm/images/pbg/liked-music-@576.png",
         ] {
             assert_eq!(hi_res(url), url);
             assert_eq!(candidates(url), [url]);
@@ -331,6 +343,8 @@ mod tests {
             "https://i.ytimg.com:8443/vi/dQw4w9WgXcQ/hqdefault.jpg",
             "file:///C:/Windows/win.ini",
             "https://127.0.0.1/a.jpg",
+            "https://music.youtube.com/watch?v=dQw4w9WgXcQ",
+            "https://www.gstatic.com/other/a.png",
         ] {
             assert!(candidates(url).is_empty(), "{url}");
             assert!(small_candidates(url).is_empty(), "{url}");
