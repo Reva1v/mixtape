@@ -7,6 +7,7 @@ pub mod auth;
 pub mod direct;
 pub mod home;
 pub mod innertube;
+pub mod library_edit;
 pub mod limits;
 pub mod loudness;
 pub mod meta;
