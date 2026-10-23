@@ -260,6 +260,8 @@ fn two_row_track(card: &Value, video_id: &str) -> Option<YtTrack> {
 pub struct Category {
     pub title: String,
     pub params: String,
+    /// The tile's accent (`solid.leftStripeColor`, ARGB), the stripe on its left in YouTube Music.
+    pub color: Option<u32>,
 }
 
 /// A titled group of tiles («Настроения и события», «Жанры»).
@@ -284,12 +286,19 @@ pub fn categories(resp: &Value) -> Vec<CategoryGroup> {
                     let b = i.get("musicNavigationButtonRenderer")?;
                     let params = at(b, &["clickCommand", "browseEndpoint", "params"])?.as_str()?;
                     let title = text(b.get("buttonText")).trim().to_owned();
-                    (!title.is_empty()).then(|| Category { title, params: params.to_owned() })
+                    let color = at(b, &["solid", "leftStripeColor"]).and_then(stripe_color);
+                    (!title.is_empty()).then(|| Category { title, params: params.to_owned(), color })
                 })
                 .collect();
             (!items.is_empty()).then_some(CategoryGroup { title, items })
         })
         .collect()
+}
+
+/// An ARGB colour as InnerTube writes it: a number, now and then a numeric string.
+fn stripe_color(v: &Value) -> Option<u32> {
+    let n = v.as_u64().or_else(|| v.as_i64().map(|n| n as u32 as u64)).or_else(|| v.as_str()?.parse().ok())?;
+    u32::try_from(n).ok()
 }
 
 impl InnerTube {
@@ -418,13 +427,27 @@ mod tests {
             "header": { "gridHeaderRenderer": { "title": { "runs": [{ "text": "Жанры" }] } } },
             "items": [
                 { "musicNavigationButtonRenderer": { "buttonText": { "runs": [{ "text": "Рок" }] },
+                  "solid": { "leftStripeColor": 4294901760_u64 },
                   "clickCommand": { "browseEndpoint": { "browseId": "FEmusic_moods_and_genres_category", "params": "ggMProck" } } } },
+                { "musicNavigationButtonRenderer": { "buttonText": { "runs": [{ "text": "Джаз" }] },
+                  "solid": { "leftStripeColor": "4278255360" },
+                  "clickCommand": { "browseEndpoint": { "params": "ggMPjazz" } } } },
+                { "musicNavigationButtonRenderer": { "buttonText": { "runs": [{ "text": "Блюз" }] },
+                  "clickCommand": { "browseEndpoint": { "params": "ggMPblues" } } } },
                 { "musicNavigationButtonRenderer": { "buttonText": { "runs": [{ "text": "Пусто" }] } } }
             ]
         } }] });
+        let tile = |title: &str, params: &str, color| Category { title: title.into(), params: params.into(), color };
         assert_eq!(
             categories(&page),
-            vec![CategoryGroup { title: "Жанры".into(), items: vec![Category { title: "Рок".into(), params: "ggMProck".into() }] }]
+            vec![CategoryGroup {
+                title: "Жанры".into(),
+                items: vec![
+                    tile("Рок", "ggMProck", Some(0xFFFF_0000)),
+                    tile("Джаз", "ggMPjazz", Some(0xFF00_FF00)),
+                    tile("Блюз", "ggMPblues", None),
+                ],
+            }]
         );
     }
 
