@@ -50,6 +50,17 @@ pub fn is_youtube_track(id: &TrackId) -> bool {
 /// Sets a like from the user. Only YouTube tracks go to the outbox; the others have no
 /// YouTube Music side and keep the like locally.
 pub fn set_like(conn: &Connection, id: &TrackId, liked: bool) -> Result<()> {
+    // A track shows its twins' likes (`repo::liked_twins`): an unlike takes them all off,
+    // or the heart would stay filled.
+    if !liked {
+        for twin in crate::repo::liked_twins(conn, id)? {
+            set_one(conn, &twin, false)?;
+        }
+    }
+    set_one(conn, id, liked)
+}
+
+fn set_one(conn: &Connection, id: &TrackId, liked: bool) -> Result<()> {
     if is_youtube_track(id) {
         queue_like(conn, id, liked)
     } else {

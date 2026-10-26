@@ -321,7 +321,26 @@ fn placeholders(n: usize) -> String {
     s
 }
 
-/// Loads tracks by id, preserving the order of `ids` and skipping unknown ones.
+/// `o` is the same song as `t` under another id. YouTube Music often has one song as
+/// several videos (the single and the album, the song and its video), and a like on one
+/// shows on all of them there. Same title and first artist, length within 2 s.
+const TWIN_OF_T: &str = "o.id != t.id AND o.title = t.title COLLATE NOCASE
+    AND t.duration_ms > 0 AND abs(o.duration_ms - t.duration_ms) <= 2000
+    AND (SELECT lower(name) FROM track_artists WHERE track_id = o.id AND position = 0)
+      = (SELECT lower(name) FROM track_artists WHERE track_id = t.id AND position = 0)";
+
+/// Liked twins of `id`, not `id` itself. A track shows as liked when a twin is: unliking
+/// it takes them off too.
+pub fn liked_twins(conn: &Connection, id: &TrackId) -> Result<Vec<TrackId>> {
+    let mut stmt = conn.prepare_cached(&format!(
+        "SELECT o.id FROM tracks t JOIN tracks o ON o.liked = 1 AND {TWIN_OF_T} WHERE t.id = ?1"
+    ))?;
+    let ids = stmt.query_map([id.as_str()], |r| Ok(TrackId(r.get(0)?)))?;
+    Ok(ids.collect::<rusqlite::Result<_>>()?)
+}
+
+/// Loads tracks by id, preserving the order of `ids` and skipping unknown ones. `liked`
+/// is also true for a twin of a liked track (`TWIN_OF_T`).
 pub fn tracks_by_ids(conn: &Connection, ids: &[TrackId]) -> Result<Vec<Track>> {
     if ids.is_empty() {
         return Ok(Vec::new());
@@ -331,7 +350,8 @@ pub fn tracks_by_ids(conn: &Connection, ids: &[TrackId]) -> Result<Vec<Track>> {
         let ph = placeholders(chunk.len());
         let mut stmt = conn.prepare_cached(&format!(
             "SELECT t.id, t.title, t.album_id, a.title, t.track_no, t.duration_ms,
-                    COALESCE(t.cover_key, a.cover_key), t.state, t.liked
+                    COALESCE(t.cover_key, a.cover_key), t.state,
+                    (t.liked = 1 OR EXISTS (SELECT 1 FROM tracks o WHERE o.liked = 1 AND {TWIN_OF_T}))
              FROM tracks t LEFT JOIN albums a ON a.id = t.album_id
              WHERE t.id IN ({ph})"
         ))?;
@@ -658,6 +678,27 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().unwrap();
         let db = Db::open(&dir.path().join("t.db")).unwrap();
         (dir, db)
+    }
+
+    #[test]
+    fn a_twin_of_a_liked_track_shows_liked_and_unlikes_with_it() {
+        let (_d, db) = db();
+        db.write(|t| {
+            upsert_track(t, &meta("singleAAAAA", "Loser", ("UCti", "Tame Impala"), Some(("MPs", "Loser"))))?;
+            upsert_track(t, &meta("albumBBBBBB", "loser", ("UCti", "Tame Impala"), Some(("MPa", "Deadbeat"))))?;
+            upsert_track(t, &meta("otherCCCCCC", "Loser", ("UCbk", "Beck"), None))?;
+            set_liked(t, &TrackId::from("singleAAAAA"), true)
+        })
+        .unwrap();
+        let ids = ["singleAAAAA", "albumBBBBBB", "otherCCCCCC"].map(TrackId::from);
+        let liked = |db: &Db| db.read(|c| tracks_by_ids(c, &ids)).unwrap().iter().map(|t| t.liked).collect::<Vec<_>>();
+        assert_eq!(liked(&db), [true, true, false]);
+
+        db.write(|t| crate::likes::set_like(t, &TrackId::from("albumBBBBBB"), false)).unwrap();
+        assert_eq!(liked(&db), [false, false, false]);
+        // The like YouTube Music has goes away there too.
+        let queued = db.read(|c| crate::likes::pending_likes(c, 10)).unwrap();
+        assert!(queued.iter().any(|p| p.track_id.as_str() == "singleAAAAA" && !p.liked));
     }
 
     #[test]
