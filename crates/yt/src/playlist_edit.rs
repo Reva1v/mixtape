@@ -1,7 +1,9 @@
 //! Changing the account's own playlists: add a song (`browse/edit_playlist`,
 //! `ACTION_ADD_VIDEO`), remove one (`ACTION_REMOVE_VIDEO`, addressed by the row's
-//! `setVideoId`) and create a playlist (`playlist/create`). All need cookies; a guest
-//! answer is an auth error like any other signed-in call.
+//! `setVideoId`), create a playlist (`playlist/create`), rename it (`browse/edit_playlist`,
+//! `ACTION_SET_PLAYLIST_NAME` / `ACTION_SET_PLAYLIST_DESCRIPTION`) and delete it
+//! (`playlist/delete`). All need cookies; a guest answer is an auth error like any other
+//! signed-in call.
 
 use crate::innertube::{InnerTube, MAX_PAGES};
 use crate::parse;
@@ -54,6 +56,21 @@ pub fn created_id(resp: &Value) -> Option<PlaylistId> {
     Some(PlaylistId::new(format!("VL{id}")))
 }
 
+/// `browse/edit_playlist` body that renames `playlist` to `title` and, when given, sets its
+/// description.
+pub fn rename_body(playlist: &PlaylistId, title: &str, description: Option<&str>) -> Value {
+    let mut actions = vec![json!({ "action": "ACTION_SET_PLAYLIST_NAME", "playlistName": title })];
+    if let Some(d) = description {
+        actions.push(json!({ "action": "ACTION_SET_PLAYLIST_DESCRIPTION", "playlistDescription": d }));
+    }
+    json!({ "playlistId": bare(playlist), "actions": actions })
+}
+
+/// `playlist/delete` body for `playlist`.
+pub fn delete_body(playlist: &PlaylistId) -> Value {
+    json!({ "playlistId": bare(playlist) })
+}
+
 /// `STATUS_SUCCEEDED` unless YouTube said otherwise; an answer without a status counts as done.
 fn succeeded(resp: &Value) -> bool {
     resp.get("status").and_then(Value::as_str).is_none_or(|s| s == "STATUS_SUCCEEDED")
@@ -102,6 +119,32 @@ impl InnerTube {
         Ok(rows)
     }
 
+    /// Renames one of the account's playlists; `description`, when given, replaces its description.
+    pub async fn playlist_rename(&self, playlist: &PlaylistId, title: &str, description: Option<&str>) -> Result<()> {
+        let resp = self.call("browse/edit_playlist", rename_body(playlist, title, description)).await?;
+        if succeeded(&resp) {
+            Ok(())
+        } else {
+            Err(YtError::Parse(
+                tr("YouTube Music didn't change the playlist", "YouTube Music не змінив плейлист", "YouTube Music не изменил плейлист")
+                    .into(),
+            ))
+        }
+    }
+
+    /// Deletes one of the account's playlists.
+    pub async fn playlist_delete(&self, playlist: &PlaylistId) -> Result<()> {
+        let resp = self.call("playlist/delete", delete_body(playlist)).await?;
+        if succeeded(&resp) {
+            Ok(())
+        } else {
+            Err(YtError::Parse(
+                tr("YouTube Music didn't delete the playlist", "YouTube Music не видалив плейлист", "YouTube Music не удалил плейлист")
+                    .into(),
+            ))
+        }
+    }
+
     /// Creates a private playlist in the account; returns its id.
     pub async fn playlist_create(&self, title: &str, videos: &[TrackId]) -> Result<PlaylistId> {
         let resp = self.call("playlist/create", create_body(title, videos)).await?;
@@ -144,6 +187,37 @@ mod tests {
         assert_eq!(body["actions"][0]["setVideoId"], "SET1");
         assert_eq!(body["actions"][0]["removedVideoId"], "vid00000001");
         assert_eq!(body["actions"].as_array().map(Vec::len), Some(1));
+    }
+
+    #[test]
+    fn rename_and_delete_bodies() {
+        let body = rename_body(&PlaylistId::new("VLPLabc"), "Новое", None);
+        assert_eq!(body["playlistId"], "PLabc");
+        assert_eq!(body["actions"].as_array().map(Vec::len), Some(1));
+        assert_eq!(body["actions"][0]["action"], "ACTION_SET_PLAYLIST_NAME");
+        assert_eq!(body["actions"][0]["playlistName"], "Новое");
+
+        let body = rename_body(&PlaylistId::new("PLabc"), "New", Some("About"));
+        assert_eq!(body["playlistId"], "PLabc");
+        assert_eq!(body["actions"][1]["action"], "ACTION_SET_PLAYLIST_DESCRIPTION");
+        assert_eq!(body["actions"][1]["playlistDescription"], "About");
+
+        assert_eq!(delete_body(&PlaylistId::new("VLPLabc")), json!({ "playlistId": "PLabc" }));
+        assert_eq!(delete_body(&PlaylistId::new("PLabc")), json!({ "playlistId": "PLabc" }));
+    }
+
+    /// Live, on the account: `MIXTAPE_COOKIES=<cookies.txt> cargo test -p mixtape-yt -- --ignored live_own_playlist`.
+    /// Creates a private playlist, renames it and deletes it again.
+    #[tokio::test]
+    #[ignore]
+    async fn live_own_playlist_rename_and_delete() {
+        let path = std::env::var_os("MIXTAPE_COOKIES").expect("MIXTAPE_COOKIES=<cookies.txt>");
+        let cookies = crate::auth::Cookies::parse(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let yt = InnerTube::new("en", "US").unwrap();
+        yt.set_cookies(Some(cookies));
+        let id = yt.playlist_create("mixtape live test", &[]).await.unwrap();
+        yt.playlist_rename(&id, "mixtape live test (renamed)", Some("made by a test")).await.unwrap();
+        yt.playlist_delete(&id).await.unwrap();
     }
 
     fn row(video: &str, set: &str) -> Value {
