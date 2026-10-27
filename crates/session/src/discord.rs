@@ -547,8 +547,9 @@ pub fn set_enabled(st: &Session, on: bool) {
     if on {
         // Ask the player first: its thread holds the player lock while it calls
         // `on_player_event`, which takes `p.inner` — taking them in the other order deadlocks.
-        let last = st.player.state();
-        let current = st.player.current_track().map(|track| Current { track });
+        let player = st.running_player();
+        let last = player.as_ref().map(|p| p.state()).unwrap_or_default();
+        let current = player.and_then(|p| p.current_track()).map(|track| Current { track });
         {
             let mut inner = p.inner.lock().expect("presence lock poisoned");
             inner.last = Some(last);

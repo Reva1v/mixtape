@@ -301,8 +301,10 @@ impl AppStreams {
             tracing::info!(n = evicted.len(), "stream cache trimmed");
         }
         crate::host::emit(&self.app, "queue:changed", ());
-        if let Some(st) = self.app.try_state::<Arc<crate::state::Session>>() {
-            st.analyzer.kick();
+        if let Some(st) = self.app.try_state::<Arc<crate::state::Session>>()
+            && let Some(e) = st.running()
+        {
+            e.analyzer.kick();
         }
     }
 

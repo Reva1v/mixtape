@@ -73,7 +73,10 @@ fn on_reach(st: &Arc<Session>, reach: Reach) {
 fn idle(st: &Session) -> bool {
     let unseen = crate::host::ui_unseen(&st.app);
     use mixtape_player::Status;
-    unseen && !matches!(st.player.state().status, Status::Playing | Status::Loading | Status::Buffering)
+    unseen
+        && !st
+            .running_player()
+            .is_some_and(|p| matches!(p.state().status, Status::Playing | Status::Loading | Status::Buffering))
 }
 
 /// How long to wait before the next probe after `failed` probes in a row found no network.

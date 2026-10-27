@@ -26,15 +26,19 @@ pub struct Media {
 
 pub fn dispatch(app: &AppHandle, cmd: MediaCommand) {
     let Some(st) = app.try_state::<Arc<Session>>() else { return };
-    let p = st.player.clone();
-    // Commands may arrive on the UI thread (thumbbar); never block it.
-    std::thread::spawn(move || match cmd {
-        MediaCommand::Play => p.play(),
-        MediaCommand::Pause | MediaCommand::Stop => p.pause(),
-        MediaCommand::Toggle => p.toggle(),
-        MediaCommand::Next => p.next(),
-        MediaCommand::Previous => p.prev(),
-        MediaCommand::Seek { position_ms } => p.seek(position_ms),
+    let st = st.inner().clone();
+    // Commands may arrive on the UI thread (thumbbar); never block it. A media key may
+    // start the engine (resume after it was let go).
+    std::thread::spawn(move || {
+        let Ok(p) = st.player() else { return };
+        match cmd {
+            MediaCommand::Play => p.play(),
+            MediaCommand::Pause | MediaCommand::Stop => p.pause(),
+            MediaCommand::Toggle => p.toggle(),
+            MediaCommand::Next => p.next(),
+            MediaCommand::Previous => p.prev(),
+            MediaCommand::Seek { position_ms } => p.seek(position_ms),
+        }
     });
 }
 

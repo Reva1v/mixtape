@@ -1,7 +1,7 @@
 //! User preferences (Settings screen).
 
 use super::{CmdResult, blocking};
-use crate::state::Session;
+use crate::state::{Engine, Session};
 use mixtape_core::Lang;
 use mixtape_library::{cache_lru, settings};
 use serde::{Deserialize, Serialize};
@@ -78,12 +78,18 @@ impl Prefs {
     }
 
     /// Hands the playback preferences to the player (and the analyser behind smart
-    /// transitions).
+    /// transitions), if the engine runs; [`Session::engine`] applies them when it starts.
     pub fn apply_playback(&self, st: &Session) {
-        st.player.set_crossfade(self.crossfade_ms());
-        st.player.set_normalization(self.normalize_volume);
-        st.player.set_smart_transitions(self.smart_transitions);
-        st.analyzer.set_enabled(self.smart_transitions);
+        if let Some(engine) = st.running() {
+            self.apply_engine(&engine);
+        }
+    }
+
+    pub fn apply_engine(&self, engine: &Engine) {
+        engine.player.set_crossfade(self.crossfade_ms());
+        engine.player.set_normalization(self.normalize_volume);
+        engine.player.set_smart_transitions(self.smart_transitions);
+        engine.analyzer.set_enabled(self.smart_transitions);
     }
 
     /// Crossfade in ms as the player wants it (0 = off, gapless).
@@ -179,7 +185,7 @@ pub async fn cache_clear(state: State<'_, Arc<Session>>) -> CmdResult<StorageInf
 fn trim(st: &Session, limit: u64) -> CmdResult<()> {
     // The playing track and the one lined up after it: evicting the successor's file would
     // make it fail just before it is due.
-    let protect = st.player.upcoming();
+    let protect = st.running_player().map(|p| p.upcoming()).unwrap_or_default();
     let root = st.paths.root.clone();
     st.db.write(move |t| cache_lru::evict(t, &root, limit, &protect))?;
     Ok(())

@@ -203,7 +203,7 @@ pub async fn mix_start_playlist(state: St<'_>, playlist_id: String) -> CmdResult
         return Ok(());
     }
     blocking(move || {
-        st.player.start_mix(seed, page);
+        st.player()?.start_mix(seed, page);
         Ok(())
     })
     .await

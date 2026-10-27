@@ -236,11 +236,11 @@ pub async fn tray_menu_snapshot(
     state: State<'_, Arc<Session>>,
 ) -> CmdResult<TrayMenuSnapshot> {
     let st = state.inner().clone();
-    let track = blocking(move || Ok(st.player.current_track())).await?;
+    let track = blocking(move || Ok(st.running_player().and_then(|p| p.current_track()))).await?;
     Ok(TrayMenuSnapshot {
         lang: mixtape_core::l10n::lang(),
         track,
-        playing: crate::tray::is_playing(&state.player.state()),
+        playing: state.running_player().is_some_and(|p| crate::tray::is_playing(&p.state())),
         window_shown: crate::window::on_screen(&app),
         mini: crate::mini::is_active(),
     })

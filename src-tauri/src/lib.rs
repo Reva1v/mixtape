@@ -94,10 +94,10 @@ pub fn run() {
                     api.prevent_close();
                 } else if window.label() == window::MAIN
                     // Only the main window closes the app; the login and tray windows do not.
-                    && let Some(st) = window.app_handle().try_state::<Arc<Session>>()
+                    && let Some(p) = window.app_handle().try_state::<Arc<Session>>().and_then(|st| st.running_player())
                 {
-                    st.player.save_snapshot(true);
-                    st.player.finish_listens();
+                    p.save_snapshot(true);
+                    p.finish_listens();
                 }
             }
         })

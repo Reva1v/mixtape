@@ -87,7 +87,7 @@ pub async fn mix_start(state: St<'_>, track_id: TrackId) -> CmdResult<()> {
         return Ok(());
     }
     blocking(move || {
-        st.player.start_mix(track_id, page);
+        st.player()?.start_mix(track_id, page);
         Ok(())
     })
     .await
@@ -98,7 +98,7 @@ pub async fn mix_select_chip(state: St<'_>, chip_id: String) -> CmdResult<()> {
     let st = state.inner().clone();
     need_account(&st)?;
     let (seed, chip, generation) = st
-        .player
+        .player()?
         .mix_select_chip(&chip_id)
         .ok_or_else(|| AppError::new(ErrorKind::NotFound, tr("The mix is already over", "Мікс уже закінчився", "Микс уже закончился")))?;
     let chip = RadioChip {
@@ -111,7 +111,7 @@ pub async fn mix_select_chip(state: St<'_>, chip_id: String) -> CmdResult<()> {
     let radio = st.yt.radio_by_chip(&seed, &chip).await.map_err(|e| yt_error(&st, e))?;
     let page = page_of(&st, radio).await?;
     blocking(move || {
-        st.player.mix_accept_chip(generation, page);
+        st.player()?.mix_accept_chip(generation, page);
         Ok(())
     })
     .await
@@ -122,7 +122,8 @@ pub async fn mix_select_chip(state: St<'_>, chip_id: String) -> CmdResult<()> {
 pub async fn mix_continue_local(state: St<'_>) -> CmdResult<()> {
     let st = state.inner().clone();
     blocking(move || {
-        let queued = st.player.queued_ids();
+        let player = st.player()?;
+        let queued = player.queued_ids();
         let ids = st.db.read(|c| repo::offline_mix_ids(c, &queued, OFFLINE_BATCH))?;
         if ids.is_empty() {
             return Err(AppError::new(
@@ -130,7 +131,7 @@ pub async fn mix_continue_local(state: St<'_>) -> CmdResult<()> {
                 tr("No downloaded tracks in the library", "У бібліотеці немає завантажених треків", "В библиотеке нет скачанных треков"),
             ));
         }
-        st.player.edit_queue(|q| q.append_mix(ids));
+        player.edit_queue(|q| q.append_mix(ids));
         Ok(())
     })
     .await
@@ -138,7 +139,8 @@ pub async fn mix_continue_local(state: St<'_>) -> CmdResult<()> {
 
 /// Called on every queue change: fetches the next page when the running mix is low.
 pub fn top_up(st: &Arc<Session>) {
-    let Some(req) = st.player.mix_begin_more() else { return };
+    let Some(player) = st.running_player() else { return };
+    let Some(req) = player.mix_begin_more() else { return };
     let st = st.clone();
     tauri::async_runtime::spawn(async move {
         let page = match st.yt.radio_more(&req.playlist_id, &req.continuation).await {
@@ -146,11 +148,11 @@ pub fn top_up(st: &Arc<Session>) {
             Err(e) => Err(yt_error(&st, e)),
         };
         match page {
-            Ok(page) => st.player.mix_accept_more(req.generation, page),
+            Ok(page) => player.mix_accept_more(req.generation, page),
             Err(e) => {
                 tracing::warn!(error = %e.message, "mix continuation failed");
-                st.player.mix_more_failed(req.generation);
-                if e.kind == ErrorKind::Network && st.player.remaining() <= 1 {
+                player.mix_more_failed(req.generation);
+                if e.kind == ErrorKind::Network && player.remaining() <= 1 {
                     crate::host::emit(&st.app, "mix:offline", ());
                 }
             }
@@ -172,8 +174,8 @@ pub async fn track_set_liked(state: St<'_>, id: TrackId, liked: bool) -> CmdResu
         })?)
     })
     .await?;
-    if moved {
-        st.player.media_moved(&moved_id);
+    if moved && let Some(p) = st.running_player() {
+        p.media_moved(&moved_id);
     }
     emit_changed(&st.app, &[ViewKind::Liked, ViewKind::Tracks, ViewKind::Albums]);
     flush_likes(&st);
@@ -253,7 +255,9 @@ pub async fn track_download(state: St<'_>, id: TrackId) -> CmdResult<()> {
     })
     .await?;
     if promoted {
-        st.player.media_moved(&moved_id);
+        if let Some(p) = st.running_player() {
+            p.media_moved(&moved_id);
+        }
         emit_changed(&st.app, &[ViewKind::Tracks, ViewKind::Albums, ViewKind::Artists]);
     } else {
         st.downloads.wake();
@@ -274,7 +278,11 @@ pub fn autosave(st: &Arc<Session>, id: &TrackId, full_plays: u32) {
             emit_changed(&st.app, &[ViewKind::Tracks, ViewKind::Albums, ViewKind::Artists]);
             // This runs in a player event handler: reach the player from another thread.
             let (st, id) = (st.clone(), id_moved);
-            tauri::async_runtime::spawn_blocking(move || st.player.media_moved(&id));
+            tauri::async_runtime::spawn_blocking(move || {
+                if let Some(p) = st.running_player() {
+                    p.media_moved(&id);
+                }
+            });
         }
         Ok(false) => {}
         Err(e) => tracing::warn!(error = %e, "autosave failed"),

@@ -75,7 +75,9 @@ pub async fn update_install(app: AppHandle, state: State<'_, Arc<Session>>) -> C
         AppError::new(ErrorKind::NotFound, mixtape_core::tr("No update available", "Оновлень немає", "Обновлений нет"))
     })?;
     // The playback position is saved with the queue, so the new version picks up there.
-    state.player.pause();
+    if let Some(p) = state.running_player() {
+        p.pause();
+    }
     let handle = app.clone();
     let mut done = 0u64;
     update

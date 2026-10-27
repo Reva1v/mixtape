@@ -56,7 +56,7 @@ pub fn install(app: &AppHandle, st: &Session) -> tauri::Result<()> {
     let icon = builder.build(app)?;
     let tray = Tray {
         icon,
-        playing: AtomicBool::new(is_playing(&st.player.state())),
+        playing: AtomicBool::new(st.running_player().is_some_and(|p| is_playing(&p.state()))),
         track: Mutex::new(None),
     };
     tray.retooltip();

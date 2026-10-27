@@ -39,7 +39,14 @@ pub fn plugin(host: Arc<dyn Host>) -> TauriPlugin<Wry> {
         .register_asynchronous_uri_scheme_protocol("cover", cover_protocol::handle)
         .setup(move |app, _api| {
             app.manage(HostRef(host.clone()));
+            let standalone = host.kind() == HostKind::Standalone;
             let session = Session::init(app, host).map_err(|e| e.to_string())?;
+            // The Mixtape app plays from the start, as it always did; the island starts the
+            // engine on the first action (`Session::engine`). Started before the session is
+            // managed, so the restore's first events go nowhere, as before.
+            if standalone {
+                session.engine().map_err(|e| e.message)?;
+            }
             app.manage(Arc::new(session));
             tracing::debug!("setup: session managed");
             Ok(())

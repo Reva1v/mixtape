@@ -165,9 +165,9 @@ pub fn show_or_hide_main(app: &AppHandle) {
 
 /// Quits the app (tray menu): saves the queue position, then exits.
 pub fn quit(app: &AppHandle) {
-    if let Some(st) = app.try_state::<std::sync::Arc<Session>>() {
-        st.player.save_snapshot(true);
-        st.player.finish_listens();
+    if let Some(p) = app.try_state::<std::sync::Arc<Session>>().and_then(|st| st.running_player()) {
+        p.save_snapshot(true);
+        p.finish_listens();
     }
     app.exit(0);
 }

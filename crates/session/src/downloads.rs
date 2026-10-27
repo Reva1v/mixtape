@@ -44,8 +44,10 @@ impl Hooks for AppHooks {
 
     /// The first track of a burst schedules one event; the rest join it. No timer runs idle.
     fn finished(&self, _track: &TrackId) {
-        if let Some(st) = self.app.try_state::<Arc<Session>>() {
-            st.analyzer.kick();
+        if let Some(st) = self.app.try_state::<Arc<Session>>()
+            && let Some(e) = st.running()
+        {
+            e.analyzer.kick();
         }
         if self.dirty.swap(true, Ordering::SeqCst) {
             return;
