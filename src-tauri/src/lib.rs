@@ -125,6 +125,7 @@ pub fn run() {
                 // Quitting (not to the tray): the island may take over from here.
                 mixtape_session::handoff::app::bye(app);
                 mini::on_exit(app);
+                window::on_exit(app);
             }
         });
 }

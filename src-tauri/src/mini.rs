@@ -31,11 +31,11 @@ static NORMAL: Mutex<Option<Normal>> = Mutex::new(None);
 
 /// Physical pixels: outer position, inner size (what the window-state plugin stores).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Rect {
-    x: i32,
-    y: i32,
-    w: u32,
-    h: u32,
+pub(crate) struct Rect {
+    pub x: i32,
+    pub y: i32,
+    pub w: u32,
+    pub h: u32,
 }
 
 impl Rect {
@@ -49,9 +49,9 @@ impl Rect {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Normal {
-    bounds: Rect,
-    maximized: bool,
+pub(crate) struct Normal {
+    pub bounds: Rect,
+    pub maximized: bool,
 }
 
 /// Where the strip was last time: physical position. Older builds also stored a
@@ -309,6 +309,11 @@ pub fn on_exit(app: &AppHandle) {
     let Some(normal) = *NORMAL.lock().expect("mini bounds poisoned") else {
         return;
     };
+    save_normal_bounds(app, &normal);
+}
+
+/// Writes `normal` over the main window's bounds in the window-state plugin's file.
+pub(crate) fn save_normal_bounds(app: &AppHandle, normal: &Normal) {
     use tauri_plugin_window_state::AppHandleExt;
     let Ok(dir) = app.path().app_config_dir() else {
         return;
@@ -320,11 +325,11 @@ pub fn on_exit(app: &AppHandle) {
     else {
         return;
     };
-    if patch_window_state(&mut json, crate::window::MAIN, &normal)
+    if patch_window_state(&mut json, crate::window::MAIN, normal)
         && let Ok(bytes) = serde_json::to_vec_pretty(&json)
         && let Err(e) = std::fs::write(&path, bytes)
     {
-        tracing::warn!(error = %e, "window state not corrected after mini player");
+        tracing::warn!(error = %e, "saved window bounds not corrected");
     }
 }
 

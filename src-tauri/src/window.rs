@@ -36,6 +36,7 @@ pub fn frame_plugin<R: Runtime>() -> TauriPlugin<R> {
 pub fn install(app: &AppHandle, in_tray: bool) {
     let Some(window) = app.get_webview_window(MAIN) else { return };
     // The window-state plugin has restored the bounds by now.
+    reset_saved_snap(&window);
     fit_work_area(&window);
     if in_tray {
         IN_TRAY.store(true, Ordering::SeqCst);
@@ -104,6 +105,48 @@ pub fn fit_work_area(w: &WebviewWindow) {
         let _ = w.set_size(tauri::PhysicalSize::new((fitted.2 - frame.0).max(1) as u32, (fitted.3 - frame.1).max(1) as u32));
     }
     let _ = w.set_position(tauri::PhysicalPosition::new(fitted.0, fitted.1));
+}
+
+/// The main window's size in `tauri.conf.json`, logical px.
+const DEFAULT_SIZE: (f64, f64) = (1280.0, 800.0);
+/// How far a saved size may be from a snap zone and still count as one, physical px.
+const SNAP_SLACK: i32 = 8;
+
+/// `size` is a side-by-side snap of `area` (both sizes width, height): half as wide,
+/// as high.
+fn looks_snapped(size: (i32, i32), area: (i32, i32)) -> bool {
+    (size.0 - area.0 / 2).abs() <= SNAP_SLACK && (size.1 - area.1).abs() <= SNAP_SLACK
+}
+
+/// Builds up to 0.2.2 saved the bounds of a snapped window as its own, so it opened as a
+/// tall half-screen window; such a window opens at the default size instead.
+fn reset_saved_snap(w: &WebviewWindow) {
+    if w.is_maximized().unwrap_or(false) {
+        return;
+    }
+    let (Ok(outer), Ok(Some(monitor))) = (w.outer_size(), w.current_monitor()) else { return };
+    let a = monitor.work_area().size;
+    if looks_snapped((outer.width as i32, outer.height as i32), (a.width as i32, a.height as i32)) {
+        tracing::info!(?outer, "saved snap bounds reset to the default size");
+        let _ = w.set_size(tauri::LogicalSize::new(DEFAULT_SIZE.0, DEFAULT_SIZE.1));
+        let _ = w.center();
+    }
+}
+
+/// The app is exiting (after the window-state plugin saved its file). The plugin takes a
+/// snapped window's bounds for its own; this saves the bounds it had before the snap.
+pub fn on_exit(app: &AppHandle) {
+    if crate::mini::is_active() {
+        return;
+    }
+    let Some(w) = app.get_webview_window(MAIN) else { return };
+    let (Ok(hwnd), Ok(outer), Ok(inner)) = (w.hwnd(), w.outer_size(), w.inner_size()) else { return };
+    let Some((x, y, width, height)) = mixtape_win::snap_restore_bounds(hwnd.0 as isize) else { return };
+    // The plugin stores the outer position and the inner size.
+    let frame = (outer.width as i32 - inner.width as i32, outer.height as i32 - inner.height as i32);
+    let bounds = crate::mini::Rect { x, y, w: (width - frame.0).max(1) as u32, h: (height - frame.1).max(1) as u32 };
+    tracing::info!(?bounds, "snapped window: saving its normal bounds");
+    crate::mini::save_normal_bounds(app, &crate::mini::Normal { bounds, maximized: false });
 }
 
 /// Brings the window back from the tray, the taskbar or behind other windows.
@@ -204,7 +247,17 @@ fn set_webview_visible(_window: &tauri::WebviewWindow, _visible: bool) {}
 
 #[cfg(test)]
 mod tests {
-    use super::fit_into;
+    use super::{fit_into, looks_snapped};
+
+    #[test]
+    fn a_side_by_side_snap_is_told_from_a_window() {
+        // Saved by 0.2.2 while snapped to the right half of a 1920×1032 work area.
+        assert!(looks_snapped((958, 1030), (1920, 1032)));
+        assert!(looks_snapped((960, 1032), (1920, 1032)));
+        assert!(!looks_snapped((1280, 800), (1920, 1032)));
+        assert!(!looks_snapped((960, 800), (1920, 1032)));
+        assert!(!looks_snapped((1920, 1032), (1920, 1032)));
+    }
 
     const AREA: (i32, i32, i32, i32) = (0, 0, 1920, 1032);
 
