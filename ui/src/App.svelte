@@ -132,12 +132,14 @@
 
 <!-- Every block is its own rounded panel on a black window, separated by --gap. -->
 <!-- Kept (hidden) under the mini player, so pages and scroll positions survive it. -->
-<div class="flex h-screen gap-(--gap) p-(--gap)" style:display={layout.mini ? "none" : undefined} data-tauri-drag-region>
+<!-- Inside the island: more room at the bottom and rounder bottom corners, to sit in the island's
+     own 32 px corners. -->
+<div class="flex h-screen gap-(--gap) p-(--gap) {embedded ? 'pb-[14px]' : ''}" style:display={layout.mini ? "none" : undefined} data-tauri-drag-region>
   <Sidebar />
 
   <div class="flex min-w-0 flex-1 flex-col gap-(--gap)" data-tauri-drag-region>
     <div class="flex min-h-0 flex-1 gap-(--gap)" data-tauri-drag-region>
-      <div class="relative min-w-0 flex-1 overflow-hidden rounded-xl bg-panel">
+      <div class="relative min-w-0 flex-1 overflow-hidden rounded-xl bg-panel {embedded ? 'rounded-b-[22px]' : ''}">
         <!-- Artwork glow, fixed behind the scrolling content. -->
         <div
           data-page-glow
@@ -151,8 +153,8 @@
         {/if}
         {#if embedded}
           <!-- Inside Droplet Island there is no window: back to the island's Home instead. -->
-          <!-- In line with the page title («Доброй ночи»: pt-9 + a 36 px row), at the right edge. -->
-          <div class="absolute top-[34px] right-7 z-20 flex h-10 items-center">
+          <!-- Up in the top-right corner, in the caption row (user 2026-10-28). -->
+          <div class="absolute top-1 right-2 z-20 flex h-8 items-center">
             <button
               type="button"
               aria-label={t.island.back}
@@ -169,7 +171,7 @@
         {#if router.canBack || router.canForward}
           <!-- History arrows sit in the caption row, just left of the window buttons
                (~136 px wide), styled like them, so they never crowd page headers. -->
-          <div class="absolute {embedded ? 'top-[34px] right-[68px]' : 'top-1 right-[140px]'} z-20 flex h-10 items-center gap-0.5" transition:fadeSpring>
+          <div class="absolute {embedded ? 'top-1 right-10 h-8' : 'top-1 right-[140px] h-10'} z-20 flex items-center gap-0.5" transition:fadeSpring>
             {#each [{ id: "back", label: t.nav.back, tip: t.app.backTip, ok: router.canBack, go: () => router.back(), Icon: IconBack }, { id: "forward", label: t.nav.forward, tip: t.app.forwardTip, ok: router.canForward, go: () => router.forward(), Icon: IconForward }] as b (b.id)}
               <button
                 type="button"
@@ -188,7 +190,7 @@
           </div>
         {/if}
 
-        <main bind:this={layout.scrollEl} class="relative h-full overflow-x-hidden overflow-y-auto">
+        <main bind:this={layout.scrollEl} class="relative h-full overflow-x-hidden overflow-y-auto {embedded ? 'in-island-main' : ''}">
           {#key screenKey}
           <div in:enter={router.direction === "new" ? { y: 8 } : { y: 0, x: router.direction === "back" ? -24 : 24 }}>
           {#if route.name === "home"}
@@ -221,7 +223,7 @@
            the panel stays mounted until the closing animation ends. -->
       <div bind:this={drawerCol} class="w-0 shrink-0 overflow-hidden" style:margin-left="calc(-1 * var(--gap))">
         <aside
-          class="ml-(--gap) h-full w-(--drawer-w) overflow-hidden rounded-xl bg-panel pt-10 transition-opacity duration-(--spring-smooth-ms)
+          class="ml-(--gap) h-full w-(--drawer-w) overflow-hidden rounded-xl bg-panel pt-10 transition-opacity duration-(--spring-smooth-ms) {embedded ? 'rounded-b-[22px]' : ''}
             {layout.drawer ? 'opacity-100' : 'opacity-0'}"
         >
           {#if shownDrawer === "queue"}

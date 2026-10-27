@@ -72,6 +72,10 @@ html.in-island,
 html.in-island body {
   background: transparent;
 }
+/* Inside the island there is no window caption to clear: pages start 16 px higher. */
+.in-island-main > div {
+  margin-top: -16px;
+}
 
 button,
 [role="button"],

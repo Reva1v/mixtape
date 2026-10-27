@@ -69,7 +69,7 @@
   </button>
 {/snippet}
 
-<nav class="flex w-(--sidebar-w) shrink-0 flex-col items-center rounded-xl bg-panel pt-3.5 pb-4" data-tauri-drag-region>
+<nav class="flex w-(--sidebar-w) shrink-0 flex-col items-center rounded-xl bg-panel pt-3.5 pb-4 {embedded ? 'rounded-b-[22px]' : ''}" data-tauri-drag-region>
   {#if embedded}
     <!-- Inside Droplet Island the logo opens the Mixtape app, which takes the playback over. -->
     <button
