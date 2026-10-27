@@ -2,7 +2,7 @@
 //! the menu (`tray_menu`, a small webview in the app's style). The tooltip follows the
 //! player's events; nothing polls.
 
-use crate::state::AppState;
+use mixtape_session::Session;
 use mixtape_core::Track;
 use mixtape_player::{PlaybackState, Status};
 use std::sync::Mutex;
@@ -30,7 +30,7 @@ pub fn is_playing(s: &PlaybackState) -> bool {
 }
 
 /// Builds the icon. Runs once, from `setup`.
-pub fn install(app: &AppHandle, st: &AppState) -> tauri::Result<()> {
+pub fn install(app: &AppHandle, st: &Session) -> tauri::Result<()> {
     let mut builder = TrayIconBuilder::with_id("main")
         .show_menu_on_left_click(false)
         .tooltip("Mixtape")

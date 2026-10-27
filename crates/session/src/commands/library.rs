@@ -1,7 +1,7 @@
 //! Library commands (contracts/ipc.md, «Библиотека»).
 
 use super::{CmdResult, blocking};
-use crate::state::AppState;
+use crate::state::Session;
 use mixtape_core::{
     Album, AlbumId, AppError, Artist, ArtistId, ErrorKind, Playlist, PlaylistId, Track, TrackId, tr,
 };
@@ -9,7 +9,7 @@ use mixtape_library::views::{self, ViewIds, ViewKind, ViewSort};
 use mixtape_library::{playlists, repo, search};
 use serde::Serialize;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
 use ts_rs::TS;
 
 #[derive(Serialize, TS)]
@@ -74,7 +74,7 @@ pub struct LibraryChanged {
 }
 
 pub fn emit_changed(app: &AppHandle, kinds: &[ViewKind]) {
-    let _ = app.emit("library:changed", LibraryChanged { kinds: kinds.to_vec() });
+    crate::host::emit(app, "library:changed", LibraryChanged { kinds: kinds.to_vec() });
 }
 
 fn not_found(message: &str) -> AppError {
@@ -83,7 +83,7 @@ fn not_found(message: &str) -> AppError {
 
 #[tauri::command]
 pub async fn library_view(
-    state: State<'_, Arc<AppState>>,
+    state: State<'_, Arc<Session>>,
     kind: ViewKind,
     sort: Option<ViewSort>,
     filter: Option<String>,
@@ -100,7 +100,7 @@ pub async fn library_view(
 
 #[tauri::command]
 pub async fn library_rows(
-    state: State<'_, Arc<AppState>>,
+    state: State<'_, Arc<Session>>,
     view_id: u64,
     offset: u32,
     limit: u32,
@@ -125,7 +125,7 @@ pub async fn library_rows(
 
 #[tauri::command]
 pub async fn library_search(
-    state: State<'_, Arc<AppState>>,
+    state: State<'_, Arc<Session>>,
     query: String,
     limit: Option<u32>,
 ) -> CmdResult<SearchResult> {
@@ -147,13 +147,13 @@ pub async fn library_search(
 /// One track as the library has it now (the player refreshes its copy after likes and
 /// downloads).
 #[tauri::command]
-pub async fn track_get(state: State<'_, Arc<AppState>>, id: TrackId) -> CmdResult<Option<Track>> {
+pub async fn track_get(state: State<'_, Arc<Session>>, id: TrackId) -> CmdResult<Option<Track>> {
     let st = state.inner().clone();
     blocking(move || Ok(st.db.read(|c| repo::track(c, &id))?)).await
 }
 
 #[tauri::command]
-pub async fn album_get(state: State<'_, Arc<AppState>>, id: AlbumId) -> CmdResult<AlbumPage> {
+pub async fn album_get(state: State<'_, Arc<Session>>, id: AlbumId) -> CmdResult<AlbumPage> {
     let st = state.inner().clone();
     let page = album_page(st.clone(), id.clone()).await?;
     // Known only in part (a liked single, a search card) or not at all: read the catalog.
@@ -164,7 +164,7 @@ pub async fn album_get(state: State<'_, Arc<AppState>>, id: AlbumId) -> CmdResul
     page.ok_or_else(|| not_found(tr("Album not found", "Альбом не знайдено", "Альбом не найден")))
 }
 
-async fn album_page(st: Arc<AppState>, id: AlbumId) -> CmdResult<Option<AlbumPage>> {
+async fn album_page(st: Arc<Session>, id: AlbumId) -> CmdResult<Option<AlbumPage>> {
     blocking(move || {
         Ok(st.db.read(|c| {
             let Some(album) = repo::album(c, &id)? else { return Ok(None) };
@@ -176,7 +176,7 @@ async fn album_page(st: Arc<AppState>, id: AlbumId) -> CmdResult<Option<AlbumPag
 }
 
 #[tauri::command]
-pub async fn artist_get(state: State<'_, Arc<AppState>>, id: ArtistId) -> CmdResult<ArtistPage> {
+pub async fn artist_get(state: State<'_, Arc<Session>>, id: ArtistId) -> CmdResult<ArtistPage> {
     let st = state.inner().clone();
     let mut page = match artist_page(st.clone(), id.clone()).await {
         Err(e) if e.kind == ErrorKind::NotFound && crate::commands::catalog::fill_artist(&st, &id).await => {
@@ -211,7 +211,7 @@ pub async fn artist_get(state: State<'_, Arc<AppState>>, id: ArtistId) -> CmdRes
     Ok(page)
 }
 
-async fn artist_page(st: Arc<AppState>, id: ArtistId) -> CmdResult<ArtistPage> {
+async fn artist_page(st: Arc<Session>, id: ArtistId) -> CmdResult<ArtistPage> {
     blocking(move || {
         let page = st.db.read(|c| {
             let Some(artist) = repo::artist(c, &id)? else { return Ok(None) };
@@ -225,7 +225,7 @@ async fn artist_page(st: Arc<AppState>, id: ArtistId) -> CmdResult<ArtistPage> {
 }
 
 #[tauri::command]
-pub async fn playlist_get(state: State<'_, Arc<AppState>>, id: PlaylistId) -> CmdResult<PlaylistPage> {
+pub async fn playlist_get(state: State<'_, Arc<Session>>, id: PlaylistId) -> CmdResult<PlaylistPage> {
     let st = state.inner().clone();
     let st2 = st.clone();
     let id2 = id.clone();
@@ -265,7 +265,7 @@ pub enum PlaylistEdit {
 #[tauri::command]
 pub async fn playlist_edit(
     app: AppHandle,
-    state: State<'_, Arc<AppState>>,
+    state: State<'_, Arc<Session>>,
     edit: PlaylistEdit,
 ) -> CmdResult<Option<PlaylistId>> {
     let st = state.inner().clone();

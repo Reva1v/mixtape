@@ -2,7 +2,7 @@
 //! first show so the user never sees an unpainted window, hiding to the tray, and a
 //! webview that stops drawing whenever the window is out of sight.
 
-use crate::state::AppState;
+use mixtape_session::Session;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -57,7 +57,7 @@ pub fn install(app: &AppHandle, in_tray: bool) {
 
 /// Called by the UI after its first frame is painted.
 #[tauri::command]
-pub fn app_ready(window: tauri::WebviewWindow, state: tauri::State<'_, std::sync::Arc<AppState>>) -> Result<(), String> {
+pub fn app_ready(window: tauri::WebviewWindow, state: tauri::State<'_, std::sync::Arc<Session>>) -> Result<(), String> {
     if IN_TRAY.load(Ordering::SeqCst) {
         tracing::info!(elapsed_ms = state.started.elapsed().as_millis() as u64, "ready in the tray");
         return Ok(());
@@ -150,8 +150,8 @@ pub fn toggle_main(app: &AppHandle) {
 /// The window's close button: to the tray, or out (the setting «close to tray»).
 /// Returns whether the close was turned into hiding.
 pub fn close_to_tray(app: &AppHandle) -> bool {
-    let Some(st) = app.try_state::<std::sync::Arc<AppState>>() else { return false };
-    if !crate::commands::settings::Prefs::load(&st).close_to_tray {
+    let Some(st) = app.try_state::<std::sync::Arc<Session>>() else { return false };
+    if !mixtape_session::commands::settings::Prefs::load(&st).close_to_tray {
         return false;
     }
     hide_main(app);
@@ -165,7 +165,7 @@ pub fn show_or_hide_main(app: &AppHandle) {
 
 /// Quits the app (tray menu): saves the queue position, then exits.
 pub fn quit(app: &AppHandle) {
-    if let Some(st) = app.try_state::<std::sync::Arc<AppState>>() {
+    if let Some(st) = app.try_state::<std::sync::Arc<Session>>() {
         st.player.save_snapshot(true);
         st.player.finish_listens();
     }

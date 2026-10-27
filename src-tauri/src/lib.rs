@@ -1,23 +1,12 @@
-mod account;
 mod autostart;
-mod background;
-mod commands;
-mod cover_protocol;
-mod discord;
-mod downloads;
-mod events;
-mod lastfm;
-mod login_window;
-mod media;
+mod host;
 mod mini;
-mod net;
-mod state;
-mod streaming;
 mod tray;
 mod tray_menu;
 mod updates;
 mod window;
 
+use mixtape_session::{Session, account, background, commands, discord, lastfm, net};
 use std::sync::Arc;
 use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
@@ -59,11 +48,11 @@ pub fn run() {
         )
         .plugin(window::frame_plugin())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .register_asynchronous_uri_scheme_protocol("cover", cover_protocol::handle)
+        // The session (state, player, services, the plugin's commands and `cover:`); opened
+        // in the plugin's setup, which runs before the app's below.
+        .plugin(mixtape_session::plugin(Arc::new(host::AppHost)))
         .setup(|app| {
-            let state = Arc::new(state::AppState::init(app.handle())?);
-            app.manage(state.clone());
-            tracing::debug!("setup: state managed");
+            let state = app.state::<Arc<Session>>().inner().clone();
             let prefs = commands::settings::Prefs::load(&state);
             prefs.apply_language(&state);
             account::restore(&state);
@@ -105,7 +94,7 @@ pub fn run() {
                     api.prevent_close();
                 } else if window.label() == window::MAIN
                     // Only the main window closes the app; the login and tray windows do not.
-                    && let Some(st) = window.app_handle().try_state::<Arc<state::AppState>>()
+                    && let Some(st) = window.app_handle().try_state::<Arc<Session>>()
                 {
                     st.player.save_snapshot(true);
                     st.player.finish_listens();
@@ -122,80 +111,6 @@ pub fn run() {
             tray_menu::tray_menu_action,
             autostart::autostart_get,
             autostart::autostart_set,
-            commands::library::library_view,
-            commands::library::library_rows,
-            commands::library::library_search,
-            commands::library::track_get,
-            commands::library::album_get,
-            commands::library::artist_get,
-            commands::library::playlist_get,
-            commands::library::playlist_edit,
-            commands::catalog::catalog_search,
-            commands::catalog::catalog_more,
-            commands::catalog::catalog_suggest,
-            commands::catalog::artist_catalog,
-            commands::catalog::artist_songs,
-            commands::catalog::catalog_download,
-            commands::mix::track_set_liked,
-            commands::mix::track_download,
-            commands::mix::mix_start,
-            commands::mix::mix_select_chip,
-            commands::mix::mix_continue_local,
-            commands::home::home_get,
-            commands::home::home_shelves,
-            commands::home::mix_start_playlist,
-            commands::player::player_subscribe,
-            commands::player::play,
-            commands::player::player_toggle,
-            commands::player::player_next,
-            commands::player::player_prev,
-            commands::player::player_seek,
-            commands::player::player_set_volume,
-            commands::player::player_set_repeat,
-            commands::player::player_set_shuffle,
-            commands::player::queue_get,
-            commands::player::queue_add,
-            commands::player::queue_remove,
-            commands::player::queue_move,
-            commands::player::queue_clear,
-            commands::player::queue_jump,
-            commands::lyrics::lyrics_get,
-            commands::stats::stats_get,
-            commands::peer::peer_status,
-            commands::peer::peer_pair_start,
-            commands::peer::peer_pair_cancel,
-            commands::peer::peer_unpair,
-            commands::peer::peer_firewall_add,
-            // A development helper (imports any folder by path): never in release builds.
-            #[cfg(debug_assertions)]
-            commands::dev::dev_import_folder,
-            commands::settings::prefs_get,
-            commands::settings::prefs_set,
-            commands::settings::storage_get,
-            commands::settings::storage_set_cache_limit,
-            commands::settings::storage_set_autosave,
-            commands::settings::cache_clear,
-            net::net_status,
-            commands::settings::open_data_dir,
-            lastfm::integrations_status,
-            lastfm::lastfm_connect,
-            lastfm::lastfm_confirm,
-            lastfm::lastfm_disconnect,
-            commands::sync::account_status,
-            commands::sync::account_connect_cookies,
-            commands::sync::account_connect_webview,
-            commands::sync::account_disconnect,
-            commands::sync::sync_preview,
-            commands::sync::sync_start,
-            commands::sync::import_url,
-            commands::spotify::spotify_import,
-            commands::spotify::spotify_cancel,
-            commands::spotify::spotify_download,
-            commands::sync::downloads_pause,
-            commands::sync::downloads_resume,
-            commands::sync::download_retry,
-            commands::sync::downloads_failed,
-            commands::sync::downloads_subscribe,
             updates::app_version,
             updates::update_check,
             updates::update_install,

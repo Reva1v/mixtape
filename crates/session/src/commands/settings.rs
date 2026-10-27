@@ -1,7 +1,7 @@
 //! User preferences (Settings screen).
 
 use super::{CmdResult, blocking};
-use crate::state::AppState;
+use crate::state::Session;
 use mixtape_core::Lang;
 use mixtape_library::{cache_lru, settings};
 use serde::{Deserialize, Serialize};
@@ -64,14 +64,14 @@ impl Default for Prefs {
 
 impl Prefs {
     /// Stored preferences with the language always filled in.
-    pub fn load(st: &AppState) -> Self {
+    pub fn load(st: &Session) -> Self {
         let mut p: Self = settings::get(&st.db, KEY).ok().flatten().unwrap_or_default();
         p.language = Some(p.language.unwrap_or_else(|| Lang::from_locale(mixtape_win::ui_language())));
         p
     }
 
     /// Makes the core's own messages and YouTube's answers follow the chosen language.
-    pub fn apply_language(&self, st: &AppState) {
+    pub fn apply_language(&self, st: &Session) {
         let lang = self.language.unwrap_or_default();
         mixtape_core::l10n::set_lang(lang);
         st.yt.set_language(lang.code());
@@ -79,7 +79,7 @@ impl Prefs {
 
     /// Hands the playback preferences to the player (and the analyser behind smart
     /// transitions).
-    pub fn apply_playback(&self, st: &AppState) {
+    pub fn apply_playback(&self, st: &Session) {
         st.player.set_crossfade(self.crossfade_ms());
         st.player.set_normalization(self.normalize_volume);
         st.player.set_smart_transitions(self.smart_transitions);
@@ -93,13 +93,13 @@ impl Prefs {
 }
 
 #[tauri::command]
-pub async fn prefs_get(state: State<'_, Arc<AppState>>) -> CmdResult<Prefs> {
+pub async fn prefs_get(state: State<'_, Arc<Session>>) -> CmdResult<Prefs> {
     let st = state.inner().clone();
     blocking(move || Ok(Prefs::load(&st))).await
 }
 
 #[tauri::command]
-pub async fn prefs_set(state: State<'_, Arc<AppState>>, prefs: Prefs) -> CmdResult<()> {
+pub async fn prefs_set(state: State<'_, Arc<Session>>, prefs: Prefs) -> CmdResult<()> {
     let st = state.inner().clone();
     blocking(move || {
         settings::set(&st.db, KEY, &prefs)?;
@@ -126,7 +126,7 @@ pub struct StorageInfo {
     pub data_dir: String,
 }
 
-fn storage_info(st: &AppState) -> CmdResult<StorageInfo> {
+fn storage_info(st: &Session) -> CmdResult<StorageInfo> {
     Ok(StorageInfo {
         cache_bytes: st.db.read(cache_lru::cache_size)?,
         cache_limit: cache_lru::cache_limit(&st.db)?,
@@ -136,14 +136,14 @@ fn storage_info(st: &AppState) -> CmdResult<StorageInfo> {
 }
 
 #[tauri::command]
-pub async fn storage_get(state: State<'_, Arc<AppState>>) -> CmdResult<StorageInfo> {
+pub async fn storage_get(state: State<'_, Arc<Session>>) -> CmdResult<StorageInfo> {
     let st = state.inner().clone();
     blocking(move || storage_info(&st)).await
 }
 
 /// Sets the cache limit and trims the cache to it right away.
 #[tauri::command]
-pub async fn storage_set_cache_limit(state: State<'_, Arc<AppState>>, bytes: u64) -> CmdResult<StorageInfo> {
+pub async fn storage_set_cache_limit(state: State<'_, Arc<Session>>, bytes: u64) -> CmdResult<StorageInfo> {
     let st = state.inner().clone();
     blocking(move || {
         let bytes = bytes.max(512 * 1024 * 1024);
@@ -155,7 +155,7 @@ pub async fn storage_set_cache_limit(state: State<'_, Arc<AppState>>, bytes: u64
 }
 
 #[tauri::command]
-pub async fn storage_set_autosave(state: State<'_, Arc<AppState>>, plays: Option<u32>) -> CmdResult<StorageInfo> {
+pub async fn storage_set_autosave(state: State<'_, Arc<Session>>, plays: Option<u32>) -> CmdResult<StorageInfo> {
     let st = state.inner().clone();
     blocking(move || {
         settings::set(&st.db, cache_lru::AUTOSAVE_KEY, &plays.filter(|&n| n > 0))?;
@@ -166,7 +166,7 @@ pub async fn storage_set_autosave(state: State<'_, Arc<AppState>>, plays: Option
 
 /// Deletes every cached stream except the playing track's, then covers left without a row.
 #[tauri::command]
-pub async fn cache_clear(state: State<'_, Arc<AppState>>) -> CmdResult<StorageInfo> {
+pub async fn cache_clear(state: State<'_, Arc<Session>>) -> CmdResult<StorageInfo> {
     let st = state.inner().clone();
     blocking(move || {
         trim(&st, 0)?;
@@ -176,7 +176,7 @@ pub async fn cache_clear(state: State<'_, Arc<AppState>>) -> CmdResult<StorageIn
     .await
 }
 
-fn trim(st: &AppState, limit: u64) -> CmdResult<()> {
+fn trim(st: &Session, limit: u64) -> CmdResult<()> {
     // The playing track and the one lined up after it: evicting the successor's file would
     // make it fail just before it is due.
     let protect = st.player.upcoming();
@@ -186,7 +186,7 @@ fn trim(st: &AppState, limit: u64) -> CmdResult<()> {
 }
 
 #[tauri::command]
-pub fn open_data_dir(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
+pub fn open_data_dir(state: State<'_, Arc<Session>>) -> CmdResult<()> {
     // By full path, so an explorer.exe in the working directory or on PATH never runs.
     let windows = std::env::var_os("SystemRoot")
         .map(std::path::PathBuf::from)

@@ -1,7 +1,7 @@
 //! Playback and queue commands (contracts/ipc.md, «Воспроизведение и очередь»).
 
 use super::{CmdResult, blocking};
-use crate::state::AppState;
+use crate::state::Session;
 use mixtape_core::{AppError, ErrorKind, TrackId, tr};
 use mixtape_library::repo;
 use mixtape_player::{PlaySource, PlaybackState, QueueContext, QueueView, Repeat};
@@ -12,10 +12,11 @@ use tauri::State;
 use tauri::ipc::Channel;
 use ts_rs::TS;
 
-type St<'a> = State<'a, Arc<AppState>>;
+type St<'a> = State<'a, Arc<Session>>;
 
 /// Numbers the requests that replace what plays. One that waited on the network acts only
 /// if no newer one came meanwhile, so a slow album page cannot replace a mix started later.
+#[derive(Default)]
 pub struct PlayRequests(AtomicU64);
 
 impl PlayRequests {

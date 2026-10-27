@@ -6,7 +6,7 @@
 //! Status changes reach the UI as `peer:status` ([`PeerStatus`]).
 
 use super::{CmdResult, blocking};
-use crate::state::AppState;
+use crate::state::Session;
 use mixtape_core::{AppError, ErrorKind, trf};
 use mixtape_library::settings::{self, DEVICE_NAME};
 use mixtape_library::{Db, peer_store};
@@ -17,7 +17,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::async_runtime::JoinHandle;
-use tauri::{Emitter, State};
+use tauri::State;
 use ts_rs::TS;
 
 /// One connection gets this long, end to end (`serve` has no timeouts of its own).
@@ -94,7 +94,7 @@ struct Inner {
     firewall: Option<Firewall>,
 }
 
-/// The PC side of the phone sync, in [`AppState`].
+/// The PC side of the phone sync, in [`Session`].
 #[derive(Default)]
 pub struct PeerState {
     inner: Mutex<Inner>,
@@ -107,7 +107,7 @@ impl PeerState {
 }
 
 /// At start: names this PC if it has no name yet and starts the server when paired.
-pub fn spawn(st: Arc<AppState>) {
+pub fn spawn(st: Arc<Session>) {
     tauri::async_runtime::spawn(async move {
         let db = st.db.clone();
         if let Err(e) = blocking(move || ensure_device_name(&db)).await {
@@ -126,7 +126,7 @@ fn ensure_device_name(db: &Db) -> CmdResult<()> {
     Ok(())
 }
 
-fn pairing(st: &AppState) -> Option<peer_store::Pairing> {
+fn pairing(st: &Session) -> Option<peer_store::Pairing> {
     st.db
         .read(peer_store::pairing)
         .inspect_err(|e| tracing::warn!(error = %e, "pairing unreadable"))
@@ -134,7 +134,7 @@ fn pairing(st: &AppState) -> Option<peer_store::Pairing> {
         .flatten()
 }
 
-fn status(st: &AppState) -> PeerStatus {
+fn status(st: &Session) -> PeerStatus {
     let p = pairing(st);
     let inner = st.peer.lock();
     PeerStatus {
@@ -147,13 +147,13 @@ fn status(st: &AppState) -> PeerStatus {
     }
 }
 
-fn emit_status(st: &AppState) {
-    let _ = st.app.emit("peer:status", status(st));
+fn emit_status(st: &Session) {
+    crate::host::emit(&st.app, "peer:status", status(st));
 }
 
 /// Starts or stops the server: it runs while a pairing exists or a code is shown. Must be
 /// called on the async runtime (the listener is registered with it).
-fn reconcile(st: &Arc<AppState>) {
+fn reconcile(st: &Arc<Session>) {
     let paired = pairing(st).is_some();
     let mut inner = st.peer.lock();
     let wanted = paired || inner.code.is_some();
@@ -175,7 +175,7 @@ fn reconcile(st: &Arc<AppState>) {
     }
 }
 
-fn start_server(st: &Arc<AppState>) -> std::io::Result<Server> {
+fn start_server(st: &Arc<Session>) -> std::io::Result<Server> {
     let std_listener = std::net::TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, PORT)))?;
     std_listener.set_nonblocking(true)?;
     let listener = tokio::net::TcpListener::from_std(std_listener)?;
@@ -205,7 +205,7 @@ fn start_server(st: &Arc<AppState>) -> std::io::Result<Server> {
 }
 
 /// One connection from the phone.
-async fn answer(st: Arc<AppState>, stream: tokio::net::TcpStream, from: SocketAddr) {
+async fn answer(st: Arc<Session>, stream: tokio::net::TcpStream, from: SocketAddr) {
     let _ = stream.set_nodelay(true);
     // `serve` refuses an expired code itself, telling the phone to ask for a new one.
     let code = st.peer.lock().code.clone();
@@ -228,7 +228,7 @@ async fn answer(st: Arc<AppState>, stream: tokio::net::TcpStream, from: SocketAd
         Ok(Served::Exchanged(r)) => {
             tracing::info!(%from, received = r.received, sent = r.sent, "phone sync exchange");
             if r.received > 0 {
-                let _ = st.app.emit("stats:changed", ());
+                crate::host::emit(&st.app, "stats:changed", ());
             }
         }
         Ok(Served::Unpaired) => tracing::info!(%from, "phone unpaired"),
@@ -244,14 +244,14 @@ async fn answer(st: Arc<AppState>, stream: tokio::net::TcpStream, from: SocketAd
 // ---- Commands ----
 
 #[tauri::command]
-pub async fn peer_status(state: State<'_, Arc<AppState>>) -> CmdResult<PeerStatus> {
+pub async fn peer_status(state: State<'_, Arc<Session>>) -> CmdResult<PeerStatus> {
     let st = state.inner().clone();
     blocking(move || Ok(status(&st))).await
 }
 
 /// Shows a new pairing code (good for 5 minutes) and starts the server for it.
 #[tauri::command]
-pub async fn peer_pair_start(state: State<'_, Arc<AppState>>) -> CmdResult<PairStart> {
+pub async fn peer_pair_start(state: State<'_, Arc<Session>>) -> CmdResult<PairStart> {
     let st = state.inner().clone();
     let db = st.db.clone();
     let name = blocking(move || {
@@ -289,35 +289,35 @@ pub async fn peer_pair_start(state: State<'_, Arc<AppState>>) -> CmdResult<PairS
 
 /// The pairing screen closed: the code is dropped (and the server stops if not paired).
 #[tauri::command]
-pub async fn peer_pair_cancel(state: State<'_, Arc<AppState>>) -> CmdResult<PeerStatus> {
+pub async fn peer_pair_cancel(state: State<'_, Arc<Session>>) -> CmdResult<PeerStatus> {
     let st = state.inner().clone();
     st.peer.lock().code = None;
     reconcile(&st);
     let s = status(&st);
-    let _ = st.app.emit("peer:status", s.clone());
+    crate::host::emit(&st.app, "peer:status", s.clone());
     Ok(s)
 }
 
 /// Forgets the phone here. The phone finds out on its next exchange (the PC refuses it).
 #[tauri::command]
-pub async fn peer_unpair(state: State<'_, Arc<AppState>>) -> CmdResult<PeerStatus> {
+pub async fn peer_unpair(state: State<'_, Arc<Session>>) -> CmdResult<PeerStatus> {
     let st = state.inner().clone();
     st.db.write(|t| peer_store::remove_pairing(t))?;
     reconcile(&st);
     let s = status(&st);
-    let _ = st.app.emit("peer:status", s.clone());
+    crate::host::emit(&st.app, "peer:status", s.clone());
     Ok(s)
 }
 
 /// Adds the firewall rule through UAC (Windows asks the user; nothing happens silently).
 #[tauri::command]
-pub async fn peer_firewall_add(state: State<'_, Arc<AppState>>) -> CmdResult<PeerStatus> {
+pub async fn peer_firewall_add(state: State<'_, Arc<Session>>) -> CmdResult<PeerStatus> {
     let st = state.inner().clone();
     blocking(add_firewall_rule).await?;
     let fw = firewall_check().await;
     st.peer.lock().firewall = Some(fw);
     let s = status(&st);
-    let _ = st.app.emit("peer:status", s.clone());
+    crate::host::emit(&st.app, "peer:status", s.clone());
     Ok(s)
 }
 

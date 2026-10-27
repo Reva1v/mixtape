@@ -7,7 +7,7 @@
 //! 6 h). Nothing runs while nothing is queued, and nothing at all without a connection.
 
 use crate::commands::{CmdResult, blocking};
-use crate::state::AppState;
+use crate::state::Session as AppState;
 use mixtape_core::{AppError, ErrorKind, Track, tr, trf};
 use mixtape_library::{likes, scrobbles};
 use mixtape_player::{PlayerEvent, Status};
@@ -16,7 +16,7 @@ use serde::Serialize;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
-use tauri::{Emitter, Manager, State};
+use tauri::{Manager, State};
 use ts_rs::TS;
 
 /// API account of the app; absent = scrobbling is not available in this build.
@@ -292,7 +292,7 @@ fn session_expired(st: &AppState) {
             "Last.fm отключил Mixtape — подключите его снова в Настройках",
         ),
     );
-    let _ = st.app.emit("lastfm:changed", ());
+    crate::host::emit(&st.app, "lastfm:changed", ());
 }
 
 fn status(st: &AppState) -> Integrations {
@@ -344,7 +344,7 @@ fn save_session(st: &Arc<AppState>, session: Session) -> Result<(), AppError> {
         // Start counting from the next track.
         *s.tracker.lock().expect("tracker poisoned") = PlayTracker::default();
     }
-    let _ = st.app.emit("lastfm:changed", ());
+    crate::host::emit(&st.app, "lastfm:changed", ());
     Ok(())
 }
 
@@ -369,7 +369,7 @@ async fn try_session(st: &Arc<AppState>, attempt: u64) -> Result<bool, AppError>
         Err(e) if e.not_authorized_yet() => Ok(false),
         Err(e) if e.token_dead() => {
             *s.pending.lock().expect("lastfm pending poisoned") = None;
-            let _ = st.app.emit("lastfm:changed", ());
+            crate::host::emit(&st.app, "lastfm:changed", ());
             Err(AppError::new(
                 ErrorKind::Auth,
                 tr(

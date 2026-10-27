@@ -1,5 +1,6 @@
-//! Process-wide state handed to commands through `tauri::State<Arc<AppState>>`.
+//! Process-wide state handed to commands through `tauri::State<Arc<Session>>`.
 
+use crate::host::Host;
 use crate::media::Media;
 use mixtape_artwork::CoverStore;
 use mixtape_library::views::ViewCache;
@@ -10,15 +11,16 @@ use mixtape_sync::downloader::{Downloader, DownloadsProgress};
 use mixtape_sync::lyrics::Lrclib;
 use mixtape_yt::innertube::InnerTube;
 use mixtape_yt::resolver::StreamResolver;
-use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 use tauri::AppHandle;
 use tauri::ipc::Channel;
 
-pub struct AppState {
+pub struct Session {
     pub app: AppHandle,
+    /// The app running this session (window, tray, sidecars).
+    pub host: Arc<dyn Host>,
     pub paths: DataPaths,
     pub db: Db,
     pub covers: CoverStore,
@@ -47,19 +49,8 @@ pub struct AppState {
 /// Settings flag: the one-time fold of local imports into their YouTube twins is done.
 const LOCAL_TWINS_KEY: &str = "local_twins_merged";
 
-/// yt-dlp and deno sit next to the executable (Tauri `externalBin`); in a debug build
-/// they may still be only in `src-tauri/binaries`.
-fn sidecar(name: &str) -> PathBuf {
-    let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(PathBuf::from)).unwrap_or_default();
-    let beside = exe_dir.join(format!("{name}.exe"));
-    if beside.exists() || !cfg!(debug_assertions) {
-        return beside;
-    }
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries").join(format!("{name}-x86_64-pc-windows-msvc.exe"))
-}
-
-impl AppState {
-    pub fn init(app: &AppHandle) -> Result<Self, Box<dyn std::error::Error>> {
+impl Session {
+    pub fn init(app: &AppHandle, host: Arc<dyn Host>) -> Result<Self, Box<dyn std::error::Error>> {
         let started = Instant::now();
         let paths = DataPaths::default_location()?;
         let db = Db::open(&paths.db)?;
@@ -83,7 +74,7 @@ impl AppState {
         let yt = Arc::new(InnerTube::new("ru", "RU")?);
         let tmp = paths.root.join("tmp");
         std::fs::create_dir_all(&tmp)?;
-        let resolver = Arc::new(StreamResolver::new(sidecar("yt-dlp"), sidecar("deno"), tmp));
+        let resolver = Arc::new(StreamResolver::new(host.sidecar("yt-dlp"), host.sidecar("deno"), tmp));
         let streams = crate::streaming::AppStreams::new(
             app.clone(),
             tauri::async_runtime::handle().inner().clone(),
@@ -117,6 +108,7 @@ impl AppState {
         );
         Ok(Self {
             app: app.clone(),
+            host,
             paths,
             db,
             covers,

@@ -2,7 +2,7 @@
 //! name and avatar for the UI in settings, and the hand-off of cookies to the InnerTube
 //! client and yt-dlp.
 
-use crate::state::AppState;
+use crate::state::Session;
 use mixtape_core::{AppError, ErrorKind, tr, trf};
 use mixtape_library::settings;
 use mixtape_yt::api::YtMusic;
@@ -35,12 +35,12 @@ struct Stored {
     avatar: Option<String>,
 }
 
-fn sealed_path(st: &AppState) -> PathBuf {
+fn sealed_path(st: &Session) -> PathBuf {
     st.paths.root.join("account.bin")
 }
 
 /// Reads the stored cookies at startup and hands them to the clients.
-pub fn restore(st: &AppState) {
+pub fn restore(st: &Session) {
     let Ok(sealed) = std::fs::read(sealed_path(st)) else { return };
     match open(&sealed).and_then(|text| Cookies::parse(&text).map_err(AppError::from)) {
         Ok(cookies) => apply(st, Some(cookies)),
@@ -48,7 +48,7 @@ pub fn restore(st: &AppState) {
     }
 }
 
-fn apply(st: &AppState, cookies: Option<Cookies>) {
+fn apply(st: &Session, cookies: Option<Cookies>) {
     st.resolver.set_cookies(cookies.as_ref().map(Cookies::to_netscape));
     st.yt.set_cookies(cookies);
 }
@@ -97,7 +97,7 @@ pub(crate) fn open(sealed: &[u8]) -> Result<String, AppError> {
     String::from_utf8(sealed.to_vec()).map_err(|e| AppError::new(ErrorKind::Auth, e.to_string()))
 }
 
-pub fn status(st: &AppState) -> AccountStatus {
+pub fn status(st: &Session) -> AccountStatus {
     if !st.yt.is_authenticated() {
         return AccountStatus::default();
     }
@@ -111,7 +111,7 @@ pub fn status(st: &AppState) -> AccountStatus {
 }
 
 /// Checks the cookies against YouTube, then stores them sealed.
-pub async fn connect(st: &AppState, text: &str) -> Result<AccountStatus, AppError> {
+pub async fn connect(st: &Session, text: &str) -> Result<AccountStatus, AppError> {
     let cookies = Cookies::parse(text)?;
     let previous = st.yt.cookies();
     st.yt.set_cookies(Some(cookies.clone()));
@@ -152,7 +152,7 @@ pub async fn connect(st: &AppState, text: &str) -> Result<AccountStatus, AppErro
     Ok(status(st))
 }
 
-pub fn disconnect(st: &AppState) -> Result<(), AppError> {
+pub fn disconnect(st: &Session) -> Result<(), AppError> {
     st.downloads.pause();
     apply(st, None);
     let _ = std::fs::remove_file(sealed_path(st));

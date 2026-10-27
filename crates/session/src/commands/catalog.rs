@@ -3,7 +3,7 @@
 
 use super::CmdResult;
 use crate::commands::library::emit_changed;
-use crate::state::AppState;
+use crate::state::Session;
 use mixtape_core::{Album, AlbumId, AppError, Artist, ArtistId, ErrorKind, Playlist, PlaylistId, Track, tr, trf};
 use mixtape_library::repo;
 use mixtape_library::views::ViewKind;
@@ -14,10 +14,10 @@ use mixtape_yt::search::{SearchItem, SearchKind, SearchPage};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use tauri::{Emitter, State};
+use tauri::State;
 use ts_rs::TS;
 
-type St<'a> = State<'a, Arc<AppState>>;
+type St<'a> = State<'a, Arc<Session>>;
 
 #[derive(Debug, Clone, Copy, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -86,11 +86,11 @@ pub enum DownloadKind {
     Playlist,
 }
 
-pub(crate) fn can_reach(st: &AppState) -> bool {
+pub(crate) fn can_reach(st: &Session) -> bool {
     st.yt.is_authenticated() && st.online.load(Ordering::SeqCst)
 }
 
-pub(crate) fn need_catalog(st: &AppState) -> CmdResult<()> {
+pub(crate) fn need_catalog(st: &Session) -> CmdResult<()> {
     if !st.yt.is_authenticated() {
         return Err(AppError::new(
             ErrorKind::Auth,
@@ -110,19 +110,19 @@ pub(crate) fn need_catalog(st: &AppState) -> CmdResult<()> {
     Ok(())
 }
 
-pub(crate) fn yt_error(st: &AppState, e: YtError) -> AppError {
+pub(crate) fn yt_error(st: &Session, e: YtError) -> AppError {
     if matches!(e, YtError::Auth) {
-        let _ = st.app.emit("account:expired", ());
+        crate::host::emit(&st.app, "account:expired", ());
     }
     e.into()
 }
 
-async fn tracks_of(st: &AppState, ids: &[mixtape_core::TrackId]) -> CmdResult<Vec<Track>> {
+async fn tracks_of(st: &Session, ids: &[mixtape_core::TrackId]) -> CmdResult<Vec<Track>> {
     Ok(st.db.read(|c| repo::tracks_by_ids(c, ids))?)
 }
 
 /// Stores what the page found and reads it back in the library's shapes.
-async fn page_of(st: &AppState, page: SearchPage) -> CmdResult<CatalogPage> {
+async fn page_of(st: &Session, page: SearchPage) -> CmdResult<CatalogPage> {
     let http = st.yt.http();
     let mut tracks = page.tracks;
     let mut albums = page.albums;
@@ -245,7 +245,7 @@ pub async fn catalog_download(state: St<'_>, kind: DownloadKind, id: String) -> 
 }
 
 /// Album page fallback: an album known only partly (or not at all) is read from the catalog.
-pub async fn fill_album(st: &AppState, id: &AlbumId, known: Option<(usize, Option<u32>)>) -> bool {
+pub async fn fill_album(st: &Session, id: &AlbumId, known: Option<(usize, Option<u32>)>) -> bool {
     let complete = matches!(known, Some((n, Some(total))) if n >= total as usize && n > 0);
     if complete || !can_reach(st) {
         return false;
@@ -257,7 +257,7 @@ pub async fn fill_album(st: &AppState, id: &AlbumId, known: Option<(usize, Optio
 }
 
 /// Artist page fallback for an artist not stored yet (opened from the catalog).
-pub async fn fill_artist(st: &AppState, id: &ArtistId) -> bool {
+pub async fn fill_artist(st: &Session, id: &ArtistId) -> bool {
     if !id.as_str().starts_with("UC") || !can_reach(st) {
         return false;
     }
@@ -265,7 +265,7 @@ pub async fn fill_artist(st: &AppState, id: &ArtistId) -> bool {
 }
 
 /// Playlist page fallback: a playlist that is not in the library, straight from the catalog.
-pub async fn catalog_playlist(st: &AppState, id: &PlaylistId) -> CmdResult<(Playlist, Vec<Track>)> {
+pub async fn catalog_playlist(st: &Session, id: &PlaylistId) -> CmdResult<(Playlist, Vec<Track>)> {
     need_catalog(st)?;
     let (playlist, ids) = catalog::playlist_page(&*st.yt, st.yt.http(), &st.db, &st.covers, id)
         .await
@@ -330,7 +330,7 @@ pub async fn artist_songs(state: St<'_>, id: ArtistId, load: bool) -> CmdResult<
         let mut done = 0;
         while set.join_next().await.is_some() {
             done += 1;
-            let _ = st.app.emit("artist:loading", ArtistLoading { id: id.to_string(), done, total });
+            crate::host::emit(&st.app, "artist:loading", ArtistLoading { id: id.to_string(), done, total });
         }
         let now = repo::now_ms();
         mixtape_library::settings::set(&st.db, &key, &now)?;

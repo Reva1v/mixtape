@@ -3,7 +3,7 @@
 //! smaller stand-in for a size not stored (a browsed item's cover asked for at 1024), which
 //! is revalidated so the full size shows once the item is in the library.
 
-use crate::state::AppState;
+use crate::state::Session;
 use mixtape_artwork::CoverStore;
 use tauri::http::{Request, Response, StatusCode, header};
 use tauri::{Manager, Runtime, UriSchemeContext, UriSchemeResponder};
@@ -13,7 +13,7 @@ pub fn handle<R: Runtime>(
     request: Request<Vec<u8>>,
     responder: UriSchemeResponder,
 ) {
-    let store = ctx.app_handle().state::<std::sync::Arc<AppState>>().covers.clone();
+    let store = ctx.app_handle().state::<std::sync::Arc<Session>>().covers.clone();
     let path = request.uri().path().to_owned();
     // A pooled blocking thread instead of a new OS thread per image.
     tauri::async_runtime::spawn_blocking(move || responder.respond(serve(&store, &path)));

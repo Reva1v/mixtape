@@ -3,7 +3,7 @@
 use super::{CmdResult, blocking};
 use crate::account::{self, AccountStatus};
 use crate::commands::library::emit_changed;
-use crate::state::AppState;
+use crate::state::Session;
 use mixtape_core::{AppError, ErrorKind, Playlist, PlaylistId, PlaylistOrigin, tr, trf};
 use mixtape_library::jobs::{self, FailedJob};
 use mixtape_library::views::ViewKind;
@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::ipc::Channel;
-use tauri::{Emitter, State};
+use tauri::State;
 use ts_rs::TS;
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -37,7 +37,7 @@ pub enum RetryTarget {
     All(#[allow(dead_code)] String),
 }
 
-fn need_account(st: &AppState) -> CmdResult<()> {
+fn need_account(st: &Session) -> CmdResult<()> {
     if st.yt.is_authenticated() {
         Ok(())
     } else {
@@ -49,38 +49,38 @@ fn need_account(st: &AppState) -> CmdResult<()> {
 }
 
 /// Maps an auth failure to the `account:expired` event as well as the error.
-fn yt_error(st: &AppState, e: mixtape_yt::YtError) -> AppError {
+fn yt_error(st: &Session, e: mixtape_yt::YtError) -> AppError {
     if matches!(e, mixtape_yt::YtError::Auth) {
-        let _ = st.app.emit("account:expired", ());
+        crate::host::emit(&st.app, "account:expired", ());
     }
     e.into()
 }
 
 #[tauri::command]
-pub async fn account_status(state: State<'_, Arc<AppState>>) -> CmdResult<AccountStatus> {
+pub async fn account_status(state: State<'_, Arc<Session>>) -> CmdResult<AccountStatus> {
     let st = state.inner().clone();
     blocking(move || Ok(account::status(&st))).await
 }
 
 #[tauri::command]
-pub async fn account_connect_cookies(state: State<'_, Arc<AppState>>, cookies_txt: String) -> CmdResult<AccountStatus> {
+pub async fn account_connect_cookies(state: State<'_, Arc<Session>>, cookies_txt: String) -> CmdResult<AccountStatus> {
     account::connect(state.inner(), &cookies_txt).await
 }
 
 /// Opens Google sign-in in a Mixtape window and connects the account it signs into.
 #[tauri::command]
-pub async fn account_connect_webview(state: State<'_, Arc<AppState>>) -> CmdResult<AccountStatus> {
+pub async fn account_connect_webview(state: State<'_, Arc<Session>>) -> CmdResult<AccountStatus> {
     crate::login_window::sign_in(state.inner()).await
 }
 
 #[tauri::command]
-pub async fn account_disconnect(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
+pub async fn account_disconnect(state: State<'_, Arc<Session>>) -> CmdResult<()> {
     let st = state.inner().clone();
     blocking(move || account::disconnect(&st)).await
 }
 
 #[tauri::command]
-pub async fn sync_preview(state: State<'_, Arc<AppState>>) -> CmdResult<SyncPreview> {
+pub async fn sync_preview(state: State<'_, Arc<Session>>) -> CmdResult<SyncPreview> {
     let st = state.inner().clone();
     need_account(&st)?;
     let p = sources::preview(&*st.yt).await.map_err(|e| yt_error(&st, e))?;
@@ -129,7 +129,7 @@ const AUTO_SYNC_AFTER_MS: i64 = 12 * 60 * 60 * 1000;
 /// Runs the sync in the background; progress shows up through the downloads channel.
 #[tauri::command]
 pub async fn sync_start(
-    state: State<'_, Arc<AppState>>,
+    state: State<'_, Arc<Session>>,
     liked: bool,
     playlist_ids: Vec<PlaylistId>,
     albums: bool,
@@ -143,7 +143,7 @@ pub async fn sync_start(
 }
 
 /// One sync at a time. A scheduled (`quiet`) run only logs its failure.
-fn run_sync(st: Arc<AppState>, plan: SyncPlan, quiet: bool) -> CmdResult<()> {
+fn run_sync(st: Arc<Session>, plan: SyncPlan, quiet: bool) -> CmdResult<()> {
     if st.syncing.swap(true, Ordering::SeqCst) {
         return Err(AppError::new(ErrorKind::Invalid, tr("Sync is already running", "Синхронізація вже триває", "Синхронизация уже идёт")));
     }
@@ -198,7 +198,7 @@ const AUTO_SYNC_RETRY: std::time::Duration = std::time::Duration::from_secs(60 *
 
 /// Time until the scheduled sync is due (zero = now), or `None` when it cannot run:
 /// no account, no saved plan, or offline. Those wait for [`nudge_auto_sync`].
-fn auto_sync_wait(st: &AppState) -> Option<std::time::Duration> {
+fn auto_sync_wait(st: &Session) -> Option<std::time::Duration> {
     if !st.yt.is_authenticated() || !st.online.load(Ordering::SeqCst) {
         return None;
     }
@@ -211,7 +211,7 @@ fn auto_sync_wait(st: &AppState) -> Option<std::time::Duration> {
 /// Re-runs the last chosen sync 12 hours after the previous one, so new likes and releases
 /// arrive without a click. Sleeps until it is due (one timer, re-armed after every sync);
 /// nothing wakes it in between except a finished sync or the network coming back.
-pub fn spawn_auto_sync(st: Arc<AppState>) {
+pub fn spawn_auto_sync(st: Arc<Session>) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(180)).await;
         loop {
@@ -244,7 +244,7 @@ pub fn spawn_auto_sync(st: Arc<AppState>) {
 }
 
 #[tauri::command]
-pub async fn import_url(state: State<'_, Arc<AppState>>, url: String) -> CmdResult<ImportResult> {
+pub async fn import_url(state: State<'_, Arc<Session>>, url: String) -> CmdResult<ImportResult> {
     let st = state.inner().clone();
     // SoundCloud and Bandcamp need no account.
     if let Some(link) = url_import::parse_external(&url) {
@@ -283,7 +283,7 @@ impl Drop for ExternalSlot {
 }
 
 /// The import's line on the downloads screen; a running YouTube Music sync keeps its own.
-fn external_status(st: &AppState, status: Option<SyncStatus>) {
+fn external_status(st: &Session, status: Option<SyncStatus>) {
     if !st.syncing.load(Ordering::SeqCst) {
         st.downloads.set_sync(status);
     }
@@ -292,7 +292,7 @@ fn external_status(st: &AppState, status: Option<SyncStatus>) {
 /// A SoundCloud / Bandcamp link: reads it with yt-dlp, answers with its title, then downloads
 /// the tracks one by one in the background (`mixtape_sync::external`). Progress shows on the
 /// downloads screen like the sync's; the end is a toast.
-async fn import_external(st: Arc<AppState>, link: ExternalLink) -> CmdResult<ImportResult> {
+async fn import_external(st: Arc<Session>, link: ExternalLink) -> CmdResult<ImportResult> {
     if EXTERNAL_IMPORT.swap(true, Ordering::SeqCst) {
         return Err(AppError::new(
             ErrorKind::Invalid,
@@ -370,7 +370,7 @@ async fn import_external(st: Arc<AppState>, link: ExternalLink) -> CmdResult<Imp
 }
 
 #[tauri::command]
-pub async fn downloads_pause(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
+pub async fn downloads_pause(state: State<'_, Arc<Session>>) -> CmdResult<()> {
     // These write to the database: off the main thread, which a sync command would block.
     let st = state.inner().clone();
     blocking(move || {
@@ -381,7 +381,7 @@ pub async fn downloads_pause(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
 }
 
 #[tauri::command]
-pub async fn downloads_resume(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
+pub async fn downloads_resume(state: State<'_, Arc<Session>>) -> CmdResult<()> {
     let st = state.inner().clone();
     blocking(move || {
         st.downloads.resume();
@@ -391,7 +391,7 @@ pub async fn downloads_resume(state: State<'_, Arc<AppState>>) -> CmdResult<()> 
 }
 
 #[tauri::command]
-pub async fn download_retry(state: State<'_, Arc<AppState>>, job_id: RetryTarget) -> CmdResult<()> {
+pub async fn download_retry(state: State<'_, Arc<Session>>, job_id: RetryTarget) -> CmdResult<()> {
     let st = state.inner().clone();
     let target = match job_id {
         RetryTarget::Job(id) => Some(id),
@@ -405,13 +405,13 @@ pub async fn download_retry(state: State<'_, Arc<AppState>>, job_id: RetryTarget
 }
 
 #[tauri::command]
-pub async fn downloads_failed(state: State<'_, Arc<AppState>>) -> CmdResult<Vec<FailedJob>> {
+pub async fn downloads_failed(state: State<'_, Arc<Session>>) -> CmdResult<Vec<FailedJob>> {
     let st = state.inner().clone();
     blocking(move || Ok(st.db.read(jobs::failed_list)?)).await
 }
 
 #[tauri::command]
-pub fn downloads_subscribe(state: State<'_, Arc<AppState>>, channel: Channel<DownloadsProgress>) {
+pub fn downloads_subscribe(state: State<'_, Arc<Session>>, channel: Channel<DownloadsProgress>) {
     let _ = channel.send(state.downloads.snapshot());
     *state.downloads_channel.lock().unwrap_or_else(|e| e.into_inner()) = Some(channel);
 }

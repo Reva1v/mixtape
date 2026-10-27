@@ -26,7 +26,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use tokio::sync::{Notify, OnceCell};
 
 /// A download in progress (or just finished) for one track.
@@ -300,8 +300,8 @@ impl AppStreams {
         {
             tracing::info!(n = evicted.len(), "stream cache trimmed");
         }
-        let _ = self.app.emit("queue:changed", ());
-        if let Some(st) = self.app.try_state::<Arc<crate::state::AppState>>() {
+        crate::host::emit(&self.app, "queue:changed", ());
+        if let Some(st) = self.app.try_state::<Arc<crate::state::Session>>() {
             st.analyzer.kick();
         }
     }

@@ -2,7 +2,7 @@
 //! progress to the UI channel, and batched `library:changed` events as tracks land.
 
 use crate::commands::library::emit_changed;
-use crate::state::AppState;
+use crate::state::Session;
 use mixtape_core::TrackId;
 use mixtape_library::views::ViewKind;
 use mixtape_sync::downloader::{Analysis, DownloadsProgress, Hooks};
@@ -10,7 +10,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 
 /// Finished downloads are announced at most this often, so a running sync does not
 /// make every open list reload per track.
@@ -35,7 +35,7 @@ impl Hooks for AppHooks {
     }
 
     fn progress(&self, p: &DownloadsProgress) {
-        if let Some(st) = self.app.try_state::<Arc<AppState>>()
+        if let Some(st) = self.app.try_state::<Arc<Session>>()
             && let Some(ch) = st.downloads_channel.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
         {
             let _ = ch.send(p.clone());
@@ -44,7 +44,7 @@ impl Hooks for AppHooks {
 
     /// The first track of a burst schedules one event; the rest join it. No timer runs idle.
     fn finished(&self, _track: &TrackId) {
-        if let Some(st) = self.app.try_state::<Arc<AppState>>() {
+        if let Some(st) = self.app.try_state::<Arc<Session>>() {
             st.analyzer.kick();
         }
         if self.dirty.swap(true, Ordering::SeqCst) {
@@ -59,7 +59,7 @@ impl Hooks for AppHooks {
     }
 
     fn auth_expired(&self) {
-        let _ = self.app.emit("account:expired", ());
+        crate::host::emit(&self.app, "account:expired", ());
     }
 
     fn low_space(&self) {

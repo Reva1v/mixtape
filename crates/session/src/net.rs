@@ -7,13 +7,12 @@
 //! a running mix, wakes the downloader and the scheduled sync. Local playback never
 //! depends on it.
 
-use crate::state::AppState;
+use crate::state::Session;
 use mixtape_yt::innertube::Reach;
 use serde::Serialize;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Weak};
 use std::time::Duration;
-use tauri::{Emitter, Manager};
 
 const PROBE_URL: &str = "https://music.youtube.com/generate_204";
 /// First probe interval while offline; doubles up to [`OFFLINE_PROBE_MAX`].
@@ -39,12 +38,12 @@ async fn probe(http: &mixtape_sync::reqwest::Client) -> bool {
 
 /// Records the status; on a change tells the UI and, when back online, restarts what
 /// waited for the network.
-fn set_online(st: &Arc<AppState>, online: bool) {
+fn set_online(st: &Arc<Session>, online: bool) {
     if st.online.swap(online, Ordering::SeqCst) == online {
         return;
     }
     tracing::info!(online, "network status changed");
-    let _ = st.app.emit("net:status", NetStatus { online });
+    crate::host::emit(&st.app, "net:status", NetStatus { online });
     if online {
         crate::commands::mix::flush_likes(st);
         crate::lastfm::flush(st);
@@ -58,7 +57,7 @@ fn set_online(st: &Arc<AppState>, online: bool) {
 }
 
 /// What an InnerTube request said about the network.
-fn on_reach(st: &Arc<AppState>, reach: Reach) {
+fn on_reach(st: &Arc<Session>, reach: Reach) {
     match reach {
         Reach::Answered => {
             if !st.online.load(Ordering::SeqCst) {
@@ -71,12 +70,8 @@ fn on_reach(st: &Arc<AppState>, reach: Reach) {
 }
 
 /// Minimized or hidden to the tray with nothing playing: no one would see the status.
-fn idle(st: &AppState) -> bool {
-    let unseen = st
-        .app
-        .get_webview_window(crate::window::MAIN)
-        .map(|w| w.is_minimized().unwrap_or(false) || !w.is_visible().unwrap_or(true))
-        .unwrap_or(false);
+fn idle(st: &Session) -> bool {
+    let unseen = crate::host::ui_unseen(&st.app);
     use mixtape_player::Status;
     unseen && !matches!(st.player.state().status, Status::Playing | Status::Loading | Status::Buffering)
 }
@@ -89,8 +84,8 @@ fn offline_delay(failed: u32, idle: bool) -> Duration {
     OFFLINE_PROBE.saturating_mul(1 << failed.min(16)).min(OFFLINE_PROBE_MAX)
 }
 
-pub fn spawn(st: Arc<AppState>) {
-    let weak: Weak<AppState> = Arc::downgrade(&st);
+pub fn spawn(st: Arc<Session>) {
+    let weak: Weak<Session> = Arc::downgrade(&st);
     st.yt.set_reach_hook(move |reach| {
         if let Some(st) = weak.upgrade() {
             on_reach(&st, reach);
@@ -123,7 +118,7 @@ pub fn spawn(st: Arc<AppState>) {
 }
 
 #[tauri::command]
-pub fn net_status(state: tauri::State<'_, Arc<AppState>>) -> bool {
+pub fn net_status(state: tauri::State<'_, Arc<Session>>) -> bool {
     state.online.load(Ordering::SeqCst)
 }
 

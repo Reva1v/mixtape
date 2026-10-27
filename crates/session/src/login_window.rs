@@ -4,12 +4,12 @@
 //! so the session is used only by Mixtape and Google does not rotate it under us.
 
 use crate::account::{self, AccountStatus};
-use crate::state::AppState;
+use crate::state::Session;
 use mixtape_core::{AppError, ErrorKind, tr, trf};
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
 use tauri::webview::cookie::Cookie;
-use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 const LABEL: &str = "login";
 /// Google's sign-in page, in the app language.
@@ -27,7 +27,7 @@ fn cancelled() -> AppError {
     AppError::new(ErrorKind::Auth, tr("Sign-in cancelled", "Вхід скасовано", "Вход отменён"))
 }
 
-pub async fn sign_in(st: &AppState) -> Result<AccountStatus, AppError> {
+pub async fn sign_in(st: &Session) -> Result<AccountStatus, AppError> {
     // A second click just brings the open window forward and waits on it as well.
     let window = match st.app.get_webview_window(LABEL) {
         Some(w) => w,
@@ -48,8 +48,8 @@ pub async fn sign_in(st: &AppState) -> Result<AccountStatus, AppError> {
                     ok
                 })
                 .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny);
-            // Owned by the main window, so it always stays above it.
-            if let Some(main) = st.app.get_webview_window("main") {
+            // Owned by the interface window, so it always stays above it.
+            if let Some(main) = st.host.ui_window().and_then(|l| st.app.get_webview_window(&l)) {
                 builder = builder.parent(&main).map_err(|e| AppError::new(ErrorKind::Internal, e.to_string()))?;
             }
             builder
@@ -94,7 +94,7 @@ pub async fn sign_in(st: &AppState) -> Result<AccountStatus, AppError> {
         let _ = window.close();
         if result.is_ok() {
             // The page that asked may have reloaded meanwhile; tell every listener.
-            let _ = st.app.emit("account:changed", ());
+            crate::host::emit(&st.app, "account:changed", ());
         }
         return result;
     }

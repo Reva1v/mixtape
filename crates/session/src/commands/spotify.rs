@@ -5,7 +5,7 @@
 use super::{CmdResult, blocking};
 use crate::commands::catalog::{need_catalog, yt_error};
 use crate::commands::library::emit_changed;
-use crate::state::AppState;
+use crate::state::Session;
 use mixtape_core::{AppError, ErrorKind, PlaylistId, TrackState, tr};
 use mixtape_library::views::ViewKind;
 use mixtape_library::{cache_lru, jobs, repo};
@@ -14,10 +14,10 @@ use mixtape_sync::spotify::{self, page};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use tauri::{Emitter, State};
+use tauri::State;
 use ts_rs::TS;
 
-type St<'a> = State<'a, Arc<AppState>>;
+type St<'a> = State<'a, Arc<Session>>;
 
 /// What to import.
 #[derive(Debug, Clone, Deserialize, TS)]
@@ -145,14 +145,14 @@ pub async fn spotify_import(
 
     let total = tracks.len() as u32;
     let app = st.app.clone();
-    let _ = app.emit("spotify:progress", SpotifyProgress { done: 0, total });
+    crate::host::emit(&app, "spotify:progress", SpotifyProgress { done: 0, total });
     let found = import::match_all(
         st.yt.clone(),
         &tracks,
         Arc::new(import::pacer()),
         cancel.clone(),
         |done, _| {
-            let _ = app.emit(
+            crate::host::emit(&app, 
                 "spotify:progress",
                 SpotifyProgress {
                     done: done as u32,

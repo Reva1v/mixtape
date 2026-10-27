@@ -4,7 +4,7 @@
 
 use super::mix::{page_of, yt_error};
 use super::{CmdResult, blocking};
-use crate::state::AppState;
+use crate::state::Session;
 use mixtape_core::{
     Album, AlbumId, AppError, ArtistId, ArtistRef, ErrorKind, PlaylistId, Track, TrackId, tr,
 };
@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 use tauri::State;
 use ts_rs::TS;
 
-type St<'a> = State<'a, Arc<AppState>>;
+type St<'a> = State<'a, Arc<Session>>;
 
 /// How long fetched shelves are shown before the feed is read again.
 const SHELF_TTL: Duration = Duration::from_secs(30 * 60);
@@ -210,7 +210,7 @@ pub async fn mix_start_playlist(state: St<'_>, playlist_id: String) -> CmdResult
 }
 
 /// Reads the feed, stores its tracks and downloads card thumbnails.
-async fn fetch(st: &AppState) -> CmdResult<Vec<CachedShelf>> {
+async fn fetch(st: &Session) -> CmdResult<Vec<CachedShelf>> {
     let feed = st.yt.home(MAX_SHELVES).await.map_err(|e| yt_error(st, e))?;
     let tracks: Vec<YtTrack> = feed
         .iter()
@@ -269,7 +269,7 @@ fn card_thumb(item: &HomeItem) -> Option<(String, String)> {
 }
 
 /// Card thumbnails are only browsed, so they are fetched and kept small.
-async fn download_thumbs(st: &AppState, jobs: Vec<(String, String)>) {
+async fn download_thumbs(st: &Session, jobs: Vec<(String, String)>) {
     let sem = Arc::new(tokio::sync::Semaphore::new(COVER_PARALLEL));
     let mut set = tokio::task::JoinSet::new();
     for (key, url) in jobs {
@@ -335,7 +335,7 @@ fn item_key(item: &CachedItem) -> String {
 
 /// Cached shelves → UI shelves with fresh track rows; tracks missing from the database are
 /// dropped, and so are shelves left empty.
-async fn hydrate(st: Arc<AppState>, shelves: Vec<CachedShelf>) -> CmdResult<Vec<HomeShelf>> {
+async fn hydrate(st: Arc<Session>, shelves: Vec<CachedShelf>) -> CmdResult<Vec<HomeShelf>> {
     if shelves.is_empty() {
         return Ok(Vec::new());
     }

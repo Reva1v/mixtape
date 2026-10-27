@@ -2720,16 +2720,11 @@ dependencies = [
 name = "mixtape"
 version = "0.2.1"
 dependencies = [
- "if-addrs",
- "mixtape-artwork",
- "mixtape-audio",
  "mixtape-core",
  "mixtape-library",
  "mixtape-player",
- "mixtape-sync",
+ "mixtape-session",
  "mixtape-win",
- "mixtape-yt",
- "qrcode",
  "serde",
  "serde_json",
  "tauri",
@@ -2738,12 +2733,10 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
- "thiserror 2.0.21",
  "tokio",
  "tracing",
  "tracing-subscriber",
  "ts-rs",
- "windows",
 ]
 
 [[package]]

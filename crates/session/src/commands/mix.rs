@@ -4,7 +4,7 @@
 use super::{CmdResult, blocking};
 use crate::commands::library::emit_changed;
 use crate::commands::player::PLAY_REQUESTS;
-use crate::state::AppState;
+use crate::state::Session;
 use mixtape_core::{AppError, ErrorKind, TrackId, TrackState, tr};
 use mixtape_library::views::ViewKind;
 use mixtape_library::{cache_lru, jobs, likes, repo};
@@ -14,14 +14,14 @@ use mixtape_yt::YtError;
 use mixtape_yt::radio::{RadioChip, RadioPage};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{Emitter, State};
+use tauri::State;
 
-type St<'a> = State<'a, Arc<AppState>>;
+type St<'a> = State<'a, Arc<Session>>;
 
 /// Tracks a mix may still pick from the library when it runs dry offline.
 const OFFLINE_BATCH: usize = 30;
 
-fn need_account(st: &AppState) -> CmdResult<()> {
+fn need_account(st: &Session) -> CmdResult<()> {
     if st.yt.is_authenticated() {
         Ok(())
     } else {
@@ -36,15 +36,15 @@ fn need_account(st: &AppState) -> CmdResult<()> {
     }
 }
 
-pub(super) fn yt_error(st: &AppState, e: YtError) -> AppError {
+pub(super) fn yt_error(st: &Session, e: YtError) -> AppError {
     if matches!(e, YtError::Auth) {
-        let _ = st.app.emit("account:expired", ());
+        crate::host::emit(&st.app, "account:expired", ());
     }
     e.into()
 }
 
 /// Stores the page's tracks (they stay `remote`) and turns it into the player's shape.
-pub(super) async fn page_of(st: &AppState, radio: RadioPage) -> CmdResult<MixPage> {
+pub(super) async fn page_of(st: &Session, radio: RadioPage) -> CmdResult<MixPage> {
     let tracks = sources::store_tracks(st.yt.http(), &st.db, &st.covers, radio.tracks).await?;
     Ok(MixPage {
         tracks,
@@ -137,7 +137,7 @@ pub async fn mix_continue_local(state: St<'_>) -> CmdResult<()> {
 }
 
 /// Called on every queue change: fetches the next page when the running mix is low.
-pub fn top_up(st: &Arc<AppState>) {
+pub fn top_up(st: &Arc<Session>) {
     let Some(req) = st.player.mix_begin_more() else { return };
     let st = st.clone();
     tauri::async_runtime::spawn(async move {
@@ -151,7 +151,7 @@ pub fn top_up(st: &Arc<AppState>) {
                 tracing::warn!(error = %e.message, "mix continuation failed");
                 st.player.mix_more_failed(req.generation);
                 if e.kind == ErrorKind::Network && st.player.remaining() <= 1 {
-                    let _ = st.app.emit("mix:offline", ());
+                    crate::host::emit(&st.app, "mix:offline", ());
                 }
             }
         }
@@ -188,7 +188,7 @@ static RETRY_ARMED: AtomicBool = AtomicBool::new(false);
 /// a like, at start and when the network returns; while rows are left after a failure, a
 /// single retry timer backs off by their attempts (1 min doubling to 6 h). Nothing runs
 /// while the outbox is empty.
-pub fn flush_likes(st: &Arc<AppState>) {
+pub fn flush_likes(st: &Arc<Session>) {
     if !st.yt.is_authenticated() || FLUSHING.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -204,7 +204,7 @@ pub fn flush_likes(st: &Arc<AppState>) {
         }
         FLUSHING.store(false, Ordering::SeqCst);
         if report.auth_expired {
-            let _ = st.app.emit("account:expired", ());
+            crate::host::emit(&st.app, "account:expired", ());
         } else {
             arm_like_retry(&st);
         }
@@ -215,7 +215,7 @@ pub fn flush_likes(st: &Arc<AppState>) {
 }
 
 /// Schedules the next flush while the outbox still has rows.
-fn arm_like_retry(st: &Arc<AppState>) {
+fn arm_like_retry(st: &Arc<Session>) {
     let Ok(Some(attempts)) = st.db.read(likes::oldest_attempts) else { return };
     if RETRY_ARMED.swap(true, Ordering::SeqCst) {
         return;
@@ -262,7 +262,7 @@ pub async fn track_download(state: St<'_>, id: TrackId) -> CmdResult<()> {
 }
 
 /// Autosave (T076): a cached track played in full often enough moves into the library.
-pub fn autosave(st: &Arc<AppState>, id: &TrackId, full_plays: u32) {
+pub fn autosave(st: &Arc<Session>, id: &TrackId, full_plays: u32) {
     let threshold = cache_lru::autosave_threshold(&st.db).unwrap_or(Some(cache_lru::DEFAULT_AUTOSAVE_PLAYS));
     if !cache_lru::should_autosave(full_plays, threshold) {
         return;

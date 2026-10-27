@@ -5,7 +5,7 @@
 
 use super::{CmdResult, blocking};
 use crate::commands::library::emit_changed;
-use crate::state::AppState;
+use crate::state::Session;
 use mixtape_core::{AlbumId, AlbumRef, AlbumType, AppError, ArtistRef, ErrorKind, TrackId, tr, trf};
 use mixtape_library::repo::{self, AlbumMeta, FileLocation, MediaFile, TrackMeta};
 use mixtape_library::views::ViewKind;
@@ -55,7 +55,7 @@ fn audio_files(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
 
 /// Registered in debug builds only (see `lib.rs`).
 #[tauri::command]
-pub async fn dev_import_folder(app: AppHandle, state: State<'_, Arc<AppState>>, path: String) -> CmdResult<u32> {
+pub async fn dev_import_folder(app: AppHandle, state: State<'_, Arc<Session>>, path: String) -> CmdResult<u32> {
     let st = state.inner().clone();
     let n = blocking(move || import_dir(&st, &path)).await?;
     emit_changed(&app, &[ViewKind::Tracks, ViewKind::Albums, ViewKind::Artists]);
@@ -64,7 +64,7 @@ pub async fn dev_import_folder(app: AppHandle, state: State<'_, Arc<AppState>>, 
 
 /// Imports every audio file under `path`. Also run at startup in debug builds when
 /// `MIXTAPE_DEV_IMPORT` is set, for screenshots and manual testing.
-pub fn import_dir(st: &AppState, path: &str) -> CmdResult<u32> {
+pub fn import_dir(st: &Session, path: &str) -> CmdResult<u32> {
     {
         let dir = PathBuf::from(path.trim().trim_matches('"'));
         let files = audio_files(&dir)

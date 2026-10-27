@@ -4,7 +4,7 @@
 //! window-state plugin from taking the mini size for the normal one, and remembers where
 //! the strip was.
 
-use crate::state::AppState;
+use mixtape_session::Session;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -158,7 +158,7 @@ pub fn toggle(app: &AppHandle) {
 }
 
 fn load_saved(app: &AppHandle) -> Option<Saved> {
-    let st = app.try_state::<Arc<AppState>>()?;
+    let st = app.try_state::<Arc<Session>>()?;
     mixtape_library::settings::get(&st.db, SAVED_KEY)
         .ok()
         .flatten()
@@ -173,7 +173,7 @@ fn remember(app: &AppHandle, w: &WebviewWindow) {
         return;
     };
     let saved = Saved { x: pos.x, y: pos.y };
-    if let Some(st) = app.try_state::<Arc<AppState>>()
+    if let Some(st) = app.try_state::<Arc<Session>>()
         && let Err(e) = mixtape_library::settings::set(&st.db, SAVED_KEY, &saved)
     {
         tracing::warn!(error = %e, "mini player place not saved");

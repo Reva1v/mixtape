@@ -1,7 +1,7 @@
 //! Windows media integration: SMTC (media overlay and keys) and taskbar thumbnail
 //! buttons, driven by player state.
 
-use crate::state::AppState;
+use crate::state::Session;
 use mixtape_core::Track;
 use mixtape_player::{PlaybackState, Status};
 use mixtape_win::{MediaCommand, Smtc, ThumbBar};
@@ -25,7 +25,7 @@ pub struct Media {
 }
 
 pub fn dispatch(app: &AppHandle, cmd: MediaCommand) {
-    let Some(st) = app.try_state::<Arc<AppState>>() else { return };
+    let Some(st) = app.try_state::<Arc<Session>>() else { return };
     let p = st.player.clone();
     // Commands may arrive on the UI thread (thumbbar); never block it.
     std::thread::spawn(move || match cmd {
@@ -39,17 +39,20 @@ pub fn dispatch(app: &AppHandle, cmd: MediaCommand) {
 }
 
 impl Media {
-    /// Hooks up SMTC and the thumbnail toolbar to the main window. Runs on the UI thread.
+    /// Hooks up SMTC and (when the host has them) the thumbnail toolbar to the host's
+    /// window. Runs on the UI thread.
     pub fn install(&self, app: &AppHandle) {
-        let Some(win) = app.get_webview_window("main") else { return };
-        let Ok(hwnd) = win.hwnd() else { return };
-        let hwnd = hwnd.0 as isize;
+        let Some(host) = crate::host::host(app) else { return };
+        let Some(hwnd) = host.smtc_hwnd(app) else { return };
         let a = app.clone();
         match Smtc::new(hwnd, move |c| dispatch(&a, c)) {
             Ok(s) => {
                 let _ = self.smtc.set(s);
             }
             Err(e) => tracing::warn!(error = %e, "SMTC unavailable"),
+        }
+        if !host.taskbar_buttons() {
+            return;
         }
         let a = app.clone();
         match ThumbBar::install(hwnd, move |c| dispatch(&a, c)) {
@@ -87,7 +90,7 @@ impl Media {
         *self.last_timeline.lock().expect("timeline lock poisoned") = None;
     }
 
-    pub fn on_track(&self, st: &AppState, track: &Track) {
+    pub fn on_track(&self, st: &Session, track: &Track) {
         let Some(smtc) = self.smtc.get() else { return };
         let cover = track
             .cover_key

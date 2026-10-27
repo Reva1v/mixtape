@@ -11,7 +11,7 @@
 //! changes, pause/resume and seeks (not on the player's periodic position samples), at
 //! most one per [`MIN_GAP`] so fast skipping stays within Discord's rate limit.
 
-use crate::state::AppState;
+use crate::state::Session;
 use mixtape_core::{Track, tr};
 use mixtape_player::{PlaybackState, PlayerEvent, Status};
 use serde_json::{Value, json};
@@ -426,7 +426,7 @@ fn changed(old: Option<&Activity>, new: Option<&Activity>) -> bool {
     }
 }
 
-fn refresh(st: &AppState, p: &Presence) {
+fn refresh(st: &Session, p: &Presence) {
     let now = unix_ms();
     let art_of = |id: &str| p.art.lock().expect("art lock poisoned").get(id).cloned().flatten();
     let mut inner = p.inner.lock().expect("presence lock poisoned");
@@ -454,7 +454,7 @@ fn refresh(st: &AppState, p: &Presence) {
     }
 }
 
-pub fn on_player_event(st: &AppState, ev: &PlayerEvent) {
+pub fn on_player_event(st: &Session, ev: &PlayerEvent) {
     if APP_ID.is_none() {
         return;
     }
@@ -493,11 +493,11 @@ fn unix_ms() -> i64 {
 }
 
 /// One look a little after the pause's grace time: still paused → the status goes.
-fn expire_pause(st: &AppState) {
+fn expire_pause(st: &Session) {
     let app = st.app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_millis(PAUSE_KEEP_MS as u64 + 500)).await;
-        if let (Some(st), Some(p)) = (app.try_state::<std::sync::Arc<AppState>>(), app.try_state::<Presence>()) {
+        if let (Some(st), Some(p)) = (app.try_state::<std::sync::Arc<Session>>(), app.try_state::<Presence>()) {
             refresh(&st, &p);
         }
     });
@@ -505,7 +505,7 @@ fn expire_pause(st: &AppState) {
 
 /// The album art YouTube Music shows for a song (square, unlike the video thumbnail),
 /// asked once per track; the activity is refreshed when it arrives.
-fn fetch_art(st: &AppState, id: &str) {
+fn fetch_art(st: &Session, id: &str) {
     if !is_youtube(id) || !st.yt.is_authenticated() {
         return;
     }
@@ -520,7 +520,7 @@ fn fetch_art(st: &AppState, id: &str) {
     let app = st.app.clone();
     let id = id.to_owned();
     tauri::async_runtime::spawn(async move {
-        let Some(st) = app.try_state::<std::sync::Arc<AppState>>() else { return };
+        let Some(st) = app.try_state::<std::sync::Arc<Session>>() else { return };
         let Ok(v) = st.yt.player_meta(&mixtape_core::TrackId::from(id.as_str())).await else { return };
         let url = v["videoDetails"]["thumbnail"]["thumbnails"]
             .as_array()
@@ -537,7 +537,7 @@ fn fetch_art(st: &AppState, id: &str) {
 }
 
 /// The setting changed.
-pub fn set_enabled(st: &AppState, on: bool) {
+pub fn set_enabled(st: &Session, on: bool) {
     let Some(p) = st.app.try_state::<Presence>() else {
         return;
     };

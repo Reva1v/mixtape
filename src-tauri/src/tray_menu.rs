@@ -9,8 +9,8 @@
 //! empty frame to be drawn and calls `tray_menu_hide`, so the next show never flashes the
 //! previous content. While it is open it hears `track:changed` and `tray-menu:playing`.
 
-use crate::commands::{CmdResult, blocking};
-use crate::state::AppState;
+use mixtape_session::commands::{CmdResult, blocking};
+use mixtape_session::Session;
 use mixtape_core::{Lang, Track};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -233,7 +233,7 @@ pub fn on_playing(app: &AppHandle, playing: bool) {
 #[tauri::command]
 pub async fn tray_menu_snapshot(
     app: AppHandle,
-    state: State<'_, Arc<AppState>>,
+    state: State<'_, Arc<Session>>,
 ) -> CmdResult<TrayMenuSnapshot> {
     let st = state.inner().clone();
     let track = blocking(move || Ok(st.player.current_track())).await?;

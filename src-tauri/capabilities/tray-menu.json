@@ -12,9 +12,10 @@
     "allow-tray-menu-reveal",
     "allow-tray-menu-hide",
     "allow-tray-menu-action",
-    "allow-player-toggle",
-    "allow-player-prev",
-    "allow-player-next",
-    "allow-track-set-liked"
+    "mixtape:allow-host-caps",
+    "mixtape:allow-player-toggle",
+    "mixtape:allow-player-prev",
+    "mixtape:allow-player-next",
+    "mixtape:allow-track-set-liked"
   ]
 }

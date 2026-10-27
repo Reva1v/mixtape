@@ -3,9 +3,9 @@
 //! announced to the UI, which offers to install it. Installing downloads the installer,
 //! runs it in passive mode and closes the app.
 
-use crate::commands::CmdResult;
-use crate::commands::settings::Prefs;
-use crate::state::AppState;
+use mixtape_session::commands::CmdResult;
+use mixtape_session::commands::settings::Prefs;
+use mixtape_session::Session;
 use mixtape_core::{AppError, ErrorKind};
 use serde::Serialize;
 use std::sync::Arc;
@@ -38,7 +38,7 @@ async fn find(app: &AppHandle) -> CmdResult<Option<tauri_plugin_updater::Update>
     app.updater().map_err(failed)?.check().await.map_err(failed)
 }
 
-pub fn spawn(st: Arc<AppState>) {
+pub fn spawn(st: Arc<Session>) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(FIRST_CHECK).await;
         loop {
@@ -70,7 +70,7 @@ pub async fn update_check(app: AppHandle) -> CmdResult<Option<UpdateInfo>> {
 /// Downloads and starts the installer; reports `update:progress` {done, total}. The
 /// installer closes the app, so on success this does not return to the UI.
 #[tauri::command]
-pub async fn update_install(app: AppHandle, state: State<'_, Arc<AppState>>) -> CmdResult<()> {
+pub async fn update_install(app: AppHandle, state: State<'_, Arc<Session>>) -> CmdResult<()> {
     let update = find(&app).await?.ok_or_else(|| {
         AppError::new(ErrorKind::NotFound, mixtape_core::tr("No update available", "Оновлень немає", "Обновлений нет"))
     })?;

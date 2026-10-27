@@ -1,7 +1,7 @@
 //! Listening statistics («Статистика»): a recap of the play log for a period.
 
 use super::{CmdResult, blocking};
-use crate::state::AppState;
+use crate::state::Session;
 use mixtape_library::repo;
 use mixtape_library::stats::{self, ListeningStats, StatsPeriod};
 use std::sync::Arc;
@@ -13,7 +13,7 @@ use tauri::State;
 /// covers all of them.
 #[tauri::command]
 pub async fn stats_get(
-    state: State<'_, Arc<AppState>>,
+    state: State<'_, Arc<Session>>,
     period: StatsPeriod,
     tz_offset_min: i32,
     device: Option<String>,

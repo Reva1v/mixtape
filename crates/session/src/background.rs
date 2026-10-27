@@ -3,7 +3,7 @@
 //! after start, so the window comes up first; none of them repeats on a timer.
 
 use crate::commands;
-use crate::state::AppState;
+use crate::state::Session;
 use mixtape_library::views::ViewKind;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -15,7 +15,7 @@ const START_DELAY: Duration = Duration::from_secs(60);
 /// saving may not be in the database yet.
 const COVER_MIN_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
-pub fn spawn(st: Arc<AppState>) {
+pub fn spawn(st: Arc<Session>) {
     commands::mix::flush_likes(&st);
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(START_DELAY).await;
@@ -27,7 +27,7 @@ pub fn spawn(st: Arc<AppState>) {
 }
 
 /// Pictures of library artists that have none and were not looked for within a week.
-pub async fn fetch_artist_pictures(st: &Arc<AppState>) {
+pub async fn fetch_artist_pictures(st: &Arc<Session>) {
     let n = mixtape_sync::artists::fetch_missing(st.yt.clone(), st.yt.http().clone(), st.db.clone(), st.covers.clone())
         .await;
     if n > 0 {
@@ -36,7 +36,7 @@ pub async fn fetch_artist_pictures(st: &Arc<AppState>) {
 }
 
 /// Runs [`clean_covers`] on a thread of its own in background mode.
-pub fn clean_covers_in_background(st: Arc<AppState>) {
+pub fn clean_covers_in_background(st: Arc<Session>) {
     let spawned = std::thread::Builder::new().name("cover-cleanup".into()).spawn(move || {
         mixtape_win::enter_background_mode();
         clean_covers(&st);
@@ -47,7 +47,7 @@ pub fn clean_covers_in_background(st: Arc<AppState>) {
 }
 
 /// Deletes covers no row refers to, and the 1024 px size of covers outside the library.
-pub fn clean_covers(st: &AppState) {
+pub fn clean_covers(st: &Session) {
     let keys = match st.db.read(mixtape_library::covers::keys_in_use) {
         Ok(k) => k,
         Err(e) => {

@@ -1,11 +1,11 @@
 //! Rare global events sent to the UI with `emit` (contracts/ipc.md, «События»), and
 //! the bridge from player events to the UI and to Windows media controls.
 
-use crate::state::AppState;
+use crate::state::Session;
 use mixtape_core::{Lang, Track};
 use mixtape_player::PlayerEvent;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use ts_rs::TS;
 
 /// `track:changed` — a new track became current.
@@ -25,11 +25,11 @@ struct Toast {
 }
 
 pub fn toast_error(app: &AppHandle, text: impl Into<String>) {
-    let _ = app.emit("toast", Toast { level: "error", text: text.into() });
+    crate::host::emit(app, "toast", Toast { level: "error", text: text.into() });
 }
 
 pub fn toast_info(app: &AppHandle, text: impl Into<String>) {
-    let _ = app.emit("toast", Toast { level: "info", text: text.into() });
+    crate::host::emit(app, "toast", Toast { level: "info", text: text.into() });
 }
 
 /// "3 tracks" in the app language.
@@ -55,19 +55,19 @@ fn tracks_word_in(lang: Lang, n: usize) -> String {
     format!("{n} {word}")
 }
 
-pub fn announce_track(st: &AppState, track: Track) {
+pub fn announce_track(st: &Session, track: Track) {
     let palette = track
         .album
         .as_ref()
         .and_then(|a| st.db.read(|c| mixtape_library::repo::album(c, &a.id)).ok().flatten())
         .map(|a| a.palette)
         .unwrap_or_default();
-    let _ = st.app.emit("track:changed", TrackChanged { track, palette });
+    crate::host::emit(&st.app, "track:changed", TrackChanged { track, palette });
 }
 
 /// Forwards player events. Called on the player's event thread.
 pub fn on_player_event(app: &AppHandle, ev: PlayerEvent) {
-    let Some(st) = app.try_state::<std::sync::Arc<AppState>>() else { return };
+    let Some(st) = app.try_state::<std::sync::Arc<Session>>() else { return };
     crate::lastfm::on_player_event(st.inner(), &ev);
     crate::discord::on_player_event(&st, &ev);
     match ev {
@@ -76,18 +76,18 @@ pub fn on_player_event(app: &AppHandle, ev: PlayerEvent) {
                 let _ = ch.send(s.clone());
             }
             st.media.on_state(&s);
-            crate::tray::on_state(app, &s);
+            st.host.on_state(app, &s);
         }
         PlayerEvent::TrackChanged { track, palette } => {
             // The analyser looks at the new current and next track (only a message: event
             // handlers must not call into the player).
             st.analyzer.kick();
             st.media.on_track(&st, &track);
-            crate::tray::on_track(app, &track);
-            let _ = app.emit("track:changed", TrackChanged { track, palette });
+            st.host.on_track(app, &track);
+            crate::host::emit(app, "track:changed", TrackChanged { track, palette });
         }
         PlayerEvent::QueueChanged => {
-            let _ = app.emit("queue:changed", ());
+            crate::host::emit(app, "queue:changed", ());
             crate::commands::mix::top_up(st.inner());
         }
         PlayerEvent::Played { track_id, full, full_plays } => {
@@ -97,7 +97,7 @@ pub fn on_player_event(app: &AppHandle, ev: PlayerEvent) {
         }
         // The statistics screen re-reads its recap (debounced on its side).
         PlayerEvent::Listened(_) => {
-            let _ = app.emit("stats:changed", ());
+            crate::host::emit(app, "stats:changed", ());
         }
         PlayerEvent::Error(msg) => toast_error(app, msg),
     }
