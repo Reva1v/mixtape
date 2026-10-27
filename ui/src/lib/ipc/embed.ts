@@ -28,7 +28,11 @@ export function islandFrame(w: Window = window): boolean {
 }
 
 export const embedded =
-  typeof window !== "undefined" && islandFrame() && !("__TAURI_INTERNALS__" in window);
+  typeof window !== "undefined" &&
+  islandFrame() &&
+  // A plugin's init script may leave a bare `__TAURI_INTERNALS__ = { plugins }` in the frame;
+  // only a real one (with `invoke`) means Tauri's own IPC is here.
+  typeof (window as { __TAURI_INTERNALS__?: { invoke?: unknown } }).__TAURI_INTERNALS__?.invoke !== "function";
 
 function post(msg: FromFrame) {
   window.parent.postMessage(msg, "*");

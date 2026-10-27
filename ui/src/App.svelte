@@ -151,7 +151,8 @@
         {/if}
         {#if embedded}
           <!-- Inside Droplet Island there is no window: back to the island's Home instead. -->
-          <div class="absolute top-1 right-2 z-20 flex h-10 items-center">
+          <!-- In line with the page title («Доброй ночи»: pt-9 + a 36 px row), at the right edge. -->
+          <div class="absolute top-[34px] right-7 z-20 flex h-10 items-center">
             <button
               type="button"
               aria-label={t.island.back}
@@ -168,7 +169,7 @@
         {#if router.canBack || router.canForward}
           <!-- History arrows sit in the caption row, just left of the window buttons
                (~136 px wide), styled like them, so they never crowd page headers. -->
-          <div class="absolute top-1 {embedded ? 'right-11' : 'right-[140px]'} z-20 flex h-10 items-center gap-0.5" transition:fadeSpring>
+          <div class="absolute {embedded ? 'top-[34px] right-[68px]' : 'top-1 right-[140px]'} z-20 flex h-10 items-center gap-0.5" transition:fadeSpring>
             {#each [{ id: "back", label: t.nav.back, tip: t.app.backTip, ok: router.canBack, go: () => router.back(), Icon: IconBack }, { id: "forward", label: t.nav.forward, tip: t.app.forwardTip, ok: router.canForward, go: () => router.forward(), Icon: IconForward }] as b (b.id)}
               <button
                 type="button"
