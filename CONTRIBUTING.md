@@ -23,8 +23,14 @@ pnpm -C ui check
   `fix(sync): …`.
 - Interface strings go through `t` from `$lib/i18n` and need all three languages (English,
   Ukrainian, Russian); English is the reference.
-- New app commands must be added to `COMMANDS` in `src-tauri/build.rs` and to a capability in
-  `src-tauri/capabilities/`, or the interface is not allowed to call them.
+- Commands of the session (library, player, sync, settings…) live in the `mixtape-session`
+  crate (`crates/session`), a Tauri plugin shared with the Droplet Island music module: a new
+  one goes into `generate_handler!` in `crates/session/src/lib.rs`, `COMMANDS` in
+  `crates/session/build.rs` and, as `mixtape:allow-<command>`, a capability in
+  `src-tauri/capabilities/`. Commands of the app itself (window, mini player, tray, updates)
+  go into `src-tauri/build.rs` and `src-tauri/src/host.rs` (`CAPS`) and are called from the
+  interface only when the host has them (`hostHas`). Either way, a command missing from a
+  capability is "not allowed" in the interface.
 - Screenshots for docs come from the demo mock (`?mock&scene=…`), never from a real library.
 - Tests must not play audio or open an audio device.
 
