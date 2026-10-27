@@ -27,12 +27,13 @@ export function islandFrame(w: Window = window): boolean {
   }
 }
 
-export const embedded =
-  typeof window !== "undefined" &&
-  islandFrame() &&
-  // A plugin's init script may leave a bare `__TAURI_INTERNALS__ = { plugins }` in the frame;
-  // only a real one (with `invoke`) means Tauri's own IPC is here.
-  typeof (window as { __TAURI_INTERNALS__?: { invoke?: unknown } }).__TAURI_INTERNALS__?.invoke !== "function";
+/** Shown inside the island: no player bar, the logo opens the app, a way back. */
+export const embedded = typeof window !== "undefined" && islandFrame();
+
+/** The frame has no Tauri IPC of its own: calls go through the island's page. Some builds give
+ * frames the real `__TAURI_INTERNALS__` (with `invoke`), others only a bare `{ plugins }`. */
+const bridged =
+  embedded && typeof (window as { __TAURI_INTERNALS__?: { invoke?: unknown } }).__TAURI_INTERNALS__?.invoke !== "function";
 
 function post(msg: FromFrame) {
   window.parent.postMessage(msg, "*");
@@ -116,7 +117,7 @@ const isField = (el: EventTarget | null): el is HTMLElement =>
 
 if (embedded) {
   document.documentElement.classList.add("in-island");
-  const receive = install(window, post);
+  const receive = bridged ? install(window, post) : () => {};
   window.addEventListener("message", (e) => {
     if (e.source !== window.parent) return;
     const m = e.data as ToFrame | null;
