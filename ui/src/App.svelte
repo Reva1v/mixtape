@@ -10,6 +10,7 @@
   import { enter, fadeSpring, pressable, springWidth } from "$lib/motion";
   import { toasts } from "$lib/stores/overlay.svelte";
   import { on } from "$lib/ipc";
+  import { embedded, toIsland } from "$lib/ipc/embed";
   import { t } from "$lib/i18n";
   import Sidebar from "$lib/ui/Sidebar.svelte";
   import MiniPlayer from "$lib/ui/MiniPlayer.svelte";
@@ -37,6 +38,7 @@
   import IconSoon from "~icons/solar/widget-bold";
   import IconBack from "~icons/solar/alt-arrow-left-linear";
   import IconForward from "~icons/solar/alt-arrow-right-linear";
+  import IconLeave from "~icons/solar/close-circle-linear";
 
   onMount(() => {
     player.init().catch((e) => console.error("player init failed", e));
@@ -144,11 +146,29 @@
           style:background="linear-gradient(180deg, color-mix(in srgb, var(--page-glow) 55%, transparent) 0%, transparent 100%)"
         ></div>
         <!-- Drag strip along the top edge, clear of the caption buttons. -->
-        <div class="absolute top-0 right-[150px] left-0 z-10 h-7" data-tauri-drag-region></div>
+        {#if !embedded}
+          <div class="absolute top-0 right-[150px] left-0 z-10 h-7" data-tauri-drag-region></div>
+        {/if}
+        {#if embedded}
+          <!-- Inside Droplet Island there is no window: back to the island's Home instead. -->
+          <div class="absolute top-1 right-2 z-20 flex h-10 items-center">
+            <button
+              type="button"
+              aria-label={t.island.back}
+              data-tip={t.island.back}
+              data-tip-pos="bottom"
+              class="grid h-8 w-8 cursor-pointer place-items-center rounded-md text-ink-2 transition-[background-color,color] hover:bg-white/[0.08] hover:text-ink"
+              {@attach pressable(0.88)}
+              onclick={() => toIsland("close")}
+            >
+              <IconLeave class="size-[18px]" />
+            </button>
+          </div>
+        {/if}
         {#if router.canBack || router.canForward}
           <!-- History arrows sit in the caption row, just left of the window buttons
                (~136 px wide), styled like them, so they never crowd page headers. -->
-          <div class="absolute top-1 right-[140px] z-20 flex h-10 items-center gap-0.5" transition:fadeSpring>
+          <div class="absolute top-1 {embedded ? 'right-11' : 'right-[140px]'} z-20 flex h-10 items-center gap-0.5" transition:fadeSpring>
             {#each [{ id: "back", label: t.nav.back, tip: t.app.backTip, ok: router.canBack, go: () => router.back(), Icon: IconBack }, { id: "forward", label: t.nav.forward, tip: t.app.forwardTip, ok: router.canForward, go: () => router.forward(), Icon: IconForward }] as b (b.id)}
               <button
                 type="button"
@@ -210,7 +230,8 @@
       </div>
     </div>
 
-    <MiniPlayer />
+    <!-- Inside Droplet Island the island's own player is the player. -->
+    {#if !embedded}<MiniPlayer />{/if}
   </div>
 </div>
 

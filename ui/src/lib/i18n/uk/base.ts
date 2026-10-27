@@ -72,6 +72,11 @@ export const base: typeof en = {
     cancel: "Скасувати",
     ok: "Готово",
   },
+  // Mixtape inside Droplet Island (lib/ipc/embed.ts).
+  island: {
+    openApp: "Відкрити Mixtape окремо",
+    back: "Назад до острова",
+  },
   count: {
     tracks: (n: number) => `${n} ${slavic(n, "трек", "треки", "треків")}`,
   },

@@ -1,3 +1,5 @@
+// First: inside Droplet Island's frame it stands in for Tauri's scripts (lib/ipc/embed.ts).
+import "$lib/ipc/embed";
 import { mount } from "svelte";
 import { isTauri } from "@tauri-apps/api/core";
 import { invoke } from "$lib/ipc";

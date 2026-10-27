@@ -8,6 +8,8 @@
   import { pressable, springs } from "$lib/motion";
   import { layout } from "$lib/stores/layout.svelte";
   import { downloads } from "$lib/stores/downloads.svelte";
+  import { embedded, toIsland } from "$lib/ipc/embed";
+  import IconOut from "~icons/solar/arrow-right-up-linear";
 
   type Item = { label: string; icon: Component; route: Route; match: Route["name"][] };
 
@@ -68,6 +70,23 @@
 {/snippet}
 
 <nav class="flex w-(--sidebar-w) shrink-0 flex-col items-center rounded-xl bg-panel pt-3.5 pb-4" data-tauri-drag-region>
+  {#if embedded}
+    <!-- Inside Droplet Island the logo opens the Mixtape app, which takes the playback over. -->
+    <button
+      type="button"
+      aria-label={t.island.openApp}
+      data-tip={t.island.openApp}
+      data-tip-pos="right"
+      class="relative mb-5 size-11 cursor-pointer rounded-[10px] shadow-[0_0_14px_1px_rgb(120_16_44/0.32)] [&>svg:first-child]:pointer-events-none [&>svg:first-child]:size-full"
+      onclick={() => toIsland("standalone")}
+      {@attach pressable(0.92, springs.soft)}
+    >
+      {@html Logo}
+      <span class="absolute -right-1 -bottom-1 grid size-[18px] place-items-center rounded-full bg-panel text-ink ring-2 ring-panel">
+        <IconOut class="size-3" />
+      </span>
+    </button>
+  {:else}
   <button
     type="button"
     aria-label={t.nav.home}
@@ -80,6 +99,7 @@
   >
     {@html Logo}
   </button>
+  {/if}
   <div class="flex flex-col items-center gap-3.5">
     {#each items as item (item.route.name)}
       {@render navItem(item)}

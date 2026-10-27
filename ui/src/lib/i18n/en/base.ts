@@ -72,6 +72,11 @@ export const base = {
     cancel: "Cancel",
     ok: "Done",
   },
+  // Mixtape inside Droplet Island (lib/ipc/embed.ts).
+  island: {
+    openApp: "Open Mixtape on its own",
+    back: "Back to the island",
+  },
   count: {
     tracks: (n: number) => `${n} ${english(n, "track")}`,
   },

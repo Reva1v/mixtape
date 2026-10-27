@@ -66,6 +66,13 @@ body {
   cursor: default;
 }
 
+/* Inside Droplet Island (lib/ipc/embed.ts): the island's panel is the window and its fill
+   shows between the panels. */
+html.in-island,
+html.in-island body {
+  background: transparent;
+}
+
 button,
 [role="button"],
 [role="tab"],
