@@ -48,11 +48,10 @@ pub fn run() {
         )
         .plugin(window::frame_plugin())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        // The session (state, player, services, the plugin's commands and `cover:`); opened
-        // in the plugin's setup, which runs before the app's below.
+        // The session's commands and `cover:`; the session itself opens in `setup`.
         .plugin(mixtape_session::plugin(Arc::new(host::AppHost)))
         .setup(|app| {
-            let state = app.state::<Arc<Session>>().inner().clone();
+            let state = mixtape_session::open(app.handle())?;
             let prefs = commands::settings::Prefs::load(&state);
             prefs.apply_language(&state);
             account::restore(&state);

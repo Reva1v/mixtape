@@ -24,7 +24,23 @@ pub use state::Session;
 
 use std::sync::Arc;
 use tauri::plugin::{Builder, TauriPlugin};
-use tauri::{Manager, Wry};
+use tauri::{AppHandle, Manager, Wry};
+
+/// Opens the session and manages it (`State<Arc<Session>>`). The Mixtape app plays from the
+/// start, as it always did: its engine starts here, before the session is managed, so the
+/// restore's first events go nowhere, as before. The island starts the engine on the first
+/// action ([`Session::engine`]).
+pub fn open(app: &AppHandle) -> Result<Arc<Session>, Box<dyn std::error::Error>> {
+    let host = host::host(app).ok_or("the mixtape plugin is not registered")?;
+    let standalone = host.kind() == HostKind::Standalone;
+    let session = Arc::new(Session::init(app, host)?);
+    if standalone {
+        session.engine()?;
+    }
+    app.manage(session.clone());
+    tracing::debug!("setup: session managed");
+    Ok(session)
+}
 
 /// The app commands the host offers (`Host::caps`), for `ipc.hostHas` in the interface.
 #[tauri::command]
@@ -32,23 +48,13 @@ fn host_caps(host: tauri::State<'_, HostRef>) -> Vec<String> {
     host.0.caps()
 }
 
-/// The plugin: manages the [`Host`] and the [`Session`] (opened in the plugin's setup,
-/// before the app's own), serves `cover:` and registers the commands.
+/// The plugin: manages the [`Host`], serves `cover:` and registers the commands. The
+/// session itself is opened by the app with [`open`] (the commands need it).
 pub fn plugin(host: Arc<dyn Host>) -> TauriPlugin<Wry> {
     Builder::new("mixtape")
         .register_asynchronous_uri_scheme_protocol("cover", cover_protocol::handle)
         .setup(move |app, _api| {
-            app.manage(HostRef(host.clone()));
-            let standalone = host.kind() == HostKind::Standalone;
-            let session = Session::init(app, host).map_err(|e| e.to_string())?;
-            // The Mixtape app plays from the start, as it always did; the island starts the
-            // engine on the first action (`Session::engine`). Started before the session is
-            // managed, so the restore's first events go nowhere, as before.
-            if standalone {
-                session.engine().map_err(|e| e.message)?;
-            }
-            app.manage(Arc::new(session));
-            tracing::debug!("setup: session managed");
+            app.manage(HostRef(host));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
