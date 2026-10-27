@@ -151,6 +151,17 @@ fn emit_status(st: &Session) {
     crate::host::emit(&st.app, "peer:status", status(st));
 }
 
+/// Closes the server and its mDNS announcement and drops a code on screen, paired or not:
+/// the island's music module calls it before it hands the playback to the Mixtape app,
+/// which listens on the same port. [`spawn`] starts it again.
+pub fn stop(st: &Session) {
+    let mut inner = st.peer.lock();
+    inner.code = None;
+    if inner.server.take().is_some() {
+        tracing::info!("phone sync server stopped");
+    }
+}
+
 /// Starts or stops the server: it runs while a pairing exists or a code is shown. Must be
 /// called on the async runtime (the listener is registered with it).
 fn reconcile(st: &Arc<Session>) {

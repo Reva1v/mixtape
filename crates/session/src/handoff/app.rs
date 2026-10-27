@@ -175,9 +175,18 @@ async fn listen(st: Arc<Session>, id: u64, mut rx: LinkRx) {
 /// Runs an island button (sequence 7).
 async fn run(st: &Arc<Session>, cmd: Command) -> Result<(), AppError> {
     let state = || st.app.state::<Arc<Session>>();
+    // The island sees the app's track only through SMTC: an empty id is the current one.
+    let track = |id: String| -> Result<TrackId, AppError> {
+        if !id.is_empty() {
+            return Ok(TrackId(id));
+        }
+        st.running_player().and_then(|p| p.state().track_id).ok_or_else(|| {
+            AppError::new(ErrorKind::NotFound, mixtape_core::tr("Nothing is playing", "Нічого не грає", "Ничего не играет"))
+        })
+    };
     match cmd {
-        Command::Like { id } => crate::commands::mix::track_set_liked(state(), TrackId(id), true).await,
-        Command::Unlike { id } => crate::commands::mix::track_set_liked(state(), TrackId(id), false).await,
+        Command::Like { id } => crate::commands::mix::track_set_liked(state(), track(id)?, true).await,
+        Command::Unlike { id } => crate::commands::mix::track_set_liked(state(), track(id)?, false).await,
         Command::StartMix { seed } => {
             let seed = match seed {
                 Some(s) => TrackId(s),

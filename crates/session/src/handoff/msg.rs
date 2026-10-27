@@ -65,6 +65,8 @@ impl Handoff {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase")]
 pub enum Command {
+    /// An empty `id` is the app's current track (the island knows it only through SMTC);
+    /// the same for `unlike`.
     Like { id: String },
     Unlike { id: String },
     #[serde(rename_all = "camelCase")]
