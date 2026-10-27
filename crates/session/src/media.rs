@@ -94,6 +94,22 @@ impl Media {
         *self.last_timeline.lock().expect("timeline lock poisoned") = None;
     }
 
+    /// Whether SMTC is hooked up ([`Media::install`] ran with a window).
+    pub fn installed(&self) -> bool {
+        self.smtc.get().is_some()
+    }
+
+    /// Empties the SMTC session (stopped, no track): the island's music module when the
+    /// playback goes to the Mixtape app or the module stops. The next state and track fill
+    /// it again.
+    pub fn clear(&self) {
+        self.playing.store(0, Ordering::Relaxed);
+        self.timeline_dirty();
+        if let Some(smtc) = self.smtc.get() {
+            let _ = smtc.clear();
+        }
+    }
+
     pub fn on_track(&self, st: &Session, track: &Track) {
         let Some(smtc) = self.smtc.get() else { return };
         let cover = track
