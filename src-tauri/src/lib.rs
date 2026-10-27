@@ -75,6 +75,9 @@ pub fn run() {
                 tracing::warn!(error = %e, "tray icon unavailable");
             }
             autostart::refresh();
+            // The hand-off channel with the island's music module: serve `-app`, claim what
+            // the island plays.
+            mixtape_session::handoff::app::start(&state);
             #[cfg(debug_assertions)]
             if let Ok(dir) = std::env::var("MIXTAPE_DEV_IMPORT") {
                 let st = state.clone();
@@ -120,6 +123,8 @@ pub fn run() {
         .run(|app, event| {
             // After the window-state plugin has written its file.
             if let tauri::RunEvent::Exit = event {
+                // Quitting (not to the tray): the island may take over from here.
+                mixtape_session::handoff::app::bye(app);
                 mini::on_exit(app);
             }
         });

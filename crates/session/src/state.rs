@@ -1,5 +1,6 @@
 //! Process-wide state handed to commands through `tauri::State<Arc<Session>>`.
 
+use crate::handoff::Handoff;
 use crate::host::Host;
 use crate::media::Media;
 use mixtape_artwork::CoverStore;
@@ -156,6 +157,24 @@ impl Session {
             e.player.shutdown();
             tracing::info!("engine parked");
         }
+    }
+
+    /// What to hand over: pauses the player and saves its snapshot; `playing` tells
+    /// whether it was playing. `None` when the engine does not run (nothing to give).
+    pub fn handoff_out(&self) -> Option<Handoff> {
+        let player = self.running_player()?;
+        let (snapshot, playing) = player.snapshot();
+        player.pause();
+        player.save_snapshot(true);
+        Some(Handoff::from_snapshot(snapshot, playing))
+    }
+
+    /// Takes a hand-off: the queue, position, volume and mix replace the player's, playing
+    /// when `play`.
+    pub fn handoff_in(&self, handoff: Handoff, play: bool) -> Result<(), AppError> {
+        let (snapshot, _) = handoff.into_snapshot();
+        self.player()?.restore_snapshot(snapshot, play);
+        Ok(())
     }
 
     fn start_engine(&self) -> Result<Engine, AppError> {

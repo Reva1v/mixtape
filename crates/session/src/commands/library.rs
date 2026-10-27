@@ -73,7 +73,16 @@ pub struct LibraryChanged {
     pub kinds: Vec<ViewKind>,
 }
 
+/// The library changed here: the interface reloads those views, and the other app (over
+/// the hand-off channel, when connected) hears it too.
 pub fn emit_changed(app: &AppHandle, kinds: &[ViewKind]) {
+    emit_changed_local(app, kinds);
+    #[cfg(windows)]
+    crate::handoff::app::changed(app, kinds);
+}
+
+/// Only the interface: for a change the other app made and already told about.
+pub fn emit_changed_local(app: &AppHandle, kinds: &[ViewKind]) {
     crate::host::emit(app, "library:changed", LibraryChanged { kinds: kinds.to_vec() });
 }
 

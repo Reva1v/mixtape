@@ -1,6 +1,8 @@
 //! The hand-off channel between the Mixtape app and the island's music module
 //! (`proto = 1`): who plays, and moving the playback from one to the other.
 
+#[cfg(windows)]
+pub mod app;
 pub mod msg;
 pub mod pipe;
 
