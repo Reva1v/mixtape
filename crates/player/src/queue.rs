@@ -57,7 +57,7 @@ pub struct QueueItem {
     pub origin: Origin,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Queue {
     items: Vec<QueueItem>,
     current: Option<usize>,

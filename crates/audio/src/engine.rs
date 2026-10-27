@@ -25,7 +25,7 @@
 //! the thread blocks on its command channel until something arrives.
 
 use std::collections::VecDeque;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::Ordering;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -136,8 +136,8 @@ enum Command {
 
 /// Handle to the engine thread; dropping it stops playback and joins the thread.
 pub struct Engine {
-    tx: Option<Sender<Command>>,
-    thread: Option<JoinHandle<()>>,
+    tx: Mutex<Option<Sender<Command>>>,
+    thread: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Engine {
@@ -151,8 +151,8 @@ impl Engine {
             .spawn(move || State::new(events).run(rx))?;
         Ok((
             Engine {
-                tx: Some(tx),
-                thread: Some(thread),
+                tx: Mutex::new(Some(tx)),
+                thread: Mutex::new(Some(thread)),
             },
             events_rx,
         ))
@@ -246,8 +246,23 @@ impl Engine {
         self.send(Command::Stop);
     }
 
+    /// Stops playback, closes the output device and joins the engine thread; later commands
+    /// are ignored. Must not be called from an engine event handler (it waits for the thread).
+    pub fn shutdown(&self) {
+        self.tx.lock().unwrap_or_else(|e| e.into_inner()).take();
+        let thread = self.thread.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(t) = thread {
+            let _ = t.join();
+        }
+    }
+
+    /// The engine thread is alive: [`Engine::shutdown`] was not called and it did not end.
+    pub fn is_running(&self) -> bool {
+        self.thread.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|t| !t.is_finished())
+    }
+
     fn send(&self, cmd: Command) {
-        if let Some(tx) = &self.tx {
+        if let Some(tx) = self.tx.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
             let _ = tx.send(cmd);
         }
     }
@@ -255,10 +270,7 @@ impl Engine {
 
 impl Drop for Engine {
     fn drop(&mut self) {
-        self.tx.take();
-        if let Some(t) = self.thread.take() {
-            let _ = t.join();
-        }
+        self.shutdown();
     }
 }
 

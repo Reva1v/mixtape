@@ -11,7 +11,7 @@ pub mod state;
 pub use analyzer::Analyzer;
 pub use listen::Listen;
 pub use mix::{MixChip, MixPage, MixSession, MoreRequest};
-pub use player::{EventSink, Player, PlayerEvent};
+pub use player::{EventSink, Player, PlayerEvent, Snapshot};
 pub use prefetch::{Opened, StreamProvider};
 pub use queue::{Origin, Queue, QueueContext, QueueItem, Repeat};
 pub use state::{Chip, PlaySource, PlaybackState, QueueEntry, QueueView, Status};

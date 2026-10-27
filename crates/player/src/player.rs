@@ -46,14 +46,16 @@ const POSITION_SAVE_CHANGED: Duration = Duration::from_secs(2);
 /// and, to correct drift, at least this often.
 const STATE_EVERY: Duration = Duration::from_secs(5);
 
-#[derive(Serialize, Deserialize)]
-struct Snapshot {
-    queue: Queue,
+/// The queue, position, volume and mix: what is saved under `queue_snapshot`, and what a
+/// hand-off between the app and the island carries (`mixtape_session::handoff::Handoff`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Snapshot {
+    pub queue: Queue,
     /// Position when the queue was saved; superseded by [`PlaybackPos`] for the same item.
-    position_ms: u64,
-    volume: f32,
+    pub position_ms: u64,
+    pub volume: f32,
     #[serde(default)]
-    mix: Option<MixSession>,
+    pub mix: Option<MixSession>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1083,6 +1085,83 @@ impl Player {
         {
             tracing::warn!(error = %e, "saving playback position failed");
         }
+    }
+
+    // ---------- hand-off and release ----------
+
+    /// The queue, live position, volume and mix, and whether it is playing: what a hand-off
+    /// to the other app carries.
+    pub fn snapshot(&self) -> (Snapshot, bool) {
+        let inner = self.lock();
+        let playing = matches!(inner.state.status, Status::Playing | Status::Buffering | Status::Loading);
+        let snapshot = Snapshot {
+            queue: inner.queue.clone(),
+            position_ms: inner.live_position(),
+            volume: inner.state.volume,
+            mix: inner.mix.clone(),
+        };
+        (snapshot, playing)
+    }
+
+    /// Replaces the queue, mix, volume and position with a hand-off's and loads the current
+    /// item there, playing when `play`. Without a current item the player goes idle.
+    pub fn restore_snapshot(&self, snapshot: Snapshot, play: bool) {
+        let (queue, position_ms, volume, mix) = restore(Some(snapshot), None);
+        let current = queue.current().map(|i| i.track_id.clone());
+        {
+            let mut inner = self.lock();
+            inner.queue = queue;
+            inner.mix = mix;
+            inner.skips = 0;
+            inner.queue_dirty = true;
+            inner.position_dirty = true;
+            inner.state.volume = volume;
+            inner.state.repeat = inner.queue.repeat();
+            inner.state.shuffle = inner.queue.shuffle();
+            inner.state.track_id = current.clone();
+            inner.set_status(if current.is_some() { Status::Paused } else { Status::Idle });
+            inner.set_position(position_ms);
+        }
+        self.engine.set_volume(volume);
+        (self.sink)(PlayerEvent::QueueChanged);
+        match current {
+            Some(id) => {
+                self.load_track(&id, position_ms, play);
+            }
+            None => {
+                self.engine.stop();
+                let mut inner = self.lock();
+                self.emit_state(&mut inner);
+            }
+        }
+        self.save_snapshot(true);
+    }
+
+    /// Releases the audio: pauses where it is, ends the listens in progress, saves the
+    /// snapshot (`save_snapshot(true)`), then stops the engine thread, which closes the
+    /// output device. The player ignores commands afterwards (nothing more is saved); a new
+    /// [`Player::start`] on the same database continues from the saved position. Not for
+    /// event handlers.
+    pub fn shutdown(&self) {
+        if self.is_shut_down() {
+            return;
+        }
+        {
+            let mut inner = self.lock();
+            if matches!(inner.state.status, Status::Playing | Status::Buffering | Status::Loading) {
+                inner.set_status(Status::Paused);
+                inner.position_dirty = true;
+            }
+        }
+        self.engine.pause();
+        self.finish_listens();
+        self.save_snapshot(true);
+        self.engine.shutdown();
+    }
+
+    /// [`Player::shutdown`] ran (or the engine thread ended).
+    pub fn is_shut_down(&self) -> bool {
+        !self.engine.is_running()
     }
 }
 
