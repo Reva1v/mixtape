@@ -1,5 +1,6 @@
 import { mount } from "svelte";
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { isTauri } from "@tauri-apps/api/core";
+import { invoke } from "$lib/ipc";
 import "./app.css";
 import App from "./App.svelte";
 import { installSpringCss, warmUpCompositor } from "$lib/motion";
@@ -37,7 +38,8 @@ await prefs.init().catch((e) => console.error("prefs init failed", e));
 const app = mount(App, { target: document.getElementById("app")! });
 
 // Show the window only after the first frame is painted, so there is no white flash.
-requestAnimationFrame(() => requestAnimationFrame(() => void invoke("app_ready")));
+// The island runs this interface in a window of its own and has no `app_ready` (hostHas).
+requestAnimationFrame(() => requestAnimationFrame(() => void invoke("app_ready").catch((e) => console.error("app_ready", e))));
 warmUpCompositor();
 
 export default app;

@@ -3,6 +3,7 @@
 // is on the screen), `mini`. The track and its cover are made up.
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { setCoverSource } from "$lib/ipc";
+import { APP_COMMANDS, bare } from "$lib/ipc/route";
 import type { Lang } from "$lib/ipc/bindings/Lang";
 import type { Track } from "$lib/ipc/bindings/Track";
 import type { TrayMenuSnapshot } from "$lib/ipc/bindings/TrayMenuSnapshot";
@@ -35,7 +36,9 @@ const snapshot: TrayMenuSnapshot = {
 
 mockIPC(
   (cmd) => {
-    switch (cmd) {
+    switch (bare(cmd)) {
+      case "host_caps":
+        return [...APP_COMMANDS];
       case "tray_menu_snapshot":
         return snapshot;
       case "tray_menu_reveal":

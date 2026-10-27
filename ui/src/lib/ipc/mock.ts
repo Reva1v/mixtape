@@ -8,6 +8,7 @@
 // `peer=paired|firewall` (Settings → «Phone» paired, or not paired with the firewall rule missing).
 
 import { mockIPC } from "@tauri-apps/api/mocks";
+import { APP_COMMANDS, bare } from "./route";
 import { emit } from "@tauri-apps/api/event";
 import type { Channel } from "@tauri-apps/api/core";
 import type { AccountStatus, DownloadsProgress, FailedJob, SyncPreview } from "./sync";
@@ -473,7 +474,9 @@ function view(kind: ViewKind): unknown[] {
 mockIPC(
   (cmd, args) => {
     const a = (args ?? {}) as Record<string, unknown>;
-    switch (cmd) {
+    switch (bare(cmd)) {
+      case "host_caps":
+        return [...APP_COMMANDS];
       case "app_ready":
         return null;
       case "prefs_get":
