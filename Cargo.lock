@@ -2818,6 +2818,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "mixtape-session"
+version = "0.2.1"
+dependencies = [
+ "if-addrs",
+ "mixtape-artwork",
+ "mixtape-audio",
+ "mixtape-core",
+ "mixtape-library",
+ "mixtape-player",
+ "mixtape-sync",
+ "mixtape-win",
+ "mixtape-yt",
+ "qrcode",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "ts-rs",
+ "windows",
+]
+
+[[package]]
 name = "mixtape-sync"
 version = "0.2.1"
 dependencies = [

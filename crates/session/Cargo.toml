@@ -1,0 +1,58 @@
+[package]
+name = "mixtape-session"
+description = "Mixtape's app layer as a Tauri plugin: state, player events, streaming, downloads, SMTC, Last.fm, Discord, the phone sync and the commands, shared by the Mixtape app and the Droplet Island music module"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+# Tauri plugins must set `links`; the part after `tauri-plugin-` names the plugin's
+# permissions in the apps' capabilities (`mixtape:allow-…`).
+links = "tauri-plugin-mixtape"
+
+[lib]
+name = "mixtape_session"
+
+[build-dependencies]
+tauri-plugin = { version = "2.7", features = ["build"] }
+serde_json.workspace = true
+
+[dependencies]
+mixtape-core.workspace = true
+mixtape-library.workspace = true
+mixtape-artwork.workspace = true
+mixtape-player.workspace = true
+mixtape-audio.workspace = true
+mixtape-win.workspace = true
+mixtape-yt.workspace = true
+mixtape-sync.workspace = true
+tauri = { version = "2.12" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["net", "process", "io-util", "rt"] }
+tracing.workspace = true
+ts-rs.workspace = true
+# Stats sync with the phone (commands/peer.rs): the pairing QR code as SVG and this PC's
+# addresses for it (the version mdns-sd already pulls in).
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+if-addrs = "0.15"
+
+# The firewall rule for the phone sync is added through UAC (ShellExecuteExW "runas"); the
+# hand-off pipe is locked to the user's SID. Same major as Tauri 2: one copy of `windows`.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
