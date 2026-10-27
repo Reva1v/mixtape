@@ -2709,7 +2709,7 @@ dependencies = [
 
 [[package]]
 name = "mixbench"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "mixtape-audio",
  "serde",
@@ -2718,7 +2718,7 @@ dependencies = [
 
 [[package]]
 name = "mixtape"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "mixtape-core",
  "mixtape-library",
@@ -2741,7 +2741,7 @@ dependencies = [
 
 [[package]]
 name = "mixtape-artwork"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "fast_image_resize",
  "image",
@@ -2753,7 +2753,7 @@ dependencies = [
 
 [[package]]
 name = "mixtape-audio"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "cpal",
  "crossbeam-channel",
@@ -2769,7 +2769,7 @@ dependencies = [
 
 [[package]]
 name = "mixtape-core"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -2779,7 +2779,7 @@ dependencies = [
 
 [[package]]
 name = "mixtape-library"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "dirs 7.0.0",
  "fastrand",
@@ -2797,7 +2797,7 @@ dependencies = [
 
 [[package]]
 name = "mixtape-player"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "fastrand",
  "mixtape-audio",
@@ -2812,7 +2812,7 @@ dependencies = [
 
 [[package]]
 name = "mixtape-session"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "if-addrs",
  "mixtape-artwork",
@@ -2838,7 +2838,7 @@ dependencies = [
 
 [[package]]
 name = "mixtape-sync"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "base64 0.22.1",
  "chacha20poly1305",
@@ -2867,7 +2867,7 @@ dependencies = [
 
 [[package]]
 name = "mixtape-win"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "mixtape-core",
  "thiserror 2.0.21",
@@ -2877,7 +2877,7 @@ dependencies = [
 
 [[package]]
 name = "mixtape-yt"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "fastrand",
  "mixtape-core",
