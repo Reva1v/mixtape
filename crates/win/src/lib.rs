@@ -83,6 +83,41 @@ pub fn show_child_windows(parent: isize, class: &str, show: bool) {
     let _ = (parent, class, show);
 }
 
+/// Where a snapped top-level window (`hwnd`) goes back to: its outer rect before Windows
+/// Snap, in physical screen pixels (x, y, width, height). `None` when the window is not
+/// snapped (sits where its normal rect is, or is maximized or minimized).
+pub fn snap_restore_bounds(hwnd: isize) -> Option<(i32, i32, i32, i32)> {
+    #[cfg(windows)]
+    // SAFETY: plain Win32 calls with out-structs on the stack; a stale handle only makes
+    // them fail.
+    unsafe {
+        use windows::Win32::Foundation::{HWND, RECT};
+        use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow};
+        use windows::Win32::UI::WindowsAndMessaging::{GetWindowPlacement, GetWindowRect, IsIconic, IsZoomed, WINDOWPLACEMENT};
+        let hwnd = HWND(hwnd as *mut _);
+        if IsZoomed(hwnd).as_bool() || IsIconic(hwnd).as_bool() {
+            return None;
+        }
+        let mut place = WINDOWPLACEMENT { length: size_of::<WINDOWPLACEMENT>() as u32, ..Default::default() };
+        let mut now = RECT::default();
+        GetWindowPlacement(hwnd, &mut place).ok()?;
+        GetWindowRect(hwnd, &mut now).ok()?;
+        // The normal rect is in workspace coordinates: relative to the monitor's work area.
+        let mut info = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
+        GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mut info).ok().ok()?;
+        let (dx, dy) = (info.rcWork.left - info.rcMonitor.left, info.rcWork.top - info.rcMonitor.top);
+        let n = place.rcNormalPosition;
+        let normal = (n.left + dx, n.top + dy, n.right - n.left, n.bottom - n.top);
+        let current = (now.left, now.top, now.right - now.left, now.bottom - now.top);
+        (normal != current && normal.2 > 0 && normal.3 > 0).then_some(normal)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = hwnd;
+        None
+    }
+}
+
 /// Opens an `https://` link in the default browser. Returns whether the shell took it.
 pub fn open_url(url: &str) -> bool {
     if !url.starts_with("https://") {
