@@ -72,9 +72,10 @@ html.in-island,
 html.in-island body {
   background: transparent;
 }
-/* Inside the island there is no window caption to clear: pages start 16 px higher. */
+/* Inside the island: the page title sits as far from the top as from the left (Home: pt-9 − 4 =
+   32 px, as its px-8). */
 .in-island-main > div {
-  margin-top: -16px;
+  margin-top: -4px;
 }
 
 button,
