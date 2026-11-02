@@ -332,6 +332,23 @@ pub async fn fill_artist(st: &Session, id: &ArtistId) -> bool {
         .is_ok()
 }
 
+/// The first of the song's tracks whose title fits, else the top result; for a song named by
+/// Shazam, whose spelling differs a little.
+pub(crate) async fn first_track(st: &Session, query: &str, title: &str) -> CmdResult<Option<Track>> {
+    let page = st.yt.search(query.trim(), SearchKind::Tracks).await.map_err(|e| yt_error(st, e))?;
+    let tracks = page_of(st, page).await?.tracks;
+    let want = title.to_lowercase();
+    let pick = tracks
+        .iter()
+        .take(5)
+        .position(|t| {
+            let have = t.title.to_lowercase();
+            have.contains(&want) || want.contains(&have)
+        })
+        .unwrap_or(0);
+    Ok(tracks.into_iter().nth(pick))
+}
+
 /// A list on screen is read again after this long.
 const PAGE_FRESH: Duration = Duration::from_secs(30 * 60);
 /// Playlists remembered; the one read longest ago goes first.

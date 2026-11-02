@@ -23,6 +23,8 @@
   import IconNothing from "~icons/solar/magnifier-bug-linear";
   import IconX from "~icons/solar/close-circle-linear";
   import Cover from "$lib/ui/Cover.svelte";
+  import Recognize from "$lib/ui/Recognize.svelte";
+  import IconRecognize from "~icons/solar/soundwave-linear";
   import { recentSearch, type RecentItem } from "$lib/stores/recentSearch.svelte";
   import type { Album } from "$lib/ipc/bindings/Album";
   import type { Artist } from "$lib/ipc/bindings/Artist";
@@ -35,6 +37,7 @@
   });
 
   let input = $state<HTMLInputElement>();
+  let recognizing = $state(false);
   // The route keeps the query; the input only needs it once on open.
   // svelte-ignore state_referenced_locally
   let text = $state(query);
@@ -152,8 +155,8 @@
 {/snippet}
 
 <div class="pb-10">
-  <div class="px-8 pt-10 pb-4">
-    <label class="flex h-12 items-center gap-3 rounded-xl bg-fill-1 px-4 ring-1 ring-line transition-colors focus-within:bg-fill-2 focus-within:ring-white/15">
+  <div class="flex items-center gap-2 px-8 pt-10 pb-4">
+    <label class="flex h-12 min-w-0 flex-1 items-center gap-3 rounded-xl bg-fill-1 px-4 ring-1 ring-line transition-colors focus-within:bg-fill-2 focus-within:ring-white/15">
       <IconSearch class="size-5 shrink-0 text-ink-3" />
       <input
         bind:this={input}
@@ -165,6 +168,15 @@
         class="min-w-0 flex-1 bg-transparent text-[16px] text-ink outline-none placeholder:text-ink-3"
       />
     </label>
+    <button
+      type="button"
+      title={t.recognize.open}
+      aria-label={t.recognize.open}
+      class="grid size-12 shrink-0 place-items-center rounded-xl bg-fill-1 text-ink-2 ring-1 ring-line transition-colors hover:bg-fill-2 hover:text-ink"
+      onclick={() => (recognizing = true)}
+    >
+      <IconRecognize class="size-5" />
+    </button>
   </div>
   <div class="flex gap-6 px-8 pb-4">
     {#each [["library", t.nav.library], ["catalog", "YouTube Music"]] as [id, label] (id)}
@@ -263,3 +275,13 @@
     </div>
   {/if}
 </div>
+
+<Recognize
+  open={recognizing}
+  onclose={() => (recognizing = false)}
+  onsearch={(q) => {
+    text = q;
+    scope = "catalog";
+    router.replace({ name: "search", query: q });
+  }}
+/>

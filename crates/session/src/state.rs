@@ -47,6 +47,7 @@ pub struct Session {
     pub resolver: Arc<StreamResolver>,
     pub account: crate::account::AccountHealth,
     pub catalog_pages: crate::commands::catalog::CatalogPages,
+    pub recognition: crate::commands::recognize::Recognition,
     pub downloads: Downloader,
     /// Where `DownloadsProgress` updates go; set by `downloads_subscribe`.
     pub downloads_channel: Mutex<Option<Channel<DownloadsProgress>>>,
@@ -130,6 +131,7 @@ impl Session {
             resolver,
             account: Default::default(),
             catalog_pages: Default::default(),
+            recognition: Default::default(),
             downloads,
             downloads_channel: Mutex::new(None),
             syncing: AtomicBool::new(false),

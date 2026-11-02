@@ -10,6 +10,7 @@ import { normalize } from "./normalize";
 import { smart } from "./smart";
 import { spotify } from "./spotify";
 import { phone } from "./phone";
+import { recognize } from "./recognize";
 
 export const uk = {
   ...base,
@@ -22,6 +23,7 @@ export const uk = {
   ...smart,
   ...spotify,
   ...phone,
+  ...recognize,
   updates,
   iconStyle,
 };

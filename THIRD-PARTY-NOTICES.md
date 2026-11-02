@@ -4,6 +4,14 @@ Mixtape is licensed under the GNU General Public License v3.0 or later (see [`LI
 It ships with, or is built from, the third-party components below. Each remains under its own
 license; this file is installed next to the app.
 
+## Borrowed from SongRec
+
+«Распознать трек» computes a Shazam signature the way SongRec does
+(https://github.com/marin-m/SongRec, `src/core/fingerprinting/algorithm.rs`,
+`signature_format.rs` and `communication.rs`), © Marin Moulinier and SongRec contributors,
+GPL-3.0-or-later: the FFT and peak-finding algorithm, the signature's binary format and the
+request to Shazam's recognition endpoint. The port lives in `crates/recognize/src/lib.rs`.
+
 ## Bundled programs
 
 | Component | Version | License | Source |

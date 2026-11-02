@@ -492,6 +492,14 @@ mockIPC(
       case "window_set_mini":
         void emit("window:mini", a.on);
         return null;
+      case "recognize_start":
+        return new Promise((r) =>
+          setTimeout(() => r({ status: "found", song: { title: "Afterglow Avenue", artist: "Neon Harbor", album: "Night Drive" } }), 3000),
+        );
+      case "recognize_cancel":
+        return null;
+      case "recognize_level":
+        return 0.25 + Math.random() * 0.6;
       case "account_status":
         return account;
       case "account_connect_webview":

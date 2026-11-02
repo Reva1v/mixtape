@@ -14,6 +14,7 @@ mixtape-core = { path = "crates/core" }
 mixtape-library = { path = "crates/library" }
 mixtape-artwork = { path = "crates/artwork" }
 mixtape-yt = { path = "crates/yt" }
+mixtape-recognize = { path = "crates/recognize" }
 mixtape-audio = { path = "crates/audio" }
 mixtape-player = { path = "crates/player" }
 mixtape-sync = { path = "crates/sync" }

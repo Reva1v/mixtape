@@ -5,6 +5,7 @@
 //! into a lock-free ring; the device callback only pops from it. See [`Engine`].
 
 pub mod analysis;
+pub mod capture;
 mod crossfade;
 mod decoder;
 mod engine;

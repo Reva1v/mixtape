@@ -26,6 +26,7 @@ mixtape-audio.workspace = true
 mixtape-win.workspace = true
 mixtape-yt.workspace = true
 mixtape-sync.workspace = true
+mixtape-recognize.workspace = true
 tauri = { version = "2.12" }
 serde.workspace = true
 serde_json.workspace = true

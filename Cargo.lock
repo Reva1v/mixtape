@@ -2760,11 +2760,13 @@ dependencies = [
  "ebur128",
  "rtrb",
  "rubato",
+ "serde",
  "symphonia",
  "symphonia-adapter-libopus",
  "tempfile",
  "thiserror 2.0.21",
  "tracing",
+ "ts-rs",
 ]
 
 [[package]]
@@ -2811,6 +2813,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "mixtape-recognize"
+version = "0.2.6"
+dependencies = [
+ "base64 0.22.1",
+ "crc32fast",
+ "realfft",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "ts-rs",
+ "uuid",
+]
+
+[[package]]
 name = "mixtape-session"
 version = "0.2.6"
 dependencies = [
@@ -2820,6 +2837,7 @@ dependencies = [
  "mixtape-core",
  "mixtape-library",
  "mixtape-player",
+ "mixtape-recognize",
  "mixtape-sync",
  "mixtape-win",
  "mixtape-yt",
