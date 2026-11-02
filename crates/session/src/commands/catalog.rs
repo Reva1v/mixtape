@@ -4,7 +4,9 @@
 use super::CmdResult;
 use crate::commands::library::emit_changed;
 use crate::state::Session;
-use mixtape_core::{Album, AlbumId, AppError, Artist, ArtistId, ErrorKind, Playlist, PlaylistId, Track, tr, trf};
+use mixtape_core::{
+    Album, AlbumId, AppError, Artist, ArtistId, ErrorKind, Playlist, PlaylistId, Track, tr, trf,
+};
 use mixtape_library::repo;
 use mixtape_library::views::ViewKind;
 use mixtape_sync::{catalog, sources, url_import};
@@ -104,7 +106,11 @@ pub(crate) fn need_catalog(st: &Session) -> CmdResult<()> {
     if !st.online.load(Ordering::SeqCst) {
         return Err(AppError::new(
             ErrorKind::Network,
-            tr("Offline, only the library is available", "Немає мережі — доступна лише бібліотека", "Нет сети — доступна только библиотека"),
+            tr(
+                "Offline, only the library is available",
+                "Немає мережі — доступна лише бібліотека",
+                "Нет сети — доступна только библиотека",
+            ),
         ));
     }
     Ok(())
@@ -152,7 +158,11 @@ async fn page_of(st: &Session, page: SearchPage) -> CmdResult<CatalogPage> {
     let artist_ids = catalog::store_artist_cards(http, &st.db, &st.covers, &artists).await;
     let mut playlists = catalog::playlist_cards(http, &st.covers, playlists).await;
     let (mut tracks, mut albums, mut artists, owned) = st.db.read(|c| {
-        let owned: Vec<AlbumId> = album_ids.iter().filter(|id| repo::album_owned(c, id).unwrap_or(false)).cloned().collect();
+        let owned: Vec<AlbumId> = album_ids
+            .iter()
+            .filter(|id| repo::album_owned(c, id).unwrap_or(false))
+            .cloned()
+            .collect();
         Ok((
             repo::tracks_by_ids(c, &track_ids)?,
             repo::albums_by_ids(c, &album_ids)?,
@@ -161,28 +171,60 @@ async fn page_of(st: &Session, page: SearchPage) -> CmdResult<CatalogPage> {
         ))
     })?;
     let top = match top_kind {
-        Some(0) if !tracks.is_empty() => Some(CatalogTop::Track { track: tracks.remove(0) }),
-        Some(1) if !albums.is_empty() => Some(CatalogTop::Album { album: albums.remove(0) }),
-        Some(2) if !artists.is_empty() => Some(CatalogTop::Artist { artist: artists.remove(0) }),
-        Some(3) if !playlists.is_empty() => Some(CatalogTop::Playlist { playlist: playlists.remove(0) }),
+        Some(0) if !tracks.is_empty() => Some(CatalogTop::Track {
+            track: tracks.remove(0),
+        }),
+        Some(1) if !albums.is_empty() => Some(CatalogTop::Album {
+            album: albums.remove(0),
+        }),
+        Some(2) if !artists.is_empty() => Some(CatalogTop::Artist {
+            artist: artists.remove(0),
+        }),
+        Some(3) if !playlists.is_empty() => Some(CatalogTop::Playlist {
+            playlist: playlists.remove(0),
+        }),
         _ => None,
     };
-    Ok(CatalogPage { top, tracks, albums, artists, playlists, owned_albums: owned, continuation: page.continuation })
+    Ok(CatalogPage {
+        top,
+        tracks,
+        albums,
+        artists,
+        playlists,
+        owned_albums: owned,
+        continuation: page.continuation,
+    })
 }
 
 #[tauri::command]
-pub async fn catalog_search(state: St<'_>, query: String, kind: CatalogKind) -> CmdResult<CatalogPage> {
+pub async fn catalog_search(
+    state: St<'_>,
+    query: String,
+    kind: CatalogKind,
+) -> CmdResult<CatalogPage> {
     let st = state.inner().clone();
     need_catalog(&st)?;
-    let page = st.yt.search(query.trim(), kind.into()).await.map_err(|e| yt_error(&st, e))?;
+    let page = st
+        .yt
+        .search(query.trim(), kind.into())
+        .await
+        .map_err(|e| yt_error(&st, e))?;
     page_of(&st, page).await
 }
 
 #[tauri::command]
-pub async fn catalog_more(state: St<'_>, kind: CatalogKind, continuation: String) -> CmdResult<CatalogPage> {
+pub async fn catalog_more(
+    state: St<'_>,
+    kind: CatalogKind,
+    continuation: String,
+) -> CmdResult<CatalogPage> {
     let st = state.inner().clone();
     need_catalog(&st)?;
-    let page = st.yt.search_more(kind.into(), &continuation).await.map_err(|e| yt_error(&st, e))?;
+    let page = st
+        .yt
+        .search_more(kind.into(), &continuation)
+        .await
+        .map_err(|e| yt_error(&st, e))?;
     page_of(&st, page).await
 }
 
@@ -192,7 +234,10 @@ pub async fn catalog_suggest(state: St<'_>, query: String) -> CmdResult<Vec<Stri
     if !can_reach(&st) {
         return Ok(Vec::new());
     }
-    st.yt.suggest(query.trim()).await.map_err(|e| yt_error(&st, e))
+    st.yt
+        .suggest(query.trim())
+        .await
+        .map_err(|e| yt_error(&st, e))
 }
 
 /// The artist's popular tracks and full discography from YouTube Music.
@@ -216,18 +261,33 @@ pub async fn catalog_download(state: St<'_>, kind: DownloadKind, id: String) -> 
     tauri::async_runtime::spawn(async move {
         let (yt, http) = (&*st.yt, st.yt.http());
         let res = match kind {
-            DownloadKind::Album => catalog::store_album(yt, http, &st.db, &st.covers, &AlbumId(id), true).await,
-            DownloadKind::Artist => catalog::download_artist(yt, http, &st.db, &st.covers, &ArtistId(id)).await,
-            DownloadKind::Playlist => {
-                sources::import_link(yt, http, &st.db, &st.covers, url_import::Link::Playlist(PlaylistId(id)))
-                    .await
-                    .map(|r| r.track_count as usize)
+            DownloadKind::Album => {
+                catalog::store_album(yt, http, &st.db, &st.covers, &AlbumId(id), true).await
             }
+            DownloadKind::Artist => {
+                catalog::download_artist(yt, http, &st.db, &st.covers, &ArtistId(id)).await
+            }
+            DownloadKind::Playlist => sources::import_link(
+                yt,
+                http,
+                &st.db,
+                &st.covers,
+                url_import::Link::Playlist(PlaylistId(id)),
+            )
+            .await
+            .map(|r| r.track_count as usize),
         };
         match res {
             Ok(n) => {
                 let n = crate::events::tracks_word(n);
-                crate::events::toast_info(&st.app, trf!("Queued for download: {n}", "У завантаженнях: {n}", "В загрузках: {n}"));
+                crate::events::toast_info(
+                    &st.app,
+                    trf!(
+                        "Queued for download: {n}",
+                        "У завантаженнях: {n}",
+                        "В загрузках: {n}"
+                    ),
+                );
                 emit_changed(&st.app, &[ViewKind::Playlists, ViewKind::Albums]);
                 st.downloads.wake();
             }
@@ -236,7 +296,11 @@ pub async fn catalog_download(state: St<'_>, kind: DownloadKind, id: String) -> 
                 let m = e.message;
                 crate::events::toast_error(
                     &st.app,
-                    trf!("Couldn't add to downloads: {m}", "Не вдалося додати до завантажень: {m}", "Не удалось добавить в загрузки: {m}"),
+                    trf!(
+                        "Couldn't add to downloads: {m}",
+                        "Не вдалося додати до завантажень: {m}",
+                        "Не удалось добавить в загрузки: {m}"
+                    ),
                 );
             }
         }
@@ -261,7 +325,9 @@ pub async fn fill_artist(st: &Session, id: &ArtistId) -> bool {
     if !id.as_str().starts_with("UC") || !can_reach(st) {
         return false;
     }
-    catalog::store_artist(&*st.yt, st.yt.http(), &st.db, &st.covers, id).await.is_ok()
+    catalog::store_artist(&*st.yt, st.yt.http(), &st.db, &st.covers, id)
+        .await
+        .is_ok()
 }
 
 /// Playlist page fallback: a playlist that is not in the library, straight from the catalog.
@@ -300,7 +366,11 @@ fn songs_key(id: &ArtistId) -> String {
 }
 
 #[tauri::command]
-pub async fn artist_songs(state: St<'_>, id: ArtistId, load: bool) -> CmdResult<Option<ArtistSongs>> {
+pub async fn artist_songs(
+    state: St<'_>,
+    id: ArtistId,
+    load: bool,
+) -> CmdResult<Option<ArtistSongs>> {
     let st = state.inner().clone();
     let key = songs_key(&id);
     let mut loaded_at: Option<i64> = mixtape_library::settings::get(&st.db, &key)?;
@@ -319,24 +389,47 @@ pub async fn artist_songs(state: St<'_>, id: ArtistId, load: bool) -> CmdResult<
                 // Albums already read in full are not fetched again.
                 let (n, count) = st
                     .db
-                    .read(|c| Ok((repo::album_track_ids(c, &album)?.len(), repo::album(c, &album)?.and_then(|a| a.track_count))))
+                    .read(|c| {
+                        Ok((
+                            repo::album_track_ids(c, &album)?.len(),
+                            repo::album(c, &album)?.and_then(|a| a.track_count),
+                        ))
+                    })
                     .ok()?;
                 if count.is_some_and(|c| c > 0 && n >= c as usize) {
                     return Some(());
                 }
-                catalog::store_album(&*st.yt, st.yt.http(), &st.db, &st.covers, &album, false).await.ok().map(drop)
+                catalog::store_album(&*st.yt, st.yt.http(), &st.db, &st.covers, &album, false)
+                    .await
+                    .ok()
+                    .map(drop)
             });
         }
         let mut done = 0;
         while set.join_next().await.is_some() {
             done += 1;
-            crate::host::emit(&st.app, "artist:loading", ArtistLoading { id: id.to_string(), done, total });
+            crate::host::emit(
+                &st.app,
+                "artist:loading",
+                ArtistLoading {
+                    id: id.to_string(),
+                    done,
+                    total,
+                },
+            );
         }
         let now = repo::now_ms();
         mixtape_library::settings::set(&st.db, &key, &now)?;
         loaded_at = Some(now);
     }
-    let Some(loaded_at) = loaded_at else { return Ok(None) };
-    let tracks = st.db.read(|c| repo::tracks_by_ids(c, &repo::artist_all_track_ids(c, &id)?))?;
-    Ok(Some(ArtistSongs { tracks, loaded_at: Some(loaded_at) }))
+    let Some(loaded_at) = loaded_at else {
+        return Ok(None);
+    };
+    let tracks = st
+        .db
+        .read(|c| repo::tracks_by_ids(c, &repo::artist_all_track_ids(c, &id)?))?;
+    Ok(Some(ArtistSongs {
+        tracks,
+        loaded_at: Some(loaded_at),
+    }))
 }

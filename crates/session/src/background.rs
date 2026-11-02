@@ -30,10 +30,17 @@ fn spawn_likes_check(st: Arc<Session>) {
     tauri::async_runtime::spawn(async move {
         let state = mixtape_sync::likes::CheckState::default();
         loop {
-            if st.yt.is_authenticated() && st.online.load(Ordering::SeqCst) && !st.syncing.load(Ordering::SeqCst) {
+            if st.yt.is_authenticated()
+                && st.online.load(Ordering::SeqCst)
+                && !st.syncing.load(Ordering::SeqCst)
+            {
                 check_likes(&st, &state).await;
             }
-            let wait = if crate::host::ui_unseen(&st.app) { LIKES_HIDDEN } else { LIKES_SEEN };
+            let wait = if crate::host::ui_unseen(&st.app) {
+                LIKES_HIDDEN
+            } else {
+                LIKES_SEEN
+            };
             tokio::select! {
                 _ = tokio::time::sleep(wait) => {}
                 _ = LIKES_NOW.notified() => {}
@@ -46,7 +53,10 @@ async fn check_likes(st: &Arc<Session>, state: &mixtape_sync::likes::CheckState)
     match mixtape_sync::likes::check(&*st.yt, st.yt.http(), &st.db, &st.covers, state).await {
         Ok(changes) if !changes.is_empty() => {
             tracing::info!(changed = changes.len(), "likes followed YouTube Music");
-            commands::library::emit_changed(&st.app, &[ViewKind::Liked, ViewKind::Tracks, ViewKind::Albums]);
+            commands::library::emit_changed(
+                &st.app,
+                &[ViewKind::Liked, ViewKind::Tracks, ViewKind::Albums],
+            );
         }
         Ok(_) => {}
         Err(mixtape_yt::YtError::Auth) => crate::host::emit(&st.app, "account:expired", ()),
@@ -68,8 +78,13 @@ pub fn spawn(st: Arc<Session>) {
 
 /// Pictures of library artists that have none and were not looked for within a week.
 pub async fn fetch_artist_pictures(st: &Arc<Session>) {
-    let n = mixtape_sync::artists::fetch_missing(st.yt.clone(), st.yt.http().clone(), st.db.clone(), st.covers.clone())
-        .await;
+    let n = mixtape_sync::artists::fetch_missing(
+        st.yt.clone(),
+        st.yt.http().clone(),
+        st.db.clone(),
+        st.covers.clone(),
+    )
+    .await;
     if n > 0 {
         commands::library::emit_changed(&st.app, &[ViewKind::Artists]);
     }
@@ -77,10 +92,12 @@ pub async fn fetch_artist_pictures(st: &Arc<Session>) {
 
 /// Runs [`clean_covers`] on a thread of its own in background mode.
 pub fn clean_covers_in_background(st: Arc<Session>) {
-    let spawned = std::thread::Builder::new().name("cover-cleanup".into()).spawn(move || {
-        mixtape_win::enter_background_mode();
-        clean_covers(&st);
-    });
+    let spawned = std::thread::Builder::new()
+        .name("cover-cleanup".into())
+        .spawn(move || {
+            mixtape_win::enter_background_mode();
+            clean_covers(&st);
+        });
     if let Err(e) = spawned {
         tracing::warn!(error = %e, "cover cleanup not started");
     }
@@ -99,7 +116,12 @@ pub fn clean_covers(st: &Session) {
     keep.insert(crate::account::AVATAR_KEY.to_owned());
     match st.covers.cleanup(&keep, &keys.full, COVER_MIN_AGE) {
         Ok(r) if r.covers + r.full_files > 0 => {
-            tracing::info!(covers = r.covers, full_files = r.full_files, mb = r.bytes / 1_048_576, "covers cleaned up");
+            tracing::info!(
+                covers = r.covers,
+                full_files = r.full_files,
+                mb = r.bytes / 1_048_576,
+                "covers cleaned up"
+            );
         }
         Ok(_) => {}
         Err(e) => tracing::warn!(error = %e, "cover cleanup failed"),

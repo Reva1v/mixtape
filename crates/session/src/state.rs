@@ -4,10 +4,10 @@ use crate::handoff::Handoff;
 use crate::host::Host;
 use crate::media::Media;
 use mixtape_artwork::CoverStore;
+use mixtape_core::{AppError, ErrorKind};
 use mixtape_library::views::ViewCache;
 use mixtape_library::{DataPaths, Db};
 use mixtape_player::analyzer::AnalyzerHooks;
-use mixtape_core::{AppError, ErrorKind};
 use mixtape_player::{Analyzer, PlaybackState, Player};
 use mixtape_sync::downloader::{Downloader, DownloadsProgress};
 use mixtape_sync::lyrics::Lrclib;
@@ -70,7 +70,10 @@ impl Session {
         tracing::debug!(ms = started.elapsed().as_millis() as u64, "db open");
         let covers = CoverStore::new(&paths.covers);
         let report = mixtape_library::integrity::check(&db, &paths.root)?;
-        tracing::debug!(ms = started.elapsed().as_millis() as u64, "integrity checked");
+        tracing::debug!(
+            ms = started.elapsed().as_millis() as u64,
+            "integrity checked"
+        );
         // Once per database: later imports and syncs link their own credits.
         if !mixtape_library::settings::get_or(&db, LOCAL_TWINS_KEY, false)? {
             let merged = db.write(|t| {
@@ -80,14 +83,21 @@ impl Session {
             })?;
             mixtape_library::settings::set(&db, LOCAL_TWINS_KEY, &true)?;
             if merged > 0 {
-                tracing::info!(merged, "local imports folded into their YouTube Music twins");
+                tracing::info!(
+                    merged,
+                    "local imports folded into their YouTube Music twins"
+                );
             }
         }
         tracing::info!(root = %paths.root.display(), ?report, "data directory ready");
         let yt = Arc::new(InnerTube::new("ru", "RU")?);
         let tmp = paths.root.join("tmp");
         std::fs::create_dir_all(&tmp)?;
-        let resolver = Arc::new(StreamResolver::new(host.sidecar("yt-dlp"), host.sidecar("deno"), tmp));
+        let resolver = Arc::new(StreamResolver::new(
+            host.sidecar("yt-dlp"),
+            host.sidecar("deno"),
+            tmp,
+        ));
         let downloads = Downloader::start(
             tauri::async_runtime::handle().inner(),
             db.clone(),
@@ -211,8 +221,9 @@ impl Session {
         if let Some(l) = self.lrclib.get() {
             return Ok(l);
         }
-        let l = Lrclib::new()
-            .map_err(|e| mixtape_core::AppError::new(mixtape_core::ErrorKind::Internal, e.to_string()))?;
+        let l = Lrclib::new().map_err(|e| {
+            mixtape_core::AppError::new(mixtape_core::ErrorKind::Internal, e.to_string())
+        })?;
         Ok(self.lrclib.get_or_init(|| l))
     }
 }

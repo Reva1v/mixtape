@@ -10,8 +10,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const CLIENT_NAME: &str = "WEB_REMIX";
 const CLIENT_VERSION: &str = "1.20261013.01.00";
-pub const USER_AGENT: &str =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
+pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
 
 /// Upper bound on continuation pages for one list (100 rows each → 20k rows).
 pub const MAX_PAGES: usize = 200;
@@ -46,7 +45,13 @@ impl InnerTube {
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(30))
             .build()?;
-        Ok(Self { http, cookies: RwLock::new(None), hl: RwLock::new(hl.to_owned()), gl: gl.to_owned(), on_reach: OnceLock::new() })
+        Ok(Self {
+            http,
+            cookies: RwLock::new(None),
+            hl: RwLock::new(hl.to_owned()),
+            gl: gl.to_owned(),
+            on_reach: OnceLock::new(),
+        })
     }
 
     /// Switches the language of later answers (`en`, `uk`, `ru`).
@@ -75,7 +80,10 @@ impl InnerTube {
     }
 
     pub fn cookies(&self) -> Option<Arc<Cookies>> {
-        self.cookies.read().unwrap_or_else(|e| e.into_inner()).clone()
+        self.cookies
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     pub fn is_authenticated(&self) -> bool {
@@ -100,7 +108,10 @@ impl InnerTube {
             .header("X-Youtube-Client-Version", CLIENT_VERSION)
             .json(&body);
         if let Some(cookies) = self.cookies() {
-            let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
             req = req.header("Cookie", cookies.header());
             if let Some(auth) = cookies.authorization(now) {
                 req = req.header("Authorization", auth);
@@ -126,18 +137,26 @@ impl InnerTube {
             401 | 403 => return Err(YtError::Auth),
             429 => return Err(YtError::RateLimited),
             _ => {
-                let msg = read_limited(resp, MAX_ERROR_BYTES).await.unwrap_or_default();
+                let msg = read_limited(resp, MAX_ERROR_BYTES)
+                    .await
+                    .unwrap_or_default();
                 let msg = serde_json::from_slice::<Value>(&msg)
                     .ok()
-                    .and_then(|v| v.pointer("/error/message").and_then(Value::as_str).map(str::to_owned))
+                    .and_then(|v| {
+                        v.pointer("/error/message")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                    })
                     .unwrap_or_else(|| status.to_string());
                 return Err(YtError::Network(format!("{endpoint}: {msg}")));
             }
         }
-        let body = read_limited(resp, MAX_JSON_BYTES).await.map_err(|e| match e {
-            BodyError::Http(e) => YtError::from(e),
-            e @ BodyError::TooLarge(_) => YtError::Parse(format!("{endpoint}: {e}")),
-        })?;
+        let body = read_limited(resp, MAX_JSON_BYTES)
+            .await
+            .map_err(|e| match e {
+                BodyError::Http(e) => YtError::from(e),
+                e @ BodyError::TooLarge(_) => YtError::Parse(format!("{endpoint}: {e}")),
+            })?;
         serde_json::from_slice(&body).map_err(|e| YtError::Parse(format!("{endpoint}: {e}")))
     }
 
@@ -146,7 +165,8 @@ impl InnerTube {
     }
 
     pub async fn browse_params(&self, browse_id: &str, params: &str) -> Result<Value> {
-        self.call("browse", json!({ "browseId": browse_id, "params": params })).await
+        self.call("browse", json!({ "browseId": browse_id, "params": params }))
+            .await
     }
 
     pub async fn browse_continuation(&self, token: &str) -> Result<Value> {
@@ -184,10 +204,7 @@ pub async fn read_limited(
     mut resp: reqwest::Response,
     max: usize,
 ) -> std::result::Result<Vec<u8>, BodyError> {
-    if resp
-        .content_length()
-        .is_some_and(|n| n > max as u64)
-    {
+    if resp.content_length().is_some_and(|n| n > max as u64) {
         return Err(BodyError::TooLarge(max));
     }
     let mut body = Vec::new();
@@ -202,13 +219,16 @@ pub async fn read_limited(
 
 /// `responseContext.serviceTrackingParams[*].params[logged_in]`.
 pub fn logged_in(resp: &Value) -> Option<bool> {
-    find_all(resp, "serviceTrackingParams").into_iter().find_map(|services| {
-        services.as_array()?.iter().find_map(|s| {
-            s.get("params")?.as_array()?.iter().find_map(|p| {
-                (p.get("key")?.as_str()? == "logged_in").then(|| p.get("value").and_then(Value::as_str) == Some("1"))
+    find_all(resp, "serviceTrackingParams")
+        .into_iter()
+        .find_map(|services| {
+            services.as_array()?.iter().find_map(|s| {
+                s.get("params")?.as_array()?.iter().find_map(|p| {
+                    (p.get("key")?.as_str()? == "logged_in")
+                        .then(|| p.get("value").and_then(Value::as_str) == Some("1"))
+                })
             })
         })
-    })
 }
 
 #[cfg(test)]

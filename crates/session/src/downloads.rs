@@ -23,7 +23,10 @@ pub struct AppHooks {
 
 impl AppHooks {
     pub fn new(app: &AppHandle) -> Arc<Self> {
-        Arc::new(Self { app: app.clone(), dirty: Arc::new(AtomicBool::new(false)) })
+        Arc::new(Self {
+            app: app.clone(),
+            dirty: Arc::new(AtomicBool::new(false)),
+        })
     }
 }
 
@@ -31,12 +34,20 @@ impl Hooks for AppHooks {
     fn analyze(&self, path: &Path) -> Analysis {
         let sample_rate = mixtape_audio::probe(path).ok().map(|p| p.sample_rate);
         let loudness = mixtape_audio::measure_loudness(path).ok();
-        Analysis { sample_rate, lufs: loudness.as_ref().map(|l| l.lufs), true_peak: loudness.map(|l| l.true_peak) }
+        Analysis {
+            sample_rate,
+            lufs: loudness.as_ref().map(|l| l.lufs),
+            true_peak: loudness.map(|l| l.true_peak),
+        }
     }
 
     fn progress(&self, p: &DownloadsProgress) {
         if let Some(st) = self.app.try_state::<Arc<Session>>()
-            && let Some(ch) = st.downloads_channel.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+            && let Some(ch) = st
+                .downloads_channel
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
         {
             let _ = ch.send(p.clone());
         }
@@ -56,7 +67,15 @@ impl Hooks for AppHooks {
         tauri::async_runtime::spawn(async move {
             tokio::time::sleep(LIBRARY_EVENT_EVERY).await;
             flag.store(false, Ordering::SeqCst);
-            emit_changed(&handle, &[ViewKind::Tracks, ViewKind::Liked, ViewKind::Albums, ViewKind::Artists]);
+            emit_changed(
+                &handle,
+                &[
+                    ViewKind::Tracks,
+                    ViewKind::Liked,
+                    ViewKind::Albums,
+                    ViewKind::Artists,
+                ],
+            );
         });
     }
 

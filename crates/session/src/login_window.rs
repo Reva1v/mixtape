@@ -24,7 +24,10 @@ const POLL: Duration = Duration::from_millis(800);
 const GIVE_UP: Duration = Duration::from_secs(15 * 60);
 
 fn cancelled() -> AppError {
-    AppError::new(ErrorKind::Auth, tr("Sign-in cancelled", "Вхід скасовано", "Вход отменён"))
+    AppError::new(
+        ErrorKind::Auth,
+        tr("Sign-in cancelled", "Вхід скасовано", "Вход отменён"),
+    )
 }
 
 pub async fn sign_in(st: &Session) -> Result<AccountStatus, AppError> {
@@ -32,7 +35,9 @@ pub async fn sign_in(st: &Session) -> Result<AccountStatus, AppError> {
     let window = match st.app.get_webview_window(LABEL) {
         Some(w) => w,
         None => {
-            let url = start_url().parse().map_err(|e| AppError::new(ErrorKind::Internal, format!("{e}")))?;
+            let url = start_url()
+                .parse()
+                .map_err(|e| AppError::new(ErrorKind::Internal, format!("{e}")))?;
             let mut builder = WebviewWindowBuilder::new(&st.app, LABEL, WebviewUrl::External(url))
                 .title(tr("Sign in to YouTube Music", "Вхід у YouTube Music", "Вход в YouTube Music"))
                 .inner_size(480.0, 720.0)
@@ -49,21 +54,25 @@ pub async fn sign_in(st: &Session) -> Result<AccountStatus, AppError> {
                 })
                 .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny);
             // Owned by the interface window, so it always stays above it.
-            if let Some(main) = st.host.ui_window().and_then(|l| st.app.get_webview_window(&l)) {
-                builder = builder.parent(&main).map_err(|e| AppError::new(ErrorKind::Internal, e.to_string()))?;
+            if let Some(main) = st
+                .host
+                .ui_window()
+                .and_then(|l| st.app.get_webview_window(&l))
+            {
+                builder = builder
+                    .parent(&main)
+                    .map_err(|e| AppError::new(ErrorKind::Internal, e.to_string()))?;
             }
-            builder
-                .build()
-                .map_err(|e| {
-                    AppError::new(
-                        ErrorKind::Internal,
-                        trf!(
-                            "Couldn't open the sign-in window: {e}",
-                            "Не вдалося відкрити вікно входу: {e}",
-                            "Не удалось открыть окно входа: {e}",
-                        ),
-                    )
-                })?
+            builder.build().map_err(|e| {
+                AppError::new(
+                    ErrorKind::Internal,
+                    trf!(
+                        "Couldn't open the sign-in window: {e}",
+                        "Не вдалося відкрити вікно входу: {e}",
+                        "Не удалось открыть окно входа: {e}",
+                    ),
+                )
+            })?
         }
     };
     let _ = window.unminimize();
@@ -80,14 +89,21 @@ pub async fn sign_in(st: &Session) -> Result<AccountStatus, AppError> {
             let _ = window.close();
             return Err(cancelled());
         }
-        let on_music = window.url().is_ok_and(|u| u.host_str() == Some("music.youtube.com"));
+        let on_music = window
+            .url()
+            .is_ok_and(|u| u.host_str() == Some("music.youtube.com"));
         if !on_music {
             continue;
         }
         // Reading cookies blocks until WebView2 answers; this runs on a runtime thread,
         // never on the UI thread (see Tauri's note on the WebView2 deadlock).
-        let Ok(cookies) = window.cookies_for_url(Url::clone(&music)) else { continue };
-        if !cookies.iter().any(|c| c.name() == "SAPISID" || c.name() == "__Secure-3PAPISID") {
+        let Ok(cookies) = window.cookies_for_url(Url::clone(&music)) else {
+            continue;
+        };
+        if !cookies
+            .iter()
+            .any(|c| c.name() == "SAPISID" || c.name() == "__Secure-3PAPISID")
+        {
             continue;
         }
         let result = account::connect(st, &netscape(&cookies)).await;
@@ -113,9 +129,14 @@ fn allowed_navigation(url: &Url) -> bool {
     if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
         return false;
     }
-    let Some(host) = url.host_str().map(str::to_ascii_lowercase) else { return false };
+    let Some(host) = url.host_str().map(str::to_ascii_lowercase) else {
+        return false;
+    };
     let on = |domain: &str| {
-        host == domain || host.strip_suffix(domain).is_some_and(|sub| sub.len() > 1 && sub.ends_with('.'))
+        host == domain
+            || host
+                .strip_suffix(domain)
+                .is_some_and(|sub| sub.len() > 1 && sub.ends_with('.'))
     };
     if on("google.com") || on("youtube.com") {
         return true;
@@ -133,11 +154,30 @@ fn allowed_navigation(url: &Url) -> bool {
 fn netscape(cookies: &[Cookie<'static>]) -> String {
     let mut out = String::from("# Netscape HTTP Cookie File\n");
     for c in cookies {
-        let domain = c.domain().map(|d| if d.starts_with('.') { d.to_owned() } else { format!(".{d}") });
+        let domain = c.domain().map(|d| {
+            if d.starts_with('.') {
+                d.to_owned()
+            } else {
+                format!(".{d}")
+            }
+        });
         let domain = domain.unwrap_or_else(|| ".youtube.com".into());
-        let expires = c.expires_datetime().map(|t| t.unix_timestamp().max(0)).unwrap_or(0);
-        let secure = if c.secure().unwrap_or(false) { "TRUE" } else { "FALSE" };
-        let _ = writeln!(out, "{domain}\tTRUE\t{}\t{secure}\t{expires}\t{}\t{}", c.path().unwrap_or("/"), c.name(), c.value());
+        let expires = c
+            .expires_datetime()
+            .map(|t| t.unix_timestamp().max(0))
+            .unwrap_or(0);
+        let secure = if c.secure().unwrap_or(false) {
+            "TRUE"
+        } else {
+            "FALSE"
+        };
+        let _ = writeln!(
+            out,
+            "{domain}\tTRUE\t{}\t{secure}\t{expires}\t{}\t{}",
+            c.path().unwrap_or("/"),
+            c.name(),
+            c.value()
+        );
     }
     out
 }

@@ -41,7 +41,9 @@ fn sealed_path(st: &Session) -> PathBuf {
 
 /// Reads the stored cookies at startup and hands them to the clients.
 pub fn restore(st: &Session) {
-    let Ok(sealed) = std::fs::read(sealed_path(st)) else { return };
+    let Ok(sealed) = std::fs::read(sealed_path(st)) else {
+        return;
+    };
     match open(&sealed).and_then(|text| Cookies::parse(&text).map_err(AppError::from)) {
         Ok(cookies) => apply(st, Some(cookies)),
         Err(e) => tracing::warn!(error = %e, "stored YouTube cookies are unreadable"),
@@ -49,7 +51,8 @@ pub fn restore(st: &Session) {
 }
 
 fn apply(st: &Session, cookies: Option<Cookies>) {
-    st.resolver.set_cookies(cookies.as_ref().map(Cookies::to_netscape));
+    st.resolver
+        .set_cookies(cookies.as_ref().map(Cookies::to_netscape));
     st.yt.set_cookies(cookies);
 }
 
@@ -101,12 +104,19 @@ pub fn status(st: &Session) -> AccountStatus {
     if !st.yt.is_authenticated() {
         return AccountStatus::default();
     }
-    let stored: Stored = settings::get(&st.db, KEY).ok().flatten().unwrap_or_default();
+    let stored: Stored = settings::get(&st.db, KEY)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
     AccountStatus {
         connected: true,
         name: Some(stored.name).filter(|n| !n.is_empty()),
         avatar: stored.avatar,
-        last_sync_at: st.db.read(mixtape_library::ytm::last_synced_at).ok().flatten(),
+        last_sync_at: st
+            .db
+            .read(mixtape_library::ytm::last_synced_at)
+            .ok()
+            .flatten(),
     }
 }
 
@@ -132,23 +142,36 @@ pub async fn connect(st: &Session, text: &str) -> Result<AccountStatus, AppError
             });
         }
     };
-    std::fs::write(sealed_path(st), seal(&cookies.to_netscape())?)
-        .map_err(|e| {
-            AppError::new(
-                ErrorKind::Storage,
-                trf!("Couldn't save the sign-in: {e}", "Не вдалося зберегти вхід: {e}", "Не удалось сохранить вход: {e}"),
-            )
-        })?;
+    std::fs::write(sealed_path(st), seal(&cookies.to_netscape())?).map_err(|e| {
+        AppError::new(
+            ErrorKind::Storage,
+            trf!(
+                "Couldn't save the sign-in: {e}",
+                "Не вдалося зберегти вхід: {e}",
+                "Не удалось сохранить вход: {e}"
+            ),
+        )
+    })?;
     apply(st, Some(cookies));
 
     let mut avatar = None;
     if let Some(url) = &account.avatar
         && let Ok(bytes) = mixtape_yt::thumbs::download_small(st.yt.http(), url).await
-        && st.covers.process(AVATAR_KEY, &bytes, mixtape_artwork::Detail::Small).is_ok()
+        && st
+            .covers
+            .process(AVATAR_KEY, &bytes, mixtape_artwork::Detail::Small)
+            .is_ok()
     {
         avatar = Some(AVATAR_KEY.to_owned());
     }
-    settings::set(&st.db, KEY, &Stored { name: account.name, avatar })?;
+    settings::set(
+        &st.db,
+        KEY,
+        &Stored {
+            name: account.name,
+            avatar,
+        },
+    )?;
     Ok(status(st))
 }
 

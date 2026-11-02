@@ -14,8 +14,8 @@ use mixtape_sync::url_import::{self, ExternalLink};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::ipc::Channel;
 use tauri::State;
+use tauri::ipc::Channel;
 use ts_rs::TS;
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -43,7 +43,11 @@ fn need_account(st: &Session) -> CmdResult<()> {
     } else {
         Err(AppError::new(
             ErrorKind::Auth,
-            tr("Connect a YouTube Music account first", "Спершу підключіть акаунт YouTube Music", "Сначала подключите аккаунт YouTube Music"),
+            tr(
+                "Connect a YouTube Music account first",
+                "Спершу підключіть акаунт YouTube Music",
+                "Сначала подключите аккаунт YouTube Music",
+            ),
         ))
     }
 }
@@ -63,7 +67,10 @@ pub async fn account_status(state: State<'_, Arc<Session>>) -> CmdResult<Account
 }
 
 #[tauri::command]
-pub async fn account_connect_cookies(state: State<'_, Arc<Session>>, cookies_txt: String) -> CmdResult<AccountStatus> {
+pub async fn account_connect_cookies(
+    state: State<'_, Arc<Session>>,
+    cookies_txt: String,
+) -> CmdResult<AccountStatus> {
     account::connect(state.inner(), &cookies_txt).await
 }
 
@@ -83,7 +90,9 @@ pub async fn account_disconnect(state: State<'_, Arc<Session>>) -> CmdResult<()>
 pub async fn sync_preview(state: State<'_, Arc<Session>>) -> CmdResult<SyncPreview> {
     let st = state.inner().clone();
     need_account(&st)?;
-    let p = sources::preview(&*st.yt).await.map_err(|e| yt_error(&st, e))?;
+    let p = sources::preview(&*st.yt)
+        .await
+        .map_err(|e| yt_error(&st, e))?;
     // Playlist covers are small; fetch the missing ones so the picker is not blank.
     let mut playlists = Vec::with_capacity(p.playlists.len());
     for card in p.playlists {
@@ -93,7 +102,9 @@ pub async fn sync_preview(state: State<'_, Arc<Session>>) -> CmdResult<SyncPrevi
             && let Ok(bytes) = mixtape_yt::thumbs::download_small(st.yt.http(), url).await
         {
             // The sync itself fetches the full cover of a playlist the user picks.
-            let _ = st.covers.process(&key, &bytes, mixtape_artwork::Detail::Small);
+            let _ = st
+                .covers
+                .process(&key, &bytes, mixtape_artwork::Detail::Small);
         }
         playlists.push(Playlist {
             cover_key: st.covers.exists(&key).then_some(key),
@@ -103,23 +114,57 @@ pub async fn sync_preview(state: State<'_, Arc<Session>>) -> CmdResult<SyncPrevi
             track_count: card.track_count.unwrap_or(0),
         });
     }
-    Ok(SyncPreview { liked: p.liked as u32, playlists, albums: p.albums as u32, artists: p.artists as u32 })
+    Ok(SyncPreview {
+        liked: p.liked as u32,
+        playlists,
+        albums: p.albums as u32,
+        artists: p.artists as u32,
+    })
 }
 
 fn sync_status(stage: &SyncStage) -> SyncStatus {
     let (label, done, total) = match stage {
         SyncStage::Liked => (tr("Reading likes", "Читаю лайки", "Читаю лайки"), 0, 0),
-        SyncStage::Playlist(_) => (tr("Reading playlists", "Читаю плейлисти", "Читаю плейлисты"), 0, 0),
-        SyncStage::Albums { done, total } => (tr("Reading albums", "Читаю альбоми", "Читаю альбомы"), *done, *total),
-        SyncStage::Artists { done, total } => {
-            (tr("Reading artists", "Читаю виконавців", "Читаю исполнителей"), *done, *total)
-        }
-        SyncStage::Covers { done, total } => {
-            (tr("Downloading covers", "Завантажую обкладинки", "Скачиваю обложки"), *done, *total)
-        }
-        SyncStage::Saving => (tr("Saving to the library", "Зберігаю в бібліотеку", "Сохраняю в библиотеку"), 0, 0),
+        SyncStage::Playlist(_) => (
+            tr("Reading playlists", "Читаю плейлисти", "Читаю плейлисты"),
+            0,
+            0,
+        ),
+        SyncStage::Albums { done, total } => (
+            tr("Reading albums", "Читаю альбоми", "Читаю альбомы"),
+            *done,
+            *total,
+        ),
+        SyncStage::Artists { done, total } => (
+            tr("Reading artists", "Читаю виконавців", "Читаю исполнителей"),
+            *done,
+            *total,
+        ),
+        SyncStage::Covers { done, total } => (
+            tr(
+                "Downloading covers",
+                "Завантажую обкладинки",
+                "Скачиваю обложки",
+            ),
+            *done,
+            *total,
+        ),
+        SyncStage::Saving => (
+            tr(
+                "Saving to the library",
+                "Зберігаю в бібліотеку",
+                "Сохраняю в библиотеку",
+            ),
+            0,
+            0,
+        ),
     };
-    SyncStatus { label: label.into(), done: done as u32, total: total as u32, import: false }
+    SyncStatus {
+        label: label.into(),
+        done: done as u32,
+        total: total as u32,
+        import: false,
+    }
 }
 
 const PLAN_KEY: &str = "sync_plan";
@@ -137,7 +182,12 @@ pub async fn sync_start(
 ) -> CmdResult<()> {
     let st = state.inner().clone();
     need_account(&st)?;
-    let plan = SyncPlan { liked, playlist_ids, albums, artists };
+    let plan = SyncPlan {
+        liked,
+        playlist_ids,
+        albums,
+        artists,
+    };
     mixtape_library::settings::set(&st.db, PLAN_KEY, &plan)?;
     run_sync(st, plan, false)
 }
@@ -145,7 +195,14 @@ pub async fn sync_start(
 /// One sync at a time. A scheduled (`quiet`) run only logs its failure.
 fn run_sync(st: Arc<Session>, plan: SyncPlan, quiet: bool) -> CmdResult<()> {
     if st.syncing.swap(true, Ordering::SeqCst) {
-        return Err(AppError::new(ErrorKind::Invalid, tr("Sync is already running", "Синхронізація вже триває", "Синхронизация уже идёт")));
+        return Err(AppError::new(
+            ErrorKind::Invalid,
+            tr(
+                "Sync is already running",
+                "Синхронізація вже триває",
+                "Синхронизация уже идёт",
+            ),
+        ));
     }
     tauri::async_runtime::spawn(async move {
         let _ = st.db.write(|t| jobs::clear_done(t));
@@ -158,11 +215,25 @@ fn run_sync(st: Arc<Session>, plan: SyncPlan, quiet: bool) -> CmdResult<()> {
         st.downloads.set_sync(None);
         match result {
             Ok(report) => {
-                tracing::info!(tracks = report.tracks, queued = report.queued, errors = report.errors.len(), quiet, "sync done");
+                tracing::info!(
+                    tracks = report.tracks,
+                    queued = report.queued,
+                    errors = report.errors.len(),
+                    quiet,
+                    "sync done"
+                );
                 for (what, err) in &report.errors {
                     tracing::warn!(what, err, "sync source failed");
                 }
-                emit_changed(&st.app, &[ViewKind::Tracks, ViewKind::Albums, ViewKind::Artists, ViewKind::Playlists]);
+                emit_changed(
+                    &st.app,
+                    &[
+                        ViewKind::Tracks,
+                        ViewKind::Albums,
+                        ViewKind::Artists,
+                        ViewKind::Playlists,
+                    ],
+                );
                 st.downloads.wake();
                 crate::background::fetch_artist_pictures(&st).await;
             }
@@ -174,7 +245,11 @@ fn run_sync(st: Arc<Session>, plan: SyncPlan, quiet: bool) -> CmdResult<()> {
                     let m = e.message;
                     crate::events::toast_error(
                         &st.app,
-                        trf!("Sync failed: {m}", "Синхронізація не вдалася: {m}", "Синхронизация не удалась: {m}"),
+                        trf!(
+                            "Sync failed: {m}",
+                            "Синхронізація не вдалася: {m}",
+                            "Синхронизация не удалась: {m}"
+                        ),
                     );
                 }
             }
@@ -202,9 +277,19 @@ fn auto_sync_wait(st: &Session) -> Option<std::time::Duration> {
     if !st.yt.is_authenticated() || !st.online.load(Ordering::SeqCst) {
         return None;
     }
-    mixtape_library::settings::get::<SyncPlan>(&st.db, PLAN_KEY).ok().flatten()?;
-    let last = st.db.read(mixtape_library::ytm::last_synced_at).ok().flatten();
-    let left = last.map_or(0, |t| t + AUTO_SYNC_AFTER_MS - mixtape_library::repo::now_ms()).max(0);
+    mixtape_library::settings::get::<SyncPlan>(&st.db, PLAN_KEY)
+        .ok()
+        .flatten()?;
+    let last = st
+        .db
+        .read(mixtape_library::ytm::last_synced_at)
+        .ok()
+        .flatten();
+    let left = last
+        .map_or(0, |t| {
+            t + AUTO_SYNC_AFTER_MS - mixtape_library::repo::now_ms()
+        })
+        .max(0);
     Some(std::time::Duration::from_millis(left as u64))
 }
 
@@ -224,9 +309,14 @@ pub fn spawn_auto_sync(st: Arc<Session>) {
                     }
                 }
                 Some(_) => {
-                    let Ok(Some(plan)) = mixtape_library::settings::get::<SyncPlan>(&st.db, PLAN_KEY) else { continue };
+                    let Ok(Some(plan)) =
+                        mixtape_library::settings::get::<SyncPlan>(&st.db, PLAN_KEY)
+                    else {
+                        continue;
+                    };
                     tracing::info!("scheduled sync");
-                    if run_sync(st.clone(), plan, true).is_ok() || st.syncing.load(Ordering::SeqCst) {
+                    if run_sync(st.clone(), plan, true).is_ok() || st.syncing.load(Ordering::SeqCst)
+                    {
                         // Until this sync (or the one already running) finishes.
                         AUTO_SYNC.notified().await;
                     }
@@ -305,15 +395,29 @@ async fn import_external(st: Arc<Session>, link: ExternalLink) -> CmdResult<Impo
     }
     let slot = ExternalSlot;
     let site = external::site_name(link.site);
-    let status = |label: String, done: u32, total: u32| Some(SyncStatus { label, done, total, import: true });
-    external_status(&st, status(trf!("Reading {site}", "Читаю {site}", "Читаю {site}"), 0, 0));
+    let status = |label: String, done: u32, total: u32| {
+        Some(SyncStatus {
+            label,
+            done,
+            total,
+            import: true,
+        })
+    };
+    external_status(
+        &st,
+        status(trf!("Reading {site}", "Читаю {site}", "Читаю {site}"), 0, 0),
+    );
     let listing = match external::list(st.resolver.ytdlp(), &link).await {
         Ok(l) => l,
         Err(e) => {
             external_status(&st, None);
             return Err(AppError::new(
                 ErrorKind::Network,
-                trf!("Couldn't read the {site} link: {e}", "Не вдалося прочитати посилання {site}: {e}", "Не удалось прочитать ссылку {site}: {e}"),
+                trf!(
+                    "Couldn't read the {site} link: {e}",
+                    "Не вдалося прочитати посилання {site}: {e}",
+                    "Не удалось прочитать ссылку {site}: {e}"
+                ),
             ));
         }
     };
@@ -331,14 +435,32 @@ async fn import_external(st: Arc<Session>, link: ExternalLink) -> CmdResult<Impo
             db: &st.db,
             covers: &st.covers,
         };
-        let label = trf!("Downloading from {site}", "Завантажую з {site}", "Скачиваю с {site}");
+        let label = trf!(
+            "Downloading from {site}",
+            "Завантажую з {site}",
+            "Скачиваю с {site}"
+        );
         let report = external::import(&target, &listing, |done, total| {
             external_status(&st, status(label.clone(), done, total));
         })
         .await;
         external_status(&st, None);
-        tracing::info!(site, added = report.added, present = report.present, failed = report.failed.len(), "external import done");
-        emit_changed(&st.app, &[ViewKind::Tracks, ViewKind::Albums, ViewKind::Artists, ViewKind::Playlists]);
+        tracing::info!(
+            site,
+            added = report.added,
+            present = report.present,
+            failed = report.failed.len(),
+            "external import done"
+        );
+        emit_changed(
+            &st.app,
+            &[
+                ViewKind::Tracks,
+                ViewKind::Albums,
+                ViewKind::Artists,
+                ViewKind::Playlists,
+            ],
+        );
         let title = &listing.title;
         let total = listing.entries.len();
         match report.failed.first() {
@@ -346,12 +468,20 @@ async fn import_external(st: Arc<Session>, link: ExternalLink) -> CmdResult<Impo
                 let n = crate::events::tracks_word(total);
                 crate::events::toast_info(
                     &st.app,
-                    trf!("“{title}” is in the library: {n}", "«{title}» у бібліотеці: {n}", "«{title}» в библиотеке: {n}"),
+                    trf!(
+                        "“{title}” is in the library: {n}",
+                        "«{title}» у бібліотеці: {n}",
+                        "«{title}» в библиотеке: {n}"
+                    ),
                 );
             }
             Some((_, reason)) if report.failed.len() >= total => crate::events::toast_error(
                 &st.app,
-                trf!("Couldn't add “{title}”: {reason}", "Не вдалося додати «{title}»: {reason}", "Не удалось добавить «{title}»: {reason}"),
+                trf!(
+                    "Couldn't add “{title}”: {reason}",
+                    "Не вдалося додати «{title}»: {reason}",
+                    "Не удалось добавить «{title}»: {reason}"
+                ),
             ),
             Some((_, reason)) => {
                 let n = report.failed.len();
@@ -413,5 +543,8 @@ pub async fn downloads_failed(state: State<'_, Arc<Session>>) -> CmdResult<Vec<F
 #[tauri::command]
 pub fn downloads_subscribe(state: State<'_, Arc<Session>>, channel: Channel<DownloadsProgress>) {
     let _ = channel.send(state.downloads.snapshot());
-    *state.downloads_channel.lock().unwrap_or_else(|e| e.into_inner()) = Some(channel);
+    *state
+        .downloads_channel
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(channel);
 }
