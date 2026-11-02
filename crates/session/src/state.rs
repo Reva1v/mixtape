@@ -45,6 +45,7 @@ pub struct Session {
     pub started: Instant,
     pub yt: Arc<InnerTube>,
     pub resolver: Arc<StreamResolver>,
+    pub account: crate::account::AccountHealth,
     pub downloads: Downloader,
     /// Where `DownloadsProgress` updates go; set by `downloads_subscribe`.
     pub downloads_channel: Mutex<Option<Channel<DownloadsProgress>>>,
@@ -98,6 +99,12 @@ impl Session {
             host.sidecar("deno"),
             tmp,
         ));
+        let client = yt.clone();
+        resolver.set_cookie_return(move |text| {
+            if let Ok(saved) = mixtape_yt::auth::Cookies::parse(text) {
+                client.merge_rotating(&saved);
+            }
+        });
         let downloads = Downloader::start(
             tauri::async_runtime::handle().inner(),
             db.clone(),
@@ -120,6 +127,7 @@ impl Session {
             started,
             yt,
             resolver,
+            account: Default::default(),
             downloads,
             downloads_channel: Mutex::new(None),
             syncing: AtomicBool::new(false),

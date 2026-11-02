@@ -30,7 +30,7 @@ fn spawn_likes_check(st: Arc<Session>) {
     tauri::async_runtime::spawn(async move {
         let state = mixtape_sync::likes::CheckState::default();
         loop {
-            if st.yt.is_authenticated()
+            if crate::account::usable(&st)
                 && st.online.load(Ordering::SeqCst)
                 && !st.syncing.load(Ordering::SeqCst)
             {
@@ -59,13 +59,27 @@ async fn check_likes(st: &Arc<Session>, state: &mixtape_sync::likes::CheckState)
             );
         }
         Ok(_) => {}
-        Err(mixtape_yt::YtError::Auth) => crate::host::emit(&st.app, "account:expired", ()),
+        Err(mixtape_yt::YtError::Auth) => crate::account::auth_failed(&st.app, false),
         Err(e) => tracing::debug!(error = %e, "likes check failed"),
     }
 }
 
+/// The session is refreshed as often as an open YouTube tab does it, and sooner after a failure.
+const KEEP_ALIVE: Duration = Duration::from_secs(10 * 60);
+const KEEP_ALIVE_RETRY: Duration = Duration::from_secs(60);
+
+fn spawn_keep_alive(st: Arc<Session>) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            let done = st.online.load(Ordering::SeqCst) && crate::account::keep_alive(&st).await;
+            tokio::time::sleep(if done { KEEP_ALIVE } else { KEEP_ALIVE_RETRY }).await;
+        }
+    });
+}
+
 pub fn spawn(st: Arc<Session>) {
     commands::mix::flush_likes(&st);
+    spawn_keep_alive(st.clone());
     spawn_likes_check(st.clone());
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(START_DELAY).await;

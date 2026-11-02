@@ -38,7 +38,7 @@ fn need_account(st: &Session) -> CmdResult<()> {
 
 pub(super) fn yt_error(st: &Session, e: YtError) -> AppError {
     if matches!(e, YtError::Auth) {
-        crate::host::emit(&st.app, "account:expired", ());
+        crate::account::auth_failed(&st.app, false);
     }
     e.into()
 }
@@ -225,7 +225,7 @@ static RETRY_ARMED: AtomicBool = AtomicBool::new(false);
 /// single retry timer backs off by their attempts (1 min doubling to 6 h). Nothing runs
 /// while the outbox is empty.
 pub fn flush_likes(st: &Arc<Session>) {
-    if !st.yt.is_authenticated() || FLUSHING.swap(true, Ordering::SeqCst) {
+    if !crate::account::usable(st) || FLUSHING.swap(true, Ordering::SeqCst) {
         return;
     }
     let st = st.clone();
@@ -243,7 +243,7 @@ pub fn flush_likes(st: &Arc<Session>) {
         }
         FLUSHING.store(false, Ordering::SeqCst);
         if report.auth_expired {
-            crate::host::emit(&st.app, "account:expired", ());
+            crate::account::auth_failed(&st.app, false);
         } else {
             arm_like_retry(&st);
         }

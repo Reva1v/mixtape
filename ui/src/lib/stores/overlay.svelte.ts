@@ -49,19 +49,42 @@ export const menu = new MenuState();
 export type ToastAction = { label: string; run: () => void };
 export type Toast = { id: number; text: string; level: "info" | "error"; action?: ToastAction };
 
+/** More than this on screen at once and the oldest goes. */
+const MAX_TOASTS = 3;
+
 class Toasts {
   list = $state<Toast[]>([]);
   #next = 1;
+  #timers = new Map<number, ReturnType<typeof setTimeout>>();
 
-  /** `action` adds a button to the toast (e.g. «Подключить»); clicking it dismisses the toast. */
+  /**
+   * `action` adds a button to the toast (e.g. «Подключить»); clicking it dismisses the toast.
+   * The same message again only keeps the one on screen up longer.
+   */
   push(text: string, level: Toast["level"] = "info", ms = 3500, action?: ToastAction) {
+    const same = this.list.find((t) => t.text === text && t.level === level);
+    if (same) {
+      this.#arm(same.id, ms);
+      return;
+    }
     const id = this.#next++;
     this.list.push({ id, text, level, action });
-    setTimeout(() => this.dismiss(id), ms);
+    this.#arm(id, ms);
+    if (this.list.length > MAX_TOASTS) this.dismiss(this.list[0].id);
   }
 
   dismiss(id: number) {
+    clearTimeout(this.#timers.get(id));
+    this.#timers.delete(id);
     this.list = this.list.filter((t) => t.id !== id);
+  }
+
+  #arm(id: number, ms: number) {
+    clearTimeout(this.#timers.get(id));
+    this.#timers.set(
+      id,
+      setTimeout(() => this.dismiss(id), ms),
+    );
   }
 }
 

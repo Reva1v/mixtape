@@ -55,7 +55,7 @@ fn need_account(st: &Session) -> CmdResult<()> {
 /// Maps an auth failure to the `account:expired` event as well as the error.
 fn yt_error(st: &Session, e: mixtape_yt::YtError) -> AppError {
     if matches!(e, mixtape_yt::YtError::Auth) {
-        crate::host::emit(&st.app, "account:expired", ());
+        crate::account::auth_failed(&st.app, false);
     }
     e.into()
 }

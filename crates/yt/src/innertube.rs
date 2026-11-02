@@ -5,8 +5,16 @@ use crate::auth::{Cookies, ORIGIN};
 use crate::parse::find_all;
 use crate::{Result, YtError};
 use serde_json::{Value, json};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+const API_HOST: &str = "music.youtube.com";
+const ROTATE_HOST: &str = "accounts.youtube.com";
+const ROTATE_ORIGIN: &str = "https://accounts.youtube.com";
+const ROTATE_URL: &str = "https://accounts.youtube.com/RotateCookies";
+/// The request body the web client sends; its values are placeholders.
+const ROTATE_BODY: &str = r#"[000,"-0000000000000000000"]"#;
 
 const CLIENT_NAME: &str = "WEB_REMIX";
 const CLIENT_VERSION: &str = "1.20261013.01.00";
@@ -35,6 +43,10 @@ pub struct InnerTube {
     hl: RwLock<String>,
     gl: String,
     on_reach: OnceLock<ReachHook>,
+    /// Counts the jars given to [`Self::set_cookies`]: an answer to an older one is dropped.
+    generation: AtomicU64,
+    /// YouTube changed the jar since the last [`Self::take_changed`].
+    changed: AtomicBool,
 }
 
 impl InnerTube {
@@ -51,6 +63,8 @@ impl InnerTube {
             hl: RwLock::new(hl.to_owned()),
             gl: gl.to_owned(),
             on_reach: OnceLock::new(),
+            generation: AtomicU64::new(0),
+            changed: AtomicBool::new(false),
         })
     }
 
@@ -76,7 +90,10 @@ impl InnerTube {
     }
 
     pub fn set_cookies(&self, cookies: Option<Cookies>) {
-        *self.cookies.write().unwrap_or_else(|e| e.into_inner()) = cookies.map(Arc::new);
+        let mut slot = self.cookies.write().unwrap_or_else(|e| e.into_inner());
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        self.changed.store(false, Ordering::SeqCst);
+        *slot = cookies.map(Arc::new);
     }
 
     pub fn cookies(&self) -> Option<Arc<Cookies>> {
@@ -84,6 +101,88 @@ impl InnerTube {
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
+    }
+
+    /// Changes whenever [`Self::set_cookies`] replaces the jar.
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::SeqCst)
+    }
+
+    /// True once after YouTube changed the jar: time to store it.
+    pub fn take_changed(&self) -> bool {
+        self.changed.swap(false, Ordering::SeqCst)
+    }
+
+    /// Takes the rotating cookies from a saved copy of this jar (see [`Cookies::merge_rotating`]).
+    pub fn merge_rotating(&self, from: &Cookies) {
+        self.update_jar(|jar| jar.merge_rotating(from));
+    }
+
+    /// Asks Google to refresh the session's short-lived cookies, as an open YouTube tab does
+    /// every 10 minutes. Without this a stored session stops being signed in.
+    pub async fn rotate(&self) -> Result<()> {
+        let generation = self.generation();
+        let Some(cookies) = self.cookies() else {
+            return Ok(());
+        };
+        let resp = self
+            .http
+            .post(ROTATE_URL)
+            .header("Origin", ROTATE_ORIGIN)
+            .header("Content-Type", "application/json")
+            .header("Cookie", cookies.header())
+            .body(ROTATE_BODY)
+            .send()
+            .await?;
+        let status = resp.status();
+        match status.as_u16() {
+            200..=299 => {}
+            401 | 403 => return Err(YtError::Auth),
+            429 => return Err(YtError::RateLimited),
+            _ => return Err(YtError::Network(format!("RotateCookies: {status}"))),
+        }
+        self.absorb(generation, &set_cookie_headers(&resp), ROTATE_HOST);
+        Ok(())
+    }
+
+    /// Stores what an answer set, unless the jar was replaced after the request went out.
+    fn absorb(&self, generation: u64, headers: &[String], default_domain: &str) {
+        if headers.is_empty() {
+            return;
+        }
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let values = headers.iter().map(String::as_str);
+        self.update_jar_if(generation, |jar| {
+            jar.merge_set_cookies(values, default_domain, now)
+        });
+    }
+
+    /// As [`Self::absorb`] for an InnerTube answer: one served to a guest carries a session
+    /// being cleared, and is not taken.
+    fn absorb_answer(&self, generation: u64, headers: &[String], answer: &Value) {
+        if logged_in(answer) != Some(false) {
+            self.absorb(generation, headers, API_HOST);
+        }
+    }
+
+    fn update_jar(&self, change: impl FnOnce(&mut Cookies) -> bool) {
+        self.update_jar_if(self.generation(), change);
+    }
+
+    fn update_jar_if(&self, generation: u64, change: impl FnOnce(&mut Cookies) -> bool) {
+        let mut slot = self.cookies.write().unwrap_or_else(|e| e.into_inner());
+        if self.generation.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        let Some(current) = slot.as_ref() else { return };
+        let mut next = (**current).clone();
+        if change(&mut next) {
+            *slot = Some(Arc::new(next));
+            self.changed.store(true, Ordering::SeqCst);
+        }
     }
 
     pub fn is_authenticated(&self) -> bool {
@@ -97,6 +196,7 @@ impl InnerTube {
             "client": { "clientName": CLIENT_NAME, "clientVersion": CLIENT_VERSION, "hl": hl, "gl": self.gl },
             "user": {}
         });
+        let generation = self.generation();
         let mut req = self
             .http
             .post(format!("{ORIGIN}/youtubei/v1/{endpoint}?prettyPrint=false"))
@@ -151,13 +251,17 @@ impl InnerTube {
                 return Err(YtError::Network(format!("{endpoint}: {msg}")));
             }
         }
+        let set_cookies = set_cookie_headers(&resp);
         let body = read_limited(resp, MAX_JSON_BYTES)
             .await
             .map_err(|e| match e {
                 BodyError::Http(e) => YtError::from(e),
                 e @ BodyError::TooLarge(_) => YtError::Parse(format!("{endpoint}: {e}")),
             })?;
-        serde_json::from_slice(&body).map_err(|e| YtError::Parse(format!("{endpoint}: {e}")))
+        let answer: Value = serde_json::from_slice(&body)
+            .map_err(|e| YtError::Parse(format!("{endpoint}: {e}")))?;
+        self.absorb_answer(generation, &set_cookies, &answer);
+        Ok(answer)
     }
 
     pub async fn browse(&self, browse_id: &str) -> Result<Value> {
@@ -217,6 +321,14 @@ pub async fn read_limited(
     Ok(body)
 }
 
+fn set_cookie_headers(resp: &reqwest::Response) -> Vec<String> {
+    resp.headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok().map(str::to_owned))
+        .collect()
+}
+
 /// `responseContext.serviceTrackingParams[*].params[logged_in]`.
 pub fn logged_in(resp: &Value) -> Option<bool> {
     find_all(resp, "serviceTrackingParams")
@@ -234,6 +346,63 @@ pub fn logged_in(resp: &Value) -> Option<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const JAR: &str = ".youtube.com\tTRUE\t/\tFALSE\t0\tSAPISID\tkey\n\
+        .youtube.com\tTRUE\t/\tTRUE\t0\tSIDCC\told\n";
+
+    fn client() -> InnerTube {
+        let yt = InnerTube::new("ru", "RU").unwrap();
+        yt.set_cookies(Some(Cookies::parse(JAR).unwrap()));
+        yt
+    }
+
+    fn page(flag: &str) -> Value {
+        json!({"responseContext": {"serviceTrackingParams": [
+            {"service": "GFEEDBACK", "params": [{"key": "logged_in", "value": flag}]}]}})
+    }
+
+    fn sidcc(yt: &InnerTube) -> bool {
+        yt.cookies().unwrap().header().contains("SIDCC=new")
+    }
+
+    const ROTATED: &str = "SIDCC=new; Domain=.youtube.com";
+
+    #[test]
+    fn a_signed_in_answer_updates_the_jar_once() {
+        let yt = client();
+        assert!(!yt.take_changed(), "a jar we were given is not a change");
+        yt.absorb_answer(yt.generation(), &[ROTATED.to_owned()], &page("1"));
+        assert!(sidcc(&yt));
+        assert!(yt.take_changed());
+        assert!(!yt.take_changed());
+    }
+
+    #[test]
+    fn a_guest_answer_does_not_touch_the_jar() {
+        let yt = client();
+        yt.absorb_answer(yt.generation(), &[ROTATED.to_owned()], &page("0"));
+        assert!(!sidcc(&yt));
+        assert!(!yt.take_changed());
+    }
+
+    #[test]
+    fn an_answer_to_a_replaced_jar_is_dropped() {
+        let yt = client();
+        let sent_with = yt.generation();
+        yt.set_cookies(Some(Cookies::parse(JAR).unwrap()));
+        yt.absorb_answer(sent_with, &[ROTATED.to_owned()], &page("1"));
+        assert!(!sidcc(&yt));
+        assert!(!yt.take_changed());
+    }
+
+    #[test]
+    fn an_answer_after_sign_out_brings_nothing_back() {
+        let yt = client();
+        let sent_with = yt.generation();
+        yt.set_cookies(None);
+        yt.absorb_answer(sent_with, &[ROTATED.to_owned()], &page("1"));
+        assert!(yt.cookies().is_none());
+    }
 
     #[test]
     fn reads_logged_in_flag() {

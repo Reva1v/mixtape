@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use mixtape_core::{TrackId, tr, trf};
@@ -148,7 +148,11 @@ pub struct StreamResolver {
     /// Ids a yt-dlp process is resolving right now; the answer arrives through the channel.
     inflight: Mutex<HashMap<TrackId, Pending>>,
     seq: AtomicU64,
+    /// Gets the cookie file as yt-dlp left it, so what it refreshed is not lost with the copy.
+    cookie_return: OnceLock<CookieReturn>,
 }
+
+type CookieReturn = Box<dyn Fn(&str) + Send + Sync>;
 
 /// The answer for one id in flight: `None` until its yt-dlp process ends.
 type Pending = watch::Receiver<Option<Result<ResolvedStream>>>;
@@ -179,7 +183,13 @@ impl StreamResolver {
             cache: Mutex::new(HashMap::new()),
             inflight: Mutex::new(HashMap::new()),
             seq: AtomicU64::new(0),
+            cookie_return: OnceLock::new(),
         }
+    }
+
+    /// Called after each yt-dlp run with its cookie file; set once.
+    pub fn set_cookie_return(&self, hook: impl Fn(&str) + Send + Sync + 'static) {
+        let _ = self.cookie_return.set(Box::new(hook));
     }
 
     /// Overrides the per-process limit (tests).
@@ -348,6 +358,11 @@ impl StreamResolver {
         let out = self
             .run_ytdlp(ids, cookies.as_ref().map(CookieCopy::path))
             .await;
+        if let (Some(copy), Some(hook)) = (&cookies, self.cookie_return.get())
+            && let Ok(text) = tokio::fs::read_to_string(copy.path()).await
+        {
+            hook(&text);
+        }
         drop(cookies);
         let results = attribute(ids, &out, now_unix());
         let ok = results.iter().filter(|(_, r)| r.is_ok()).count();

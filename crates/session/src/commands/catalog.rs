@@ -118,7 +118,7 @@ pub(crate) fn need_catalog(st: &Session) -> CmdResult<()> {
 
 pub(crate) fn yt_error(st: &Session, e: YtError) -> AppError {
     if matches!(e, YtError::Auth) {
-        crate::host::emit(&st.app, "account:expired", ());
+        crate::account::auth_failed(&st.app, false);
     }
     e.into()
 }

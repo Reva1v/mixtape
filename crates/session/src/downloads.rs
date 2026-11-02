@@ -80,7 +80,7 @@ impl Hooks for AppHooks {
     }
 
     fn auth_expired(&self) {
-        crate::host::emit(&self.app, "account:expired", ());
+        crate::account::auth_failed(&self.app, true);
     }
 
     fn low_space(&self) {

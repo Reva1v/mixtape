@@ -1,7 +1,8 @@
 //! Sign-in in a Mixtape window (T064): Google's own login page in a private WebView2
 //! window; once music.youtube.com is open with a session, its cookies are taken from
 //! the webview and connected like an imported cookies file. The window is incognito,
-//! so the session is used only by Mixtape and Google does not rotate it under us.
+//! so the session is used only by Mixtape, which from then on refreshes it itself
+//! (`account::keep_alive`).
 
 use crate::account::{self, AccountStatus};
 use crate::state::Session;
@@ -106,8 +107,10 @@ pub async fn sign_in(st: &Session) -> Result<AccountStatus, AppError> {
         {
             continue;
         }
-        let result = account::connect(st, &netscape(&cookies)).await;
+        // The page rotates the session while it stays open: closed first, so the jar just read
+        // stays the current one.
         let _ = window.close();
+        let result = account::connect(st, &netscape(&cookies)).await;
         if result.is_ok() {
             // The page that asked may have reloaded meanwhile; tell every listener.
             crate::host::emit(&st.app, "account:changed", ());
