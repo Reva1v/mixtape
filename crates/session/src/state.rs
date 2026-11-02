@@ -46,6 +46,7 @@ pub struct Session {
     pub yt: Arc<InnerTube>,
     pub resolver: Arc<StreamResolver>,
     pub account: crate::account::AccountHealth,
+    pub catalog_pages: crate::commands::catalog::CatalogPages,
     pub downloads: Downloader,
     /// Where `DownloadsProgress` updates go; set by `downloads_subscribe`.
     pub downloads_channel: Mutex<Option<Channel<DownloadsProgress>>>,
@@ -128,6 +129,7 @@ impl Session {
             yt,
             resolver,
             account: Default::default(),
+            catalog_pages: Default::default(),
             downloads,
             downloads_channel: Mutex::new(None),
             syncing: AtomicBool::new(false),

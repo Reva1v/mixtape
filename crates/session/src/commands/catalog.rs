@@ -5,7 +5,7 @@ use super::CmdResult;
 use crate::commands::library::emit_changed;
 use crate::state::Session;
 use mixtape_core::{
-    Album, AlbumId, AppError, Artist, ArtistId, ErrorKind, Playlist, PlaylistId, Track, tr, trf,
+    Album, AlbumId, AppError, Artist, ArtistId, ErrorKind, Playlist, PlaylistId, Track, TrackId, tr, trf,
 };
 use mixtape_library::repo;
 use mixtape_library::views::ViewKind;
@@ -14,8 +14,10 @@ use mixtape_yt::YtError;
 use mixtape_yt::api::YtMusic;
 use mixtape_yt::search::{SearchItem, SearchKind, SearchPage};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::future::Future;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tauri::State;
 use ts_rs::TS;
 
@@ -330,13 +332,199 @@ pub async fn fill_artist(st: &Session, id: &ArtistId) -> bool {
         .is_ok()
 }
 
-/// Playlist page fallback: a playlist that is not in the library, straight from the catalog.
-pub async fn catalog_playlist(st: &Session, id: &PlaylistId) -> CmdResult<(Playlist, Vec<Track>)> {
+/// A list on screen is read again after this long.
+const PAGE_FRESH: Duration = Duration::from_secs(30 * 60);
+/// Playlists remembered; the one read longest ago goes first.
+const PAGES_KEPT: usize = 20;
+
+type ReadPage = (Playlist, Vec<TrackId>);
+
+/// The last read of each playlist outside the library. A generated radio answers with other
+/// tracks on every read, so the list on screen and the list a click plays must be one read.
+#[derive(Default)]
+pub struct CatalogPages {
+    pages: Mutex<Vec<(PlaylistId, ReadPage, Instant)>>,
+    /// One read at a time, or a slower older answer could replace the one on screen.
+    reading: tokio::sync::Mutex<()>,
+}
+
+impl CatalogPages {
+    fn kept(&self) -> std::sync::MutexGuard<'_, Vec<(PlaylistId, ReadPage, Instant)>> {
+        self.pages.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn get(&self, id: &PlaylistId, max_age: Duration) -> Option<ReadPage> {
+        let kept = self.kept();
+        let (_, page, at) = kept.iter().find(|(key, ..)| key == id)?;
+        (at.elapsed() < max_age).then(|| page.clone())
+    }
+
+    fn put(&self, id: &PlaylistId, page: ReadPage) {
+        let mut kept = self.kept();
+        kept.retain(|(key, ..)| key != id);
+        kept.push((id.clone(), page, Instant::now()));
+        if kept.len() > PAGES_KEPT {
+            kept.remove(0);
+        }
+    }
+
+    /// The account changed: its radios are not the next one's.
+    pub fn clear(&self) {
+        self.kept().clear();
+    }
+
+    /// The kept page if it is younger than `max_age`, otherwise a new read.
+    async fn get_or_read<E>(
+        &self,
+        id: &PlaylistId,
+        max_age: Duration,
+        read: impl Future<Output = Result<ReadPage, E>>,
+    ) -> Result<ReadPage, E> {
+        if let Some(page) = self.get(id, max_age) {
+            return Ok(page);
+        }
+        let _one = self.reading.lock().await;
+        // Another call may have read it while this one waited.
+        if let Some(page) = self.get(id, max_age) {
+            return Ok(page);
+        }
+        let page = read.await?;
+        self.put(id, page.clone());
+        Ok(page)
+    }
+}
+
+async fn catalog_page(
+    st: &Session,
+    id: &PlaylistId,
+    max_age: Duration,
+) -> CmdResult<(Playlist, Vec<Track>)> {
     need_catalog(st)?;
-    let (playlist, ids) = catalog::playlist_page(&*st.yt, st.yt.http(), &st.db, &st.covers, id)
-        .await
-        .map_err(|e| yt_error(st, e))?;
+    let read = async {
+        catalog::playlist_page(&*st.yt, st.yt.http(), &st.db, &st.covers, id)
+            .await
+            .map_err(|e| yt_error(st, e))
+    };
+    let (playlist, ids) = st.catalog_pages.get_or_read(id, max_age, read).await?;
     Ok((playlist, tracks_of(st, &ids).await?))
+}
+
+/// Playlist page fallback: a playlist that is not in the library, from the catalog.
+pub async fn catalog_playlist(st: &Session, id: &PlaylistId) -> CmdResult<(Playlist, Vec<Track>)> {
+    catalog_page(st, id, PAGE_FRESH).await
+}
+
+/// The same playlist for playing: the list the user sees and clicks in, however old it is.
+pub async fn catalog_playlist_to_play(
+    st: &Session,
+    id: &PlaylistId,
+) -> CmdResult<(Playlist, Vec<Track>)> {
+    catalog_page(st, id, Duration::MAX).await
+}
+
+#[cfg(test)]
+mod pages_tests {
+    use super::*;
+    use std::sync::atomic::AtomicU32;
+
+    fn id(s: &str) -> PlaylistId {
+        PlaylistId::new(s.to_owned())
+    }
+
+    fn page(n: u32) -> ReadPage {
+        let playlist = Playlist {
+            id: id("VLRDATradio"),
+            title: format!("read {n}"),
+            origin: mixtape_core::PlaylistOrigin::Ytm,
+            track_count: 1,
+            cover_key: None,
+        };
+        (
+            playlist,
+            vec![TrackId::from(format!("track{n:06}").as_str())],
+        )
+    }
+
+    /// Answers like a generated radio: other tracks on every read.
+    async fn radio(reads: &AtomicU32) -> Result<ReadPage, ()> {
+        Ok(page(reads.fetch_add(1, Ordering::SeqCst)))
+    }
+
+    #[tokio::test]
+    async fn the_list_clicked_is_the_list_played() {
+        let (pages, reads) = (CatalogPages::default(), AtomicU32::new(0));
+        let list = id("VLRDATradio");
+        let shown = pages
+            .get_or_read(&list, PAGE_FRESH, radio(&reads))
+            .await
+            .unwrap();
+        let played = pages
+            .get_or_read(&list, Duration::MAX, radio(&reads))
+            .await
+            .unwrap();
+        let shown_again = pages
+            .get_or_read(&list, PAGE_FRESH, radio(&reads))
+            .await
+            .unwrap();
+        assert_eq!(shown.1, played.1);
+        assert_eq!(
+            shown.1, shown_again.1,
+            "library:changed must not replace the list on screen"
+        );
+        assert_eq!(reads.load(Ordering::SeqCst), 1, "a click costs no read");
+    }
+
+    #[tokio::test]
+    async fn an_old_list_is_read_again_only_for_the_screen() {
+        let (pages, reads) = (CatalogPages::default(), AtomicU32::new(0));
+        let list = id("VLRDATradio");
+        let first = pages
+            .get_or_read(&list, PAGE_FRESH, radio(&reads))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        let played = pages
+            .get_or_read(&list, Duration::MAX, radio(&reads))
+            .await
+            .unwrap();
+        assert_eq!(first.1, played.1, "a click plays the old list on screen");
+        let reopened = pages
+            .get_or_read(&list, Duration::from_millis(1), radio(&reads))
+            .await
+            .unwrap();
+        assert_ne!(first.1, reopened.1);
+        let played = pages
+            .get_or_read(&list, Duration::MAX, radio(&reads))
+            .await
+            .unwrap();
+        assert_eq!(reopened.1, played.1, "and after a new read, the new one");
+    }
+
+    #[tokio::test]
+    async fn a_failed_read_keeps_nothing() {
+        let pages = CatalogPages::default();
+        let list = id("VLRDATradio");
+        let failed = pages
+            .get_or_read(&list, PAGE_FRESH, async { Err::<ReadPage, ()>(()) })
+            .await;
+        assert!(failed.is_err());
+        assert!(pages.get(&list, Duration::MAX).is_none());
+    }
+
+    #[test]
+    fn keeps_a_limited_number_of_lists() {
+        let pages = CatalogPages::default();
+        for n in 0..=PAGES_KEPT as u32 {
+            pages.put(&id(&format!("VLRD{n}")), page(n));
+        }
+        assert!(
+            pages.get(&id("VLRD0"), Duration::MAX).is_none(),
+            "the oldest goes"
+        );
+        assert!(pages.get(&id("VLRD1"), Duration::MAX).is_some());
+        pages.clear();
+        assert!(pages.get(&id("VLRD1"), Duration::MAX).is_none());
+    }
 }
 
 /// Every song of an artist, owned or streamable. `load` reads all albums of the

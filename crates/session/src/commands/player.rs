@@ -59,7 +59,10 @@ pub async fn play(state: St<'_>, source: PlaySource, start_index: Option<u32>) -
     let source = match source {
         PlaySource::Album { id } => {
             let (n, total) = st.db.read(|c| {
-                Ok((repo::album_track_ids(c, &id)?.len(), repo::album(c, &id)?.and_then(|a| a.track_count)))
+                Ok((
+                    repo::album_track_ids(c, &id)?.len(),
+                    repo::album(c, &id)?.and_then(|a| a.track_count),
+                ))
             })?;
             crate::commands::catalog::fill_album(&st, &id, Some((n, total))).await;
             if !PLAY_REQUESTS.is_latest(req) {
@@ -68,26 +71,35 @@ pub async fn play(state: St<'_>, source: PlaySource, start_index: Option<u32>) -
             PlaySource::Album { id }
         }
         PlaySource::Playlist { id } if st.db.read(|c| repo::playlist(c, &id))?.is_none() => {
-            let (_, tracks) = crate::commands::catalog::catalog_playlist(&st, &id).await?;
+            let (_, tracks) = crate::commands::catalog::catalog_playlist_to_play(&st, &id).await?;
             let ids = tracks.into_iter().map(|t| t.id).collect();
             if !PLAY_REQUESTS.is_latest(req) {
                 return Ok(());
             }
             return blocking(move || {
-                st.player()?.play_tracks(ids, start_index.unwrap_or(0) as usize, QueueContext::Playlist(id));
+                st.player()?.play_tracks(
+                    ids,
+                    start_index.unwrap_or(0) as usize,
+                    QueueContext::Playlist(id),
+                );
                 Ok(())
             })
             .await;
         }
         PlaySource::Artist { id } if st.db.read(|c| repo::artist_track_ids(c, &id))?.is_empty() => {
-            let found = mixtape_sync::catalog::store_artist(&*st.yt, st.yt.http(), &st.db, &st.covers, &id)
-                .await
-                .map_err(AppError::from)?;
+            let found =
+                mixtape_sync::catalog::store_artist(&*st.yt, st.yt.http(), &st.db, &st.covers, &id)
+                    .await
+                    .map_err(AppError::from)?;
             if !PLAY_REQUESTS.is_latest(req) {
                 return Ok(());
             }
             return blocking(move || {
-                st.player()?.play_tracks(found.top, start_index.unwrap_or(0) as usize, QueueContext::Artist(id));
+                st.player()?.play_tracks(
+                    found.top,
+                    start_index.unwrap_or(0) as usize,
+                    QueueContext::Artist(id),
+                );
                 Ok(())
             })
             .await;
@@ -96,21 +108,42 @@ pub async fn play(state: St<'_>, source: PlaySource, start_index: Option<u32>) -
     };
     blocking(move || {
         let (ids, context) = match source {
-            PlaySource::Album { id } => (st.db.read(|c| repo::album_track_ids(c, &id))?, QueueContext::Album(id)),
-            PlaySource::Playlist { id } => {
-                (st.db.read(|c| repo::playlist_track_ids(c, &id))?, QueueContext::Playlist(id))
-            }
-            PlaySource::Artist { id } => (st.db.read(|c| repo::artist_track_ids(c, &id))?, QueueContext::Artist(id)),
+            PlaySource::Album { id } => (
+                st.db.read(|c| repo::album_track_ids(c, &id))?,
+                QueueContext::Album(id),
+            ),
+            PlaySource::Playlist { id } => (
+                st.db.read(|c| repo::playlist_track_ids(c, &id))?,
+                QueueContext::Playlist(id),
+            ),
+            PlaySource::Artist { id } => (
+                st.db.read(|c| repo::artist_track_ids(c, &id))?,
+                QueueContext::Artist(id),
+            ),
             PlaySource::View { view_id, liked } => {
-                let ids = st
-                    .views
-                    .track_ids(view_id)
-                    .ok_or_else(|| AppError::new(ErrorKind::Invalid, tr("The list is out of date, refresh the screen", "Список застарів, оновіть екран", "Список устарел, обновите экран")))?;
-                (ids, if liked { QueueContext::Liked } else { QueueContext::Library })
+                let ids = st.views.track_ids(view_id).ok_or_else(|| {
+                    AppError::new(
+                        ErrorKind::Invalid,
+                        tr(
+                            "The list is out of date, refresh the screen",
+                            "Список застарів, оновіть екран",
+                            "Список устарел, обновите экран",
+                        ),
+                    )
+                })?;
+                (
+                    ids,
+                    if liked {
+                        QueueContext::Liked
+                    } else {
+                        QueueContext::Library
+                    },
+                )
             }
             PlaySource::Tracks { track_ids } => (track_ids, QueueContext::Search),
         };
-        st.player()?.play_tracks(ids, start_index.unwrap_or(0) as usize, context);
+        st.player()?
+            .play_tracks(ids, start_index.unwrap_or(0) as usize, context);
         Ok(())
     })
     .await
@@ -181,7 +214,11 @@ pub enum QueuePosition {
 }
 
 #[tauri::command]
-pub async fn queue_add(state: St<'_>, track_ids: Vec<TrackId>, position: QueuePosition) -> CmdResult<()> {
+pub async fn queue_add(
+    state: St<'_>,
+    track_ids: Vec<TrackId>,
+    position: QueuePosition,
+) -> CmdResult<()> {
     let st = state.inner().clone();
     blocking(move || {
         st.player()?.edit_queue(|q| match position {
@@ -207,7 +244,8 @@ pub async fn queue_remove(state: St<'_>, uid: u64) -> CmdResult<()> {
 pub async fn queue_move(state: St<'_>, uid: u64, to_index: u32) -> CmdResult<()> {
     let st = state.inner().clone();
     blocking(move || {
-        st.player()?.edit_queue(|q| q.move_item(uid, to_index as usize));
+        st.player()?
+            .edit_queue(|q| q.move_item(uid, to_index as usize));
         Ok(())
     })
     .await

@@ -97,6 +97,7 @@ fn apply(st: &Session, cookies: Option<Cookies>) {
         .set_cookies(cookies.as_ref().map(Cookies::to_netscape));
     st.yt.set_cookies(cookies);
     st.account.revive();
+    st.catalog_pages.clear();
 }
 
 /// There is a jar and YouTube has not refused it: worth sending requests with.
