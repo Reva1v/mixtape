@@ -46,6 +46,7 @@ fn set_online(st: &Arc<Session>, online: bool) {
     crate::host::emit(&st.app, "net:status", NetStatus { online });
     if online {
         crate::commands::mix::flush_likes(st);
+        crate::background::nudge_likes();
         crate::lastfm::flush(st);
         crate::commands::mix::top_up(st);
         st.downloads.wake();

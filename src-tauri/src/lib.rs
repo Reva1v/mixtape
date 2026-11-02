@@ -91,6 +91,9 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Focused(true)) && window.label() == window::MAIN {
+                background::nudge_likes();
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == window::MAIN && window::close_to_tray(window.app_handle()) {
                     api.prevent_close();

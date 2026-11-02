@@ -157,6 +157,25 @@ pub fn set_state(conn: &Connection, id: &TrackId, state: TrackState) -> Result<(
     Ok(())
 }
 
+/// Which of `ids` have a row.
+pub fn existing_track_ids(conn: &Connection, ids: &[TrackId]) -> Result<std::collections::HashSet<TrackId>> {
+    let mut stmt = conn.prepare_cached("SELECT 1 FROM tracks WHERE id = ?1")?;
+    let mut out = std::collections::HashSet::new();
+    for id in ids {
+        if stmt.exists([id.as_str()])? {
+            out.insert(id.clone());
+        }
+    }
+    Ok(out)
+}
+
+/// Ids of the tracks held as liked.
+pub fn liked_track_ids(conn: &Connection) -> Result<std::collections::HashSet<TrackId>> {
+    let mut stmt = conn.prepare_cached("SELECT id FROM tracks WHERE liked = 1")?;
+    let ids = stmt.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<std::collections::HashSet<_>>>()?;
+    Ok(ids.into_iter().map(TrackId).collect())
+}
+
 pub fn set_liked(conn: &Connection, id: &TrackId, liked: bool) -> Result<()> {
     conn.execute(
         "UPDATE tracks SET liked = ?2, liked_at = CASE WHEN ?2 THEN ?3 ELSE NULL END WHERE id = ?1",

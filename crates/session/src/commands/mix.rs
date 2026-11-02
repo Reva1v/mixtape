@@ -199,7 +199,7 @@ pub fn flush_likes(st: &Arc<Session>) {
         let mut report = mixtape_sync::likes::flush(&*st.yt, &st.db).await;
         // Likes queued while that flush ran have not been tried yet.
         for _ in 0..3 {
-            if report.auth_expired || st.db.read(likes::oldest_attempts).ok().flatten() != Some(0) {
+            if report.auth_expired || report.interrupted || st.db.read(likes::oldest_attempts).ok().flatten() != Some(0) {
                 break;
             }
             report = mixtape_sync::likes::flush(&*st.yt, &st.db).await;

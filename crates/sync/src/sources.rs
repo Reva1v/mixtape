@@ -383,7 +383,7 @@ fn save(db: &Db, c: Collected, covers: Covers, enqueue: bool) -> mixtape_library
             ytm::set_album_in_library(t, id)?;
         }
         if let Some(liked) = &c.liked {
-            ytm::apply_remote_likes(t, liked)?;
+            ytm::apply_remote_likes(t, &crate::likes::with_recent(liked))?;
             ytm::source_synced(t, "liked", None)?;
         }
         for (what, err) in &c.errors {

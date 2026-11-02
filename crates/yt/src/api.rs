@@ -100,6 +100,20 @@ pub trait YtMusic: Send + Sync {
 }
 
 impl InnerTube {
+    /// Changes whenever the account's liked list does, at the cost of one request: a like
+    /// moves the first page, an unlike anywhere changes the count the header shows.
+    pub async fn liked_fingerprint(&self) -> Result<u64> {
+        use std::hash::{Hash, Hasher};
+        let page = self.browse_signed_in("VLLM").await?;
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        text(page_header(&page).and_then(|h| h.get("secondSubtitle"))).hash(&mut h);
+        let (items, _) = parse::shelf_items(&page);
+        for t in items.iter().filter_map(|i| row_track(i)) {
+            t.id.as_str().hash(&mut h);
+        }
+        Ok(h.finish())
+    }
+
     /// Rows of a song list (playlist, likes) across every continuation page.
     async fn all_rows(&self, first: &Value) -> Result<Vec<YtTrack>> {
         let (items, mut token) = parse::shelf_items(first);
@@ -130,6 +144,20 @@ impl InnerTube {
 
 fn row_track(item: &Value) -> Option<YtTrack> {
     parse::list_item_track(item.get("musicResponsiveListItemRenderer")?)
+}
+
+/// A radio YouTube generates (`RDAT…`, `RDTMAK…`, `RDEM…`), with or without `VL`. It has no
+/// end: every page offers another, mostly of repeats. `RDCLAK…` lists are curated and finite.
+pub fn is_generated_radio(id: &str) -> bool {
+    let id = id.strip_prefix("VL").unwrap_or(id);
+    id.starts_with("RD") && !id.starts_with("RDCLAK")
+}
+
+/// The first page's tracks, each once.
+fn first_page_once(page: &Value) -> Vec<YtTrack> {
+    let (items, _) = parse::shelf_items(page);
+    let mut seen = std::collections::HashSet::new();
+    items.iter().filter_map(|i| row_track(i)).filter(|t| seen.insert(t.id.clone())).collect()
 }
 
 impl YtMusic for InnerTube {
@@ -180,7 +208,7 @@ impl YtMusic for InnerTube {
         let browse_id = if id.as_str().starts_with("VL") { id.0.clone() } else { format!("VL{}", id) };
         let page = self.browse(&browse_id).await?;
         let header = page_header(&page);
-        let tracks = self.all_rows(&page).await?;
+        let tracks = if is_generated_radio(&browse_id) { first_page_once(&page) } else { self.all_rows(&page).await? };
         let second = text(header.and_then(|h| h.get("secondSubtitle")));
         let card = YtPlaylistCard {
             id: PlaylistId::new(browse_id),
@@ -290,4 +318,19 @@ fn page_header(page: &Value) -> Option<&Value> {
     find_first(page, "musicResponsiveHeaderRenderer")
         .or_else(|| find_first(page, "musicDetailHeaderRenderer"))
         .or_else(|| at(page, &["header"]).and_then(|h| h.as_object()?.values().next()))
+}
+
+#[cfg(test)]
+mod radio_tests {
+    use super::*;
+
+    #[test]
+    fn only_generated_radios_are_endless() {
+        for id in ["VLRDATgy", "RDATgy", "VLRDTMAK5uy_x", "RDEMabc"] {
+            assert!(is_generated_radio(id), "{id}");
+        }
+        for id in ["VLRDCLAK5uy_z", "RDCLAK5uy_z", "VLPLabc", "PLabc", "VLLM"] {
+            assert!(!is_generated_radio(id), "{id}");
+        }
+    }
 }

@@ -1,6 +1,7 @@
 //! Housekeeping after start: pending likes go out, missing pictures of library artists
 //! are fetched, and covers nothing refers to any more are deleted. Each runs once, a little
-//! after start, so the window comes up first; none of them repeats on a timer.
+//! after start, so the window comes up first; none of them repeats on a timer. The likes
+//! check alone runs all the time: a like made on the phone shows here within seconds.
 
 use crate::commands;
 use crate::state::Session;
@@ -15,8 +16,47 @@ const START_DELAY: Duration = Duration::from_secs(60);
 /// saving may not be in the database yet.
 const COVER_MIN_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
+/// How often the liked list is checked while the window is on screen and while it is hidden.
+const LIKES_SEEN: Duration = Duration::from_secs(20);
+const LIKES_HIDDEN: Duration = Duration::from_secs(2 * 60);
+static LIKES_NOW: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+/// Checks the likes at once: the window came back, or the network did.
+pub fn nudge_likes() {
+    LIKES_NOW.notify_one();
+}
+
+fn spawn_likes_check(st: Arc<Session>) {
+    tauri::async_runtime::spawn(async move {
+        let state = mixtape_sync::likes::CheckState::default();
+        loop {
+            if st.yt.is_authenticated() && st.online.load(Ordering::SeqCst) && !st.syncing.load(Ordering::SeqCst) {
+                check_likes(&st, &state).await;
+            }
+            let wait = if crate::host::ui_unseen(&st.app) { LIKES_HIDDEN } else { LIKES_SEEN };
+            tokio::select! {
+                _ = tokio::time::sleep(wait) => {}
+                _ = LIKES_NOW.notified() => {}
+            }
+        }
+    });
+}
+
+async fn check_likes(st: &Arc<Session>, state: &mixtape_sync::likes::CheckState) {
+    match mixtape_sync::likes::check(&*st.yt, st.yt.http(), &st.db, &st.covers, state).await {
+        Ok(changes) if !changes.is_empty() => {
+            tracing::info!(changed = changes.len(), "likes followed YouTube Music");
+            commands::library::emit_changed(&st.app, &[ViewKind::Liked, ViewKind::Tracks, ViewKind::Albums]);
+        }
+        Ok(_) => {}
+        Err(mixtape_yt::YtError::Auth) => crate::host::emit(&st.app, "account:expired", ()),
+        Err(e) => tracing::debug!(error = %e, "likes check failed"),
+    }
+}
+
 pub fn spawn(st: Arc<Session>) {
     commands::mix::flush_likes(&st);
+    spawn_likes_check(st.clone());
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(START_DELAY).await;
         if st.yt.is_authenticated() && st.online.load(Ordering::SeqCst) {
