@@ -175,6 +175,11 @@ impl Cookies {
         changed
     }
 
+    /// Both jars hold one sign-in: its key stays while the rotating cookies change.
+    pub fn same_session(&self, other: &Cookies) -> bool {
+        self.sapisid() == other.sapisid()
+    }
+
     /// Takes the session's rotating cookies from a copy of this jar (the one yt-dlp saved);
     /// true if a value changed. A jar of another session is ignored.
     pub fn merge_rotating(&mut self, from: &Cookies) -> bool {
@@ -548,6 +553,16 @@ mod tests {
         assert_eq!(value(&c, "__Secure-1PSIDTS").as_deref(), Some("rotated"));
         assert_eq!(value(&c, "SID").as_deref(), Some("sid"));
         assert_eq!(value(&c, "PREF"), None);
+    }
+
+    #[test]
+    fn a_refreshed_jar_is_the_same_session_and_a_new_sign_in_is_not() {
+        let jar = Cookies::parse(NETSCAPE).unwrap();
+        let mut refreshed = jar.clone();
+        refreshed.merge_set_cookies(["SIDCC=new; Domain=.youtube.com"], "music.youtube.com", NOW);
+        assert!(jar.same_session(&refreshed));
+        let other = Cookies::parse(".youtube.com\tTRUE\t/\tFALSE\t0\tSAPISID\tother\n").unwrap();
+        assert!(!jar.same_session(&other));
     }
 
     #[test]

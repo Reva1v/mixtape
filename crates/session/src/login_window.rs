@@ -21,6 +21,10 @@ fn start_url() -> String {
         mixtape_core::l10n::lang().code()
     )
 }
+/// WebView2's defaults under Tauri, plus device bound sessions off. Google's short-lived
+/// `__Secure-*PSIDRTS` cookies can be refreshed only by the browser that holds the device key,
+/// and a session signed in that way answered as a guest exactly 2 hours later, refreshed or not.
+const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,EnableBoundSessionCredentials,DeviceBoundSessions";
 const POLL: Duration = Duration::from_millis(800);
 const GIVE_UP: Duration = Duration::from_secs(15 * 60);
 
@@ -45,6 +49,10 @@ pub async fn sign_in(st: &Session) -> Result<AccountStatus, AppError> {
                 .center()
                 .focused(true)
                 .incognito(true)
+                // A session Chromium binds to this device stops working once its cookies are
+                // taken out of the browser: see BROWSER_ARGS. Other arguments need another folder.
+                .additional_browser_args(BROWSER_ARGS)
+                .data_directory(st.paths.root.join("webview-login"))
                 // Only Google's sign-in and YouTube; links elsewhere and pop-ups go nowhere.
                 .on_navigation(|url| {
                     let ok = allowed_navigation(url);

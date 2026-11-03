@@ -49,6 +49,8 @@ pub struct AccountHealth {
     dead: AtomicBool,
     /// A confirmation request is on its way.
     checking: AtomicBool,
+    /// This jar was asked about once: until then «connected» only means it is on disk.
+    looked: AtomicBool,
     /// `account.bin` as this process last read or wrote it, to notice another process's write.
     sealed: Mutex<Option<Vec<u8>>>,
 }
@@ -71,6 +73,12 @@ impl AccountHealth {
 
     fn revive(&self) {
         self.dead.store(false, Ordering::SeqCst);
+        self.looked.store(false, Ordering::SeqCst);
+    }
+
+    /// True the first time a jar is shown as connected.
+    fn first_look(&self) -> bool {
+        !self.looked.swap(true, Ordering::SeqCst)
     }
 
     fn sealed(&self) -> std::sync::MutexGuard<'_, Option<Vec<u8>>> {
@@ -129,7 +137,8 @@ fn save(st: &Session, cookies: &Cookies) -> Result<(), AppError> {
 
 /// Stores what YouTube changed in the jar and passes it on to yt-dlp.
 fn persist_changes(st: &Session) {
-    if !st.yt.take_changed() {
+    // A signed out jar is not worth a write: it would only wake the other process.
+    if !st.yt.take_changed() || st.account.is_dead() {
         return;
     }
     let Some(cookies) = st.yt.cookies() else {
@@ -153,6 +162,13 @@ pub fn reload_from_disk(st: &Session) {
             match open(&bytes).and_then(|text| Cookies::parse(&text).map_err(AppError::from)) {
                 Ok(cookies) => {
                     *st.account.sealed() = Some(bytes);
+                    // The same session refreshed by the other process: what is known about it
+                    // holds, and a signed out one stays signed out.
+                    if st.yt.cookies().is_some_and(|c| c.same_session(&cookies)) {
+                        st.resolver.set_cookies(Some(cookies.to_netscape()));
+                        st.yt.set_cookies(Some(cookies));
+                        return;
+                    }
                     apply(st, Some(cookies));
                 }
                 Err(e) => {
@@ -280,6 +296,11 @@ pub fn status(st: &Session) -> AccountStatus {
     if !usable(st) {
         return AccountStatus::default();
     }
+    // A process that is not the session's owner sends nothing by itself, so without this it would
+    // show the profile of a session long signed out.
+    if st.account.first_look() {
+        auth_failed(&st.app, false);
+    }
     let stored: Stored = settings::get(&st.db, KEY)
         .ok()
         .flatten()
@@ -373,6 +394,15 @@ mod tests {
             "no more requests or notices for a dead jar"
         );
         assert!(!h.finish_check(true), "a late confirmation stays silent");
+    }
+
+    #[test]
+    fn a_jar_is_looked_at_once_until_a_new_one() {
+        let h = AccountHealth::default();
+        assert!(h.first_look());
+        assert!(!h.first_look());
+        h.revive();
+        assert!(h.first_look());
     }
 
     #[test]
