@@ -245,6 +245,7 @@ const AND_MORE: Record<Lang, string> = { en: "and more", uk: "та інші", ru
 
 const homePage: HomePage = {
   likedCount: 412,
+  picks: [5, 6, 7, 8, 9, 0, 1, 2].map((i) => track(i, (i * 3) % 10)),
   recent: albums.slice(0, 6),
   added: albums.slice(4, 10),
   top: [0, 1, 2, 3, 4].map((i) => track(i, i + 1)),

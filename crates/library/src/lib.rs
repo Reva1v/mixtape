@@ -12,6 +12,7 @@ pub mod lyrics;
 pub mod normalize;
 pub mod paths;
 pub mod peer_store;
+pub mod picks;
 pub mod playlists;
 pub mod repo;
 pub mod scrobbles;

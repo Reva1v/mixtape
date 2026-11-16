@@ -2,4 +2,8 @@
 import type { Album } from "./Album";
 import type { Track } from "./Track";
 
-export type HomePage = { likedCount: number, recent: Array<Album>, added: Array<Album>, top: Array<Track>, };
+export type HomePage = { likedCount: number, 
+/**
+ * «Быстрый выбор»: songs worth playing now (`mixtape_library::picks`).
+ */
+picks: Array<Track>, recent: Array<Album>, added: Array<Album>, top: Array<Track>, };

@@ -34,19 +34,28 @@ const COVER_PARALLEL: usize = 6;
 #[ts(export)]
 pub struct HomePage {
     pub liked_count: u32,
+    /// «Быстрый выбор»: songs worth playing now (`mixtape_library::picks`).
+    pub picks: Vec<Track>,
     pub recent: Vec<Album>,
     pub added: Vec<Album>,
     pub top: Vec<Track>,
 }
 
-/// The local part: recently played and recently added albums, most played tracks.
+/// Tiles of «Быстрый выбор» next to «Понравившиеся».
+const PICKS: usize = 8;
+
+/// The local part: quick picks, recently played and recently added albums, most played
+/// tracks. `tz_offset_min` is local time minus UTC, for "songs of this hour".
 #[tauri::command]
-pub async fn home_get(state: St<'_>) -> CmdResult<HomePage> {
+pub async fn home_get(state: St<'_>, tz_offset_min: Option<i32>) -> CmdResult<HomePage> {
     let st = state.inner().clone();
+    let offset_ms = i64::from(tz_offset_min.unwrap_or(0).clamp(-16 * 60, 16 * 60)) * 60_000;
     blocking(move || {
         Ok(st.db.read(|c| {
+            let picks = mixtape_library::picks::smart_pick_ids(c, repo::now_ms(), offset_ms, PICKS)?;
             Ok(HomePage {
                 liked_count: repo::liked_count(c)?,
+                picks: repo::tracks_by_ids(c, &picks)?,
                 recent: repo::albums_by_ids(c, &repo::recently_played_album_ids(c, 12)?)?,
                 added: repo::albums_by_ids(c, &repo::recently_added_album_ids(c, 12)?)?,
                 top: repo::tracks_by_ids(c, &repo::most_played_track_ids(c, 10)?)?,

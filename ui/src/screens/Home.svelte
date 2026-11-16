@@ -52,7 +52,7 @@
   const top = new Fixed<Track>(lastPage?.top ?? []);
 
   async function load() {
-    page = lastPage = await invoke<HomePage>("home_get");
+    page = lastPage = await invoke<HomePage>("home_get", { tzOffsetMin: -new Date().getTimezoneOffset() });
     top.items = page.top;
   }
 
@@ -109,8 +109,14 @@
     : hour < 23 ? { key: "evening", icon: IconSunset }
     : { key: "night", icon: IconMoon };
 
-  const tiles = $derived(page ? (page.recent.length ? page.recent : page.added).slice(0, 5) : []);
+  /** «Быстрый выбор»: smart song picks; until there is a history to pick from, albums. */
+  const picks = $derived(page?.picks ?? []);
+  const tiles = $derived(page && !picks.length ? (page.recent.length ? page.recent : page.added).slice(0, 5) : []);
   const empty = $derived(!!page && !page.recent.length && !page.added.length && !page.likedCount);
+
+  function playPick(i: number) {
+    player.play({ kind: "tracks", trackIds: picks.map((x) => x.id) }, i);
+  }
 
   async function importFolder() {
     const path = await prompt.ask(t.libraryScreen.importPrompt);
@@ -312,6 +318,22 @@
           <div class="text-[12.5px] text-ink-3">{t.count.tracks(page.likedCount)}</div>
         </div>
       </button>
+      {#each picks as tr, i (tr.id)}
+        <div
+          role="button"
+          tabindex="0"
+          class="flex h-14 min-w-0 cursor-pointer items-center gap-3.5 overflow-hidden rounded-[5px] bg-white/[0.055] pr-3 text-left transition-colors hover:bg-white/[0.09]"
+          onclick={() => playPick(i)}
+          onkeydown={(e) => (e.key === "Enter" || e.key === " ") && e.target === e.currentTarget && (e.preventDefault(), playPick(i))}
+          oncontextmenu={(e) => (e.preventDefault(), menu.show(trackMenu(tr), e.clientX, e.clientY))}
+        >
+          <Cover coverKey={tr.coverKey} size={56} rounded="sm" class="rounded-none" />
+          <div class="min-w-0">
+            <div class="truncate text-[14px] font-medium">{tr.title}</div>
+            <div class="truncate text-[12.5px] text-ink-3"><ArtistLinks artists={tr.artists} /></div>
+          </div>
+        </div>
+      {/each}
       {#each tiles as a (a.id)}
         <!-- A div, not a button: the artist names inside are buttons of their own. -->
         <div
