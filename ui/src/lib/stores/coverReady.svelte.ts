@@ -9,6 +9,7 @@
 
 import { SvelteMap } from "svelte/reactivity";
 import { listen } from "@tauri-apps/api/event";
+import { bridge, bridgeListen } from "$lib/ipc/embed";
 
 export function createCoverReady(max = 256) {
   const versions = new SvelteMap<string, number>();
@@ -50,5 +51,9 @@ export const coverReady = createCoverReady();
 
 if (typeof window !== "undefined") {
   // No core around (the dev mock, a test): there is nothing to wait for.
-  listen<string[]>("covers:ready", (e) => coverReady.ready(e.payload)).catch(() => {});
+  const ready = (keys: string[]) => coverReady.ready(keys);
+  // Inside the island events come through its bridge, not Tauri's own (see lib/ipc/embed).
+  (bridge ? bridgeListen(bridge, "covers:ready", ready) : listen<string[]>("covers:ready", (e) => ready(e.payload))).catch(
+    () => {},
+  );
 }

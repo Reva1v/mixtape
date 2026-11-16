@@ -31,9 +31,9 @@ export function islandFrame(w: Window = window): boolean {
 export const embedded = typeof window !== "undefined" && islandFrame();
 
 /** Inside the island every call goes through the island's page. WebView2 may inject Tauri's
- * full `__TAURI_INTERNALS__` (with `invoke`) into the frame too, but Tauri delivers channel
- * messages and event callbacks to the top frame only, so the frame must not use it: the shim
- * replaces it whatever is there (the dev mock `?mock` brings its own IPC instead). */
+ * full `__TAURI_INTERNALS__` into the frame (non-configurable), but Tauri delivers channel
+ * messages and event callbacks to the top frame only, so `$lib/ipc` uses [`bridge`]
+ * instead of it. The dev mock (`?mock`) brings its own IPC. */
 export function bridgeFor(isEmbedded: boolean, search: string): boolean {
   return isEmbedded && !new URLSearchParams(search).has("mock");
 }
@@ -47,11 +47,20 @@ export function toIsland(t: "close" | "standalone") {
   if (embedded) post({ mt: 1, t });
 }
 
-/** The shim itself; exported for the tests (`install(fakeWindow, send)`). */
-export function install(
-  w: Window & typeof globalThis,
-  send: (m: FromFrame) => void,
-): (m: ToFrame) => void {
+/** What the frame's IPC needs from the island: the subset of Tauri's internals that
+ * `invoke`, channels and events use. */
+export type Bridge = {
+  transformCallback(cb?: (raw: unknown) => void, once?: boolean): number;
+  unregisterCallback(id: number): void;
+  invoke(cmd: string, args?: unknown): Promise<unknown>;
+};
+
+/** The bridge to the island's page: calls go out by `send`, answers come back through the
+ * returned `receive`. Exported for the tests. */
+export function createBridge(send: (m: FromFrame) => void): {
+  internals: Bridge & Record<string, unknown>;
+  receive: (m: ToFrame) => void;
+} {
   let next = 1;
   const callbacks = new Map<number, (raw: unknown) => void>();
   const pending = new Map<
@@ -89,18 +98,7 @@ export function install(
       currentWebview: { windowLabel: "island", label: "island" },
     },
   };
-  // Not writable: inside the island Tauri's own init script runs in the frame too and assigns
-  // its `__TAURI_INTERNALS__`, which would bypass the bridge (channels and events never
-  // arrive). A plain assignment fails quietly; the shim stays.
-  Object.defineProperty(w, "__TAURI_INTERNALS__", { value: internals, configurable: true });
-  // `listen`'s unlisten calls this before `plugin:event|unlisten`; the island drops its
-  // listener on that command.
-  Object.defineProperty(w, "__TAURI_EVENT_PLUGIN_INTERNALS__", {
-    value: { unregisterListener() {} },
-    configurable: true,
-  });
-
-  return (m: ToFrame) => {
+  const receive = (m: ToFrame) => {
     if (m.t === "result") {
       const p = pending.get(m.id);
       if (!p) return;
@@ -111,10 +109,52 @@ export function install(
       callbacks.get(m.id)?.(m.raw);
     }
   };
+  return { internals, receive };
 }
+
+/** Also puts the bridge in place of `window.__TAURI_INTERNALS__`, for Tauri's own API calls
+ * (window, webview). Only where Tauri left the frame without a usable `invoke`: some
+ * WebView2 builds inject a full, non-configurable object, which cannot and need not be
+ * replaced (the app's own IPC goes through [`bridge`] anyway). Never throws. */
+export function install(w: Window & typeof globalThis, send: (m: FromFrame) => void): (m: ToFrame) => void {
+  const { internals, receive } = createBridge(send);
+  const current = (w as { __TAURI_INTERNALS__?: { invoke?: unknown } }).__TAURI_INTERNALS__;
+  if (typeof current?.invoke !== "function") {
+    try {
+      // Not writable, so a later plain assignment can't swap Tauri's back in.
+      Object.defineProperty(w, "__TAURI_INTERNALS__", { value: internals, configurable: true });
+      // `listen`'s unlisten calls this before `plugin:event|unlisten`.
+      Object.defineProperty(w, "__TAURI_EVENT_PLUGIN_INTERNALS__", {
+        value: { unregisterListener() {} },
+        configurable: true,
+      });
+    } catch (e) {
+      console.warn("island: could not replace Tauri's internals", e);
+    }
+  }
+  bridge = internals;
+  return receive;
+}
+
+/** Tauri's `listen` over the island's bridge (`plugin:event|listen` / `unlisten`, as the
+ * island's embed bridge expects). Exported for the tests. */
+export async function bridgeListen<T>(via: Bridge, event: string, handler: (payload: T) => void): Promise<() => void> {
+  const cb = via.transformCallback((raw) => handler((raw as { payload: T }).payload));
+  const eventId = (await via.invoke("plugin:event|listen", { event, target: { kind: "Any" }, handler: cb })) as number;
+  return () => {
+    via.unregisterCallback(cb);
+    void via.invoke("plugin:event|unlisten", { event, eventId }).catch(() => {});
+  };
+}
+
+/** The island's bridge, when this page runs inside the island: `$lib/ipc` sends invokes,
+ * channels and event listeners through it instead of Tauri's IPC, which in a frame doesn't
+ * deliver channel messages or events. */
+export let bridge: Bridge | null = null;
 
 /** The field that had the keys, for `refocus`. */
 let lastField: HTMLElement | null = null;
+
 /** Fields that take typing (not checkboxes or sliders). */
 const FIELD =
   'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="button"]), textarea, [contenteditable="true"]';
@@ -123,7 +163,13 @@ const isField = (el: EventTarget | null): el is HTMLElement =>
 
 if (embedded) {
   document.documentElement.classList.add("in-island");
-  const receive = bridgeFor(embedded, location.search) ? install(window, post) : () => {};
+  let receive: (m: ToFrame) => void = () => {};
+  try {
+    if (bridgeFor(embedded, location.search)) receive = install(window, post);
+  } catch (e) {
+    // A broken bridge must never blank the page.
+    console.error("island: bridge failed", e);
+  }
   window.addEventListener("message", (e) => {
     if (e.source !== window.parent) return;
     const m = e.data as ToFrame | null;

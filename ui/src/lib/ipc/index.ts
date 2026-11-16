@@ -2,13 +2,76 @@
 // Session commands go to the `mixtape` plugin, the app's own only when the host has them
 // (route.ts).
 
-import { invoke as tauriInvoke, Channel } from "@tauri-apps/api/core";
+import { invoke as tauriCoreInvoke, Channel as TauriChannel } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AppError } from "./bindings/AppError";
 import { APP_COMMANDS, route } from "./route";
+import { bridge, bridgeListen, type Bridge } from "./embed";
 import { coverReady } from "$lib/stores/coverReady.svelte";
 
-export { Channel };
+/** Tauri's invoke, or the island's bridge inside the island. */
+function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  return bridge ? (bridge.invoke(cmd, args) as Promise<T>) : tauriCoreInvoke<T>(cmd, args);
+}
+
+/** Tauri's `Channel` over the island's bridge: same wire form (`__CHANNEL__:<id>`), same
+ * in-order delivery of `{ index, message }` and `{ index, end }`. Exported for the tests. */
+export class BridgeChannel<T> {
+  readonly id: number;
+  onmessage: (message: T) => void;
+  #next = 0;
+  #pending = new Map<number, T>();
+  #end: number | undefined;
+
+  constructor(readonly via: Bridge, onmessage?: (message: T) => void) {
+    this.onmessage = onmessage ?? (() => {});
+    this.id = via.transformCallback((raw) => this.#take(raw as { index: number; message?: T; end?: true }));
+  }
+
+  #take(raw: { index: number; message?: T; end?: true }) {
+    if (raw.end) {
+      if (raw.index === this.#next) this.cleanupCallback();
+      else this.#end = raw.index;
+      return;
+    }
+    if (raw.index !== this.#next) {
+      this.#pending.set(raw.index, raw.message as T);
+      return;
+    }
+    this.#deliver(raw.message as T);
+    while (this.#pending.has(this.#next)) {
+      const m = this.#pending.get(this.#next) as T;
+      this.#pending.delete(this.#next);
+      this.#deliver(m);
+    }
+    if (this.#next === this.#end) this.cleanupCallback();
+  }
+
+  #deliver(m: T) {
+    this.#next++;
+    try {
+      this.onmessage(m);
+    } catch (e) {
+      queueMicrotask(() => {
+        throw e;
+      });
+    }
+  }
+
+  cleanupCallback() {
+    this.via.unregisterCallback(this.id);
+  }
+
+  toJSON() {
+    return `__CHANNEL__:${this.id}`;
+  }
+}
+
+/** `new Channel<T>()` as with Tauri's; inside the island it rides the bridge. */
+export const Channel = function <T>(this: unknown, onmessage?: (message: T) => void) {
+  return bridge ? new BridgeChannel<T>(bridge, onmessage) : new TauriChannel<T>(onmessage);
+} as unknown as typeof TauriChannel;
+export type Channel<T> = TauriChannel<T>;
 
 export class IpcError extends Error {
   constructor(readonly kind: AppError["kind"], message: string) {
@@ -45,8 +108,9 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
 }
 
 export function on<T>(event: string, handler: (payload: T) => void): Promise<UnlistenFn> {
-  return listen<T>(event, (e) => handler(e.payload));
+  return bridge ? bridgeListen(bridge, event, handler) : listen<T>(event, (e) => handler(e.payload));
 }
+
 
 let coverSource: ((key: string, size: number) => string) | null = null;
 

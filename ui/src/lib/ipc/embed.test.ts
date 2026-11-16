@@ -91,25 +91,58 @@ describe("the island frame's Tauri stand-in", () => {
     expect(bridgeFor(false, "")).toBe(false);
   });
 
-  it("replaces Tauri's injected internals and routes channel messages through the island", () => {
+  it("leaves a locked Tauri object alone without throwing, and the app's IPC still rides the bridge", async () => {
     const w = {} as Window & typeof globalThis;
     const tauriCalls: string[] = [];
-    // What WebView2 injects into the frame: a full object with its own invoke.
-    Object.defineProperty(w, "__TAURI_INTERNALS__", {
-      value: { invoke: (cmd: string) => (tauriCalls.push(cmd), Promise.resolve()), transformCallback: () => 0 },
-      configurable: true,
-      writable: true,
-    });
+    // What WebView2 injects into the island's frame: full, non-writable, non-configurable.
+    const tauri = { invoke: (cmd: string) => (tauriCalls.push(cmd), Promise.resolve()), transformCallback: () => 0 };
+    Object.defineProperty(w, "__TAURI_INTERNALS__", { value: tauri, configurable: false, writable: false });
     const sent: FromFrame[] = [];
-    const receive = install(w, (m) => sent.push(m));
-    const internals = (w as unknown as { __TAURI_INTERNALS__: Internals }).__TAURI_INTERNALS__;
-    const got: unknown[] = [];
-    const id = internals.transformCallback((raw) => got.push(raw));
-    void internals.invoke("plugin:mixtape|player_subscribe", { channel: { toJSON: () => `__CHANNEL__:${id}` } });
+    let receive!: (m: Parameters<ReturnType<typeof install>>[0]) => void;
+    expect(() => (receive = install(w, (m) => sent.push(m)))).not.toThrow();
+    expect((w as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__).toBe(tauri);
+
+    const ipc = await import("./index");
+    const answer = (value: unknown) => {
+      const last = sent.at(-1) as { t: string; id: number };
+      receive({ mt: 1, t: "result", id: last.id, ok: true, value });
+    };
+
+    // invoke
+    const p = ipc.invoke<number>("library_search", { query: "x" });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(sent.at(-1)).toMatchObject({ t: "invoke", cmd: "plugin:mixtape|library_search", args: { query: "x" } });
+    answer(7);
+    expect(await p).toBe(7);
+
+    // Channel: in order, through `cb` messages.
+    const got: string[] = [];
+    const channel = new ipc.Channel<string>();
+    channel.onmessage = (m) => got.push(m);
+    void ipc.invoke("player_subscribe", { channel });
+    await Promise.resolve();
+    await Promise.resolve();
+    const sub = sent.at(-1) as { args: { channel: string } };
+    const id = Number(sub.args.channel.replace("__CHANNEL__:", ""));
+    receive({ mt: 1, t: "cb", id, raw: { index: 1, message: "second" } });
+    receive({ mt: 1, t: "cb", id, raw: { index: 0, message: "first" } });
+    expect(got).toEqual(["first", "second"]);
+
+    // on(): plugin:event|listen, payloads through `cb`, unlisten tells the island.
+    const events: number[] = [];
+    const un = ipc.on<number>("library:changed", (n) => events.push(n));
+    await Promise.resolve();
+    const listenMsg = sent.at(-1) as { cmd: string; args: { event: string; handler: number } };
+    expect(listenMsg).toMatchObject({ cmd: "plugin:event|listen", args: { event: "library:changed" } });
+    answer(42);
+    const unlisten = await un;
+    receive({ mt: 1, t: "cb", id: listenMsg.args.handler, raw: { event: "library:changed", id: 42, payload: 5 } });
+    expect(events).toEqual([5]);
+    unlisten();
+    expect(sent.at(-1)).toMatchObject({ cmd: "plugin:event|unlisten", args: { event: "library:changed", eventId: 42 } });
+
     expect(tauriCalls).toEqual([]);
-    expect(sent[0]).toMatchObject({ cmd: "plugin:mixtape|player_subscribe" });
-    receive({ mt: 1, t: "cb", id, raw: { index: 0, message: "state" } });
-    expect(got).toEqual([{ index: 0, message: "state" }]);
   });
 
   it("a once callback runs once", () => {
