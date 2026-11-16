@@ -31,6 +31,11 @@
   import QueuePanel from "$lib/ui/QueuePanel.svelte";
   import LyricsPanel from "$lib/ui/LyricsPanel.svelte";
   import CoverBackdrop from "$lib/ui/CoverBackdrop.svelte";
+  import { embedded } from "$lib/ipc/embed";
+
+  /** Inside Droplet Island the backdrop fades out into the island's black at the left, right
+   * and bottom, so the player reads as part of the island, not a box pasted into it. */
+  let { soft = embedded }: { soft?: boolean } = $props();
 
   // Equalizers in the queue here are not hidden by this overlay.
   setContext("fullscreen-player", true);
@@ -97,18 +102,23 @@
 
 <svelte:window bind:innerHeight={height} />
 
-<div class="fixed inset-0 z-40 overflow-hidden bg-[#070709]" transition:fadeSpring data-tauri-drag-region>
-  {#key bg}
-    <div class="pointer-events-none absolute inset-0" transition:fade={{ duration: prefs.value.smoothBackground ? 1400 : 0 }}>
-      <CoverBackdrop src={bg} running={player.playing && visible.live && !queueOpen} />
-    </div>
-  {/key}
-  <!-- Darken heavily and keep only a soft glow behind the content. -->
-  <div class="pointer-events-none absolute inset-0 bg-black/70"></div>
-  <div
-    class="vignette pointer-events-none absolute inset-0"
-    style:--vx={lyrics ? "30%" : "50%"}
-  ></div>
+<div class="fixed inset-0 z-40 overflow-hidden {soft ? 'bg-black' : 'bg-[#070709]'}" data-soft={soft || undefined} transition:fadeSpring data-tauri-drag-region>
+  <!-- The backdrop in one layer, so the island's soft edges fade all of it and none of the
+       content; inside the island it fades into plain black (the island's own colour), which
+       also hides the app under the player. -->
+  <div class="pointer-events-none absolute inset-0 {soft ? 'soft-edges bg-[#070709]' : ''}">
+    {#key bg}
+      <div class="pointer-events-none absolute inset-0" transition:fade={{ duration: prefs.value.smoothBackground ? 1400 : 0 }}>
+        <CoverBackdrop src={bg} running={player.playing && visible.live && !queueOpen} />
+      </div>
+    {/key}
+    <!-- Darken heavily and keep only a soft glow behind the content. -->
+    <div class="pointer-events-none absolute inset-0 bg-black/70"></div>
+    <div
+      class="vignette pointer-events-none absolute inset-0"
+      style:--vx={lyrics ? "30%" : "50%"}
+    ></div>
+  </div>
 
 
   <!-- Solid translucent fills, no backdrop-blur: the player fades in and dims under the
@@ -234,6 +244,21 @@
 </div>
 
 <style>
+  /* Droplet Island: feathered left, right and bottom edges into the island's black; the top
+     stays (it sits under the island's tab bar). Where two fades meet the corner rounds off. */
+  .soft-edges {
+    --side: 48px;
+    --foot: 64px;
+    -webkit-mask-image:
+      linear-gradient(to right, transparent, #000 var(--side), #000 calc(100% - var(--side)), transparent),
+      linear-gradient(to bottom, #000 calc(100% - var(--foot)), transparent);
+    -webkit-mask-composite: source-in;
+    mask-image:
+      linear-gradient(to right, transparent, #000 var(--side), #000 calc(100% - var(--side)), transparent),
+      linear-gradient(to bottom, #000 calc(100% - var(--foot)), transparent);
+    mask-composite: intersect;
+  }
+
   /* Follows the player column; --vx is a registered property, so it animates. */
   .vignette {
     background: radial-gradient(60% 75% at var(--vx) 50%, transparent 0%, rgb(0 0 0 / 0.55) 70%, rgb(0 0 0 / 0.85) 100%);
