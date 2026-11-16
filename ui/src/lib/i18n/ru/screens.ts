@@ -131,6 +131,7 @@ export const screens: typeof en = {
     libraryHint: "Начните вводить название трека, альбома или исполнителя",
     nothing: "Ничего не найдено",
     nothingHint: (q: string) => `По запросу «${q}» в библиотеке ничего нет`,
+    fromCatalog: (q: string) => `В библиотеке нет «${q}», вот что нашлось в YouTube Music`,
     searchCatalog: "Искать в YouTube Music",
   },
   artist: {

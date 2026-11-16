@@ -131,6 +131,7 @@ export const screens = {
     libraryHint: "Start typing the name of a track, album or artist",
     nothing: "No results found",
     nothingHint: (q: string) => `Nothing in your library matches “${q}”`,
+    fromCatalog: (q: string) => `Nothing in your library matches “${q}”, here is YouTube Music`,
     searchCatalog: "Search YouTube Music",
   },
   artist: {

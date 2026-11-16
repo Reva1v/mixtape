@@ -18,6 +18,8 @@
   import { albumMenu, artistMenu, playlistMenu } from "$lib/ui/collectionMenu";
   import EmptyState from "$lib/ui/EmptyState.svelte";
   import { layout } from "$lib/stores/layout.svelte";
+  import { downloads } from "$lib/stores/downloads.svelte";
+  import { net } from "$lib/stores/net.svelte";
   import { t } from "$lib/i18n";
   import IconSearch from "~icons/solar/magnifier-linear";
   import IconNothing from "~icons/solar/magnifier-bug-linear";
@@ -198,6 +200,10 @@
     {/if}
   {:else if !query.trim()}
     {@render recent(libraryHint)}
+  {:else if empty && downloads.account.connected && net.online}
+    <!-- Nothing in the library: YouTube Music answers right here, without switching tabs. -->
+    <p class="px-8 pb-3 text-[13px] text-ink-3">{t.searchScreen.fromCatalog(query.trim())}</p>
+    <CatalogResults {query} onpick={(item) => recentSearch.add(item)} />
   {:else if empty}
     <EmptyState icon={IconNothing} title={t.searchScreen.nothing} hint={t.searchScreen.nothingHint(query)}>
       <button type="button" class="h-9 rounded-full bg-ink px-4 text-[13px] font-semibold text-black" onclick={() => (scope = "catalog")}>
