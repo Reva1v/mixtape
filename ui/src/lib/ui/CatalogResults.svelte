@@ -119,7 +119,8 @@
   const limit = $derived(kind === "all" ? 8 : Infinity);
 </script>
 
-<div class="flex gap-1.5 overflow-x-auto px-8 pb-5 [scrollbar-width:none]" {@attach dragScroll()}>
+<!-- `pt-1`: the row scrolls sideways, which clips vertically too; the pills' rings need the room. -->
+<div class="flex gap-1.5 overflow-x-auto px-8 pt-1 pb-5 [scrollbar-width:none]" {@attach dragScroll()}>
   {#each KINDS as k (k.id)}
     <button
       type="button"

@@ -202,7 +202,7 @@
     {@render recent(libraryHint)}
   {:else if empty && downloads.account.connected && net.online}
     <!-- Nothing in the library: YouTube Music answers right here, without switching tabs. -->
-    <p class="px-8 pb-3 text-[13px] text-ink-3">{t.searchScreen.fromCatalog(query.trim())}</p>
+    <p class="px-8 pb-2 text-[13px] text-ink-3">{t.searchScreen.fromCatalog(query.trim())}</p>
     <CatalogResults {query} onpick={(item) => recentSearch.add(item)} />
   {:else if empty}
     <EmptyState icon={IconNothing} title={t.searchScreen.nothing} hint={t.searchScreen.nothingHint(query)}>
