@@ -47,6 +47,8 @@ pub struct Session {
     pub resolver: Arc<StreamResolver>,
     pub account: crate::account::AccountHealth,
     pub catalog_pages: crate::commands::catalog::CatalogPages,
+    /// Catalog search: the result cache and the gate that cancels a superseded search.
+    pub search: mixtape_sync::search::CatalogSearch,
     pub recognition: crate::commands::recognize::Recognition,
     pub downloads: Downloader,
     /// Where `DownloadsProgress` updates go; set by `downloads_subscribe`.
@@ -131,6 +133,7 @@ impl Session {
             resolver,
             account: Default::default(),
             catalog_pages: Default::default(),
+            search: Default::default(),
             recognition: Default::default(),
             downloads,
             downloads_channel: Mutex::new(None),

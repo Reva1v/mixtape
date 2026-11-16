@@ -1,6 +1,7 @@
 <script lang="ts">
   // Album / artist / playlist card: square cover, title, subtitle, hover play button.
   import { coverUrl } from "$lib/ipc";
+  import { coverReady } from "$lib/stores/coverReady.svelte";
   import PauseGlyph from "./PauseGlyph.svelte";
   import PlayGlyph from "./PlayGlyph.svelte";
   import { player } from "$lib/stores/player.svelte";
@@ -31,7 +32,8 @@
 
   let { coverKey, title, subtitle, artists, meta, round = false, onopen, onplay, oncontextmenu, menu, current = false }: Props = $props();
   const showPause = $derived(current && player.playing);
-  let failed = $state(false);
+  // A cover announced after its load failed is tried again (`coverReady`).
+  let failed = $derived((void coverKey, void coverReady.version(coverKey), false));
   const shape = $derived(round ? "rounded-full" : "rounded-md");
 </script>
 
@@ -66,7 +68,10 @@
             decoding="async"
             draggable="false"
             class="size-full object-cover"
-            onerror={() => (failed = true)}
+            onerror={() => {
+              failed = true;
+              coverReady.failed(coverKey);
+            }}
           />
         {:else}
           <div class="grid size-full place-items-center text-ink-3"><IconMusic class="size-10" /></div>

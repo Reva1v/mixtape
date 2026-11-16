@@ -12,6 +12,7 @@ pub mod lastfm;
 pub mod likes;
 pub mod lyrics;
 pub mod peer;
+pub mod search;
 pub mod sources;
 pub mod spotify;
 pub mod stream;

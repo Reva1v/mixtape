@@ -1,5 +1,6 @@
 <script lang="ts">
   import { coverUrl } from "$lib/ipc";
+  import { coverReady } from "$lib/stores/coverReady.svelte";
   import IconMusic from "~icons/solar/music-note-2-linear";
 
   interface Props {
@@ -27,14 +28,17 @@
 
   // On a load error, step down to the next smaller cut before giving up.
   // Both reset when the picture or the size changes.
-  let thumb = $derived<Thumb>((void coverKey, bucket(size)));
-  let failed = $derived((void coverKey, void size, false));
+  let thumb = $derived<Thumb>((void coverKey, void coverReady.version(coverKey), bucket(size)));
+  let failed = $derived((void coverKey, void size, void coverReady.version(coverKey), false));
   const src = $derived(coverUrl(coverKey, thumb));
 
   function onerror() {
     const i = SIZES.indexOf(thumb);
     if (i > 0) thumb = SIZES[i - 1];
-    else failed = true;
+    else {
+      failed = true;
+      coverReady.failed(coverKey);
+    }
   }
 
   const radius = { sm: "rounded-sm", md: "rounded-md", lg: "rounded-lg", full: "rounded-full" };

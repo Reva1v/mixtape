@@ -64,7 +64,8 @@
     const mine = ++seq;
     loading = true;
     error = null;
-    // Network search: wait for a pause in typing.
+    // Network search: wait for a pause in typing. Short: the answer no longer waits for
+    // the covers, and the core drops a search the next keystroke replaces.
     const timer = setTimeout(async () => {
       try {
         const r = await invoke<CatalogPage>("catalog_search", { query: q, kind: k });
@@ -76,7 +77,7 @@
       } finally {
         if (mine === seq) loading = false;
       }
-    }, 350);
+    }, 250);
     return () => clearTimeout(timer);
   });
 
