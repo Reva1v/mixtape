@@ -132,14 +132,14 @@
 
 <!-- Every block is its own rounded panel on a black window, separated by --gap. -->
 <!-- Kept (hidden) under the mini player, so pages and scroll positions survive it. -->
-<!-- Inside the island: more room at the bottom and rounder bottom corners, to sit in the island's
-     own 32 px corners. -->
+<!-- Inside the island: more room at the bottom and rounder bottom corners on the sidebar and the
+     player bar (the bottom row), to sit in the island's own 32 px corners. -->
 <div class="flex h-screen gap-(--gap) p-(--gap) {embedded ? 'pb-[14px]' : ''}" style:display={layout.mini ? "none" : undefined} data-tauri-drag-region>
   <Sidebar />
 
   <div class="flex min-w-0 flex-1 flex-col gap-(--gap)" data-tauri-drag-region>
     <div class="flex min-h-0 flex-1 gap-(--gap)" data-tauri-drag-region>
-      <div class="relative min-w-0 flex-1 overflow-hidden rounded-xl bg-panel {embedded ? 'rounded-b-[22px]' : ''}">
+      <div class="relative min-w-0 flex-1 overflow-hidden rounded-xl bg-panel">
         <!-- Artwork glow, fixed behind the scrolling content. -->
         <div
           data-page-glow
@@ -223,7 +223,7 @@
            the panel stays mounted until the closing animation ends. -->
       <div bind:this={drawerCol} class="w-0 shrink-0 overflow-hidden" style:margin-left="calc(-1 * var(--gap))">
         <aside
-          class="ml-(--gap) h-full w-(--drawer-w) overflow-hidden rounded-xl bg-panel pt-10 transition-opacity duration-(--spring-smooth-ms) {embedded ? 'rounded-b-[22px]' : ''}
+          class="ml-(--gap) h-full w-(--drawer-w) overflow-hidden rounded-xl bg-panel pt-10 transition-opacity duration-(--spring-smooth-ms)
             {layout.drawer ? 'opacity-100' : 'opacity-0'}"
         >
           {#if shownDrawer === "queue"}
@@ -233,8 +233,8 @@
       </div>
     </div>
 
-    <!-- Inside Droplet Island the island's own player is the player. -->
-    {#if !embedded}<MiniPlayer />{/if}
+    <!-- Also inside Droplet Island: the bar is the player there too (its compact variant). -->
+    <MiniPlayer />
   </div>
 </div>
 
