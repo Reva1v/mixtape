@@ -3,7 +3,8 @@
 //! The PC only answers. While a pairing exists or a pairing code is on screen it listens on
 //! [`PORT`] on every interface, announces itself over mDNS, and hands each connection to
 //! `mixtape_sync::peer::serve`. The phone dials in to pair, exchange plays or unpair.
-//! Status changes reach the UI as `peer:status` ([`PeerStatus`]).
+//! Status changes reach the UI as `peer:status` ([`PeerStatus`]); `stats:changed` and
+//! `recent:changed` follow an exchange that brought new plays or recent searches.
 
 use super::{CmdResult, blocking};
 use crate::state::Session;
@@ -240,6 +241,10 @@ async fn answer(st: Arc<Session>, stream: tokio::net::TcpStream, from: SocketAdd
             tracing::info!(%from, received = r.received, sent = r.sent, "phone sync exchange");
             if r.received > 0 {
                 crate::host::emit(&st.app, "stats:changed", ());
+            }
+            // The phone's searches changed the list the search screen shows.
+            if r.recent {
+                crate::host::emit(&st.app, "recent:changed", ());
             }
         }
         Ok(Served::Unpaired) => tracing::info!(%from, "phone unpaired"),

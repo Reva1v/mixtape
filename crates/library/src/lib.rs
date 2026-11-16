@@ -14,6 +14,7 @@ pub mod paths;
 pub mod peer_store;
 pub mod picks;
 pub mod playlists;
+pub mod recent;
 pub mod repo;
 pub mod scrobbles;
 pub mod search;

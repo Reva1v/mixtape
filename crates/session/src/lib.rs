@@ -107,6 +107,11 @@ pub fn plugin(host: Arc<dyn Host>) -> TauriPlugin<Wry> {
             commands::peer::peer_pair_cancel,
             commands::peer::peer_unpair,
             commands::peer::peer_firewall_add,
+            commands::recent::recent_searches,
+            commands::recent::recent_add,
+            commands::recent::recent_remove,
+            commands::recent::recent_clear,
+            commands::recent::recent_import,
             // A development helper (imports any folder by path): never in release builds.
             #[cfg(debug_assertions)]
             commands::dev::dev_import_folder,
