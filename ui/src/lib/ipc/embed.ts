@@ -30,10 +30,13 @@ export function islandFrame(w: Window = window): boolean {
 /** Shown inside the island: a compact player bar, the logo opens the app, a way back. */
 export const embedded = typeof window !== "undefined" && islandFrame();
 
-/** The frame has no Tauri IPC of its own: calls go through the island's page. Some builds give
- * frames the real `__TAURI_INTERNALS__` (with `invoke`), others only a bare `{ plugins }`. */
-const bridged =
-  embedded && typeof (window as { __TAURI_INTERNALS__?: { invoke?: unknown } }).__TAURI_INTERNALS__?.invoke !== "function";
+/** Inside the island every call goes through the island's page. WebView2 may inject Tauri's
+ * full `__TAURI_INTERNALS__` (with `invoke`) into the frame too, but Tauri delivers channel
+ * messages and event callbacks to the top frame only, so the frame must not use it: the shim
+ * replaces it whatever is there (the dev mock `?mock` brings its own IPC instead). */
+export function bridgeFor(isEmbedded: boolean, search: string): boolean {
+  return isEmbedded && !new URLSearchParams(search).has("mock");
+}
 
 function post(msg: FromFrame) {
   window.parent.postMessage(msg, "*");
@@ -120,9 +123,7 @@ const isField = (el: EventTarget | null): el is HTMLElement =>
 
 if (embedded) {
   document.documentElement.classList.add("in-island");
-  // The dev mock (`?mock&host=island`) brings its own IPC; the shim would stand in its way.
-  const mocked = new URLSearchParams(location.search).has("mock");
-  const receive = bridged && !mocked ? install(window, post) : () => {};
+  const receive = bridgeFor(embedded, location.search) ? install(window, post) : () => {};
   window.addEventListener("message", (e) => {
     if (e.source !== window.parent) return;
     const m = e.data as ToFrame | null;

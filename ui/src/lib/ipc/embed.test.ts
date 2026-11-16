@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { install, islandFrame, type FromFrame } from "./embed";
+import { bridgeFor, install, islandFrame, type FromFrame } from "./embed";
 
 type Internals = {
   transformCallback: (cb: (raw: unknown) => void, once?: boolean) => number;
@@ -83,6 +83,33 @@ describe("the island frame's Tauri stand-in", () => {
     receive({ mt: 1, t: "cb", id, raw: { index: 1, message: "late" } });
     expect(got).toHaveLength(1);
     expect(sent.at(-1)).toEqual({ mt: 1, t: "drop", id });
+  });
+
+  it("bridges in the island even when Tauri gave the frame its own IPC, but not under the mock", () => {
+    expect(bridgeFor(true, "?host=island")).toBe(true);
+    expect(bridgeFor(true, "?mock&host=island")).toBe(false);
+    expect(bridgeFor(false, "")).toBe(false);
+  });
+
+  it("replaces Tauri's injected internals and routes channel messages through the island", () => {
+    const w = {} as Window & typeof globalThis;
+    const tauriCalls: string[] = [];
+    // What WebView2 injects into the frame: a full object with its own invoke.
+    Object.defineProperty(w, "__TAURI_INTERNALS__", {
+      value: { invoke: (cmd: string) => (tauriCalls.push(cmd), Promise.resolve()), transformCallback: () => 0 },
+      configurable: true,
+      writable: true,
+    });
+    const sent: FromFrame[] = [];
+    const receive = install(w, (m) => sent.push(m));
+    const internals = (w as unknown as { __TAURI_INTERNALS__: Internals }).__TAURI_INTERNALS__;
+    const got: unknown[] = [];
+    const id = internals.transformCallback((raw) => got.push(raw));
+    void internals.invoke("plugin:mixtape|player_subscribe", { channel: { toJSON: () => `__CHANNEL__:${id}` } });
+    expect(tauriCalls).toEqual([]);
+    expect(sent[0]).toMatchObject({ cmd: "plugin:mixtape|player_subscribe" });
+    receive({ mt: 1, t: "cb", id, raw: { index: 0, message: "state" } });
+    expect(got).toEqual([{ index: 0, message: "state" }]);
   });
 
   it("a once callback runs once", () => {
