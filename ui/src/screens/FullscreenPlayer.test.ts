@@ -44,6 +44,23 @@ describe("the full-screen player", () => {
     expect(html(false)).toContain("top-4 left-4 z-10 grid size-9");
   });
 
+  it("starts the queue right at the top inside the island, under the title bar's room otherwise", () => {
+    const sheet = (island: boolean) => {
+      const out = render(FullscreenPlayer, { props: { island, queue: true } }).body;
+      const at = out.indexOf("data-queue-sheet");
+      expect(at).toBeGreaterThan(-1);
+      return out.slice(out.lastIndexOf("<div", at), out.indexOf("transition", out.indexOf("max-w-[720px]", at)));
+    };
+    const inIsland = sheet(true);
+    expect(inIsland).toContain("pt-1");
+    expect(inIsland).not.toContain("pt-[88px]");
+    // Clear of the collapse and close buttons on both sides.
+    expect(inIsland).toContain("px-14");
+    const alone = sheet(false);
+    expect(alone).toContain("pt-[88px]");
+    expect(alone).not.toContain("px-14");
+  });
+
   it("breathes its edges slowly, out of step, and holds them still with reduced motion", () => {
     const src = playerSource;
     const css = src.slice(src.indexOf("<style>"));

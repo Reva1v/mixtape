@@ -37,7 +37,7 @@
   /** Inside Droplet Island: the backdrop fades out into the island's black at the left, right
    * and bottom, so the player reads as part of the island, not a box pasted into it; and a
    * close button at the top right goes back to the island's Home, as on the home screen. */
-  let { island = embedded }: { island?: boolean } = $props();
+  let { island = embedded, queue = false }: { island?: boolean; /** Opens with the queue up. */ queue?: boolean } = $props();
   const soft = $derived(island);
 
   // Equalizers in the queue here are not hidden by this overlay.
@@ -54,7 +54,8 @@
     layout.fullscreen = false;
   }
 
-  let queueOpen = $state(false);
+  // svelte-ignore state_referenced_locally
+  let queueOpen = $state(queue);
   let openedAt = 0;
   $effect(() => {
     if (queueOpen) openedAt = performance.now();
@@ -252,12 +253,15 @@
   {#if queueOpen}
     <div class="absolute inset-0 z-20 bg-black/50" transition:fadeSpring></div>
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+    <!-- Inside the island there is no title bar to clear: the heading lines up with the
+         collapse and close buttons (centre on centre) and keeps 56 px from both sides. -->
     <div
-      class="absolute inset-0 z-30 flex justify-center"
+      class="absolute inset-0 z-30 flex justify-center {island ? 'px-14' : ''}"
+      data-queue-sheet
       onpointerdown={queueDown}
       onpointerup={queueUp}
     >
-      <div class="flex h-full w-full max-w-[720px] flex-col pt-[88px]" transition:sheet>
+      <div class="flex h-full w-full max-w-[720px] flex-col {island ? "pt-1" : "pt-[88px]"}" transition:sheet>
         <div class="min-h-0 flex-1"><QueuePanel variant="cards" /></div>
       </div>
     </div>
