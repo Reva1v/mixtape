@@ -35,9 +35,13 @@ describe("the full-screen player", () => {
     // The collapse button's twin: same capsule, mirrored to the right.
     const tag = inIsland.slice(inIsland.lastIndexOf("<button", inIsland.indexOf("data-island-close")), inIsland.indexOf(">", inIsland.indexOf("data-island-close")));
     expect(tag).toContain("top-4 right-4");
-    expect(tag).toContain("size-9");
+    // 32 px: whole device pixels at the island's 0.875 scale, like the collapse button there.
+    expect(tag).toContain("size-8");
+    expect(inIsland.match(/top-4 left-4 z-10 grid size-8/)).not.toBeNull();
     expect(tag).toContain("rounded-full bg-white/10");
     expect(html(false)).not.toContain("data-island-close");
+    // As a window of its own the collapse button keeps its size.
+    expect(html(false)).toContain("top-4 left-4 z-10 grid size-9");
   });
 
   it("breathes its edges slowly, out of step, and holds them still with reduced motion", () => {

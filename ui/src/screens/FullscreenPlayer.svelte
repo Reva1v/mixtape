@@ -32,7 +32,7 @@
   import LyricsPanel from "$lib/ui/LyricsPanel.svelte";
   import CoverBackdrop from "$lib/ui/CoverBackdrop.svelte";
   import { embedded, toIsland } from "$lib/ipc/embed";
-  import IconLeave from "~icons/solar/close-circle-linear";
+  import IconLeave from "~icons/solar/close-linear";
 
   /** Inside Droplet Island: the backdrop fades out into the island's black at the left, right
    * and bottom, so the player reads as part of the island, not a box pasted into it; and a
@@ -131,25 +131,28 @@
     aria-label={t.fullscreen.collapse}
     data-tip={t.fullscreen.collapseTip}
     data-tip-pos="right"
-    class="absolute top-4 left-4 z-10 grid size-9 place-items-center rounded-full bg-white/10 text-ink-2
+    class="absolute top-4 left-4 z-10 grid {island ? 'size-8' : 'size-9'} place-items-center rounded-full bg-white/10 text-ink-2
       transition-colors hover:bg-white/16 hover:text-ink"
     onclick={close}
   >
-    <IconCollapse class="size-[18px]" />
+    <IconCollapse class={island ? "size-4" : "size-[18px]"} />
   </button>
   {#if island}
-    <!-- The collapse button's twin, mirrored: back to the island's Home. -->
+    <!-- The collapse button's twin, mirrored: back to the island's Home. A plain cross (a ring
+         in a round capsule shows every half pixel), and in the island both buttons are 32 px
+         with a 16 px glyph and 16 px inset: whole device pixels at the island's 0.875 scale
+         (28, 14, 14), so neither glyph sits off by half a pixel. -->
     <button
       type="button"
       aria-label={t.island.back}
       data-tip={t.island.back}
       data-tip-pos="bottom"
       data-island-close
-      class="absolute top-4 right-4 z-10 grid size-9 place-items-center rounded-full bg-white/10 text-ink-2
+      class="absolute top-4 right-4 z-10 grid size-8 place-items-center rounded-full bg-white/10 text-ink-2
         transition-colors hover:bg-white/16 hover:text-ink"
       onclick={() => toIsland("close")}
     >
-      <IconLeave class="size-[18px]" />
+      <IconLeave class="size-4" />
     </button>
   {/if}
 
