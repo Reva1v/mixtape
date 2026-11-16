@@ -123,8 +123,8 @@
   aria-valuemax={Math.round(player.state.durationMs / 1000)}
   aria-valuenow={Math.round(player.state.positionMs / 1000)}
   data-compact={compact || undefined}
-  class="@container relative flex h-(--player-h) shrink-0 cursor-pointer items-center overflow-hidden rounded-xl bg-panel pr-2.5 select-none
-    {compact ? 'rounded-b-[22px]' : ''}
+  class="@container relative h-(--player-h) shrink-0 cursor-pointer items-center overflow-hidden rounded-xl bg-panel pr-2.5 select-none
+    {compact ? 'compact-grid grid rounded-b-[22px] pl-2.5' : 'flex'}
     {scrub ? 'cursor-grabbing' : ''}"
   onpointerdown={(e) => {
     if (e.button !== 0) return;
@@ -188,9 +188,10 @@
       {formatTime(scrub.ms)}
     </div>
   {/if}
-  <!-- Now playing -->
+  <!-- Now playing. Compact: the left column of three, so the transport stays centred and a
+       long title truncates instead of pushing it. -->
   {#if track}
-    <div class="relative flex h-full items-center {compact ? 'min-w-0 flex-1 gap-2.5 pr-1 pl-3' : 'max-w-[34%] min-w-[260px] gap-3.5 pr-4 pl-4'}">
+    <div class="relative flex h-full items-center {compact ? 'min-w-0 flex-1 gap-2.5 pr-1 pl-0.5' : 'max-w-[34%] min-w-[260px] gap-3.5 pr-4 pl-4'}">
       <button
         type="button"
         {@attach pressable(0.94)}
@@ -223,18 +224,20 @@
         {#if track.liked}<IconHeart class="size-[19px]" />{:else}<IconHeartLine class="size-[19px]" />{/if}
       </button>
     </div>
+  {:else if compact}
+    <div></div>
   {/if}
 
   <!-- Exactly centred on the bar. -->
   {#if compact}
-    <div class="relative shrink-0 px-2"><Transport /></div>
+    <div data-transport class="relative px-2"><Transport /></div>
   {:else}
     <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
       <div class="pointer-events-auto"><Transport /></div>
     </div>
   {/if}
 
-  <div data-no-seek class="relative ml-auto flex h-10 shrink-0 items-center rounded-[10px] bg-fill-1 px-1.5 ring-1 ring-line {compact ? 'gap-0.5' : 'gap-1'}">
+  <div data-no-seek class="relative ml-auto flex h-10 shrink-0 items-center rounded-[10px] bg-fill-1 px-1.5 ring-1 ring-line {compact ? 'gap-0.5 justify-self-end' : 'gap-1'}">
     {@render capsuleButton(t.player.shuffle, IconShuffle, player.state.shuffle, () => player.toggleShuffle(), false, compact ? "@max-[460px]:hidden" : "")}
     {@render capsuleButton(
       player.state.repeat === "one" ? t.player.repeatOne : t.player.repeat,
@@ -253,3 +256,12 @@
     {@render capsuleButton(t.player.queue, IconQueue, layout.drawer === "queue", () => layout.toggleDrawer("queue"))}
   </div>
 </div>
+
+<style>
+  /* Compact (Droplet Island): three columns, the middle one the transport. The left one may
+     shrink to nothing (the title truncates); the right one never below the capsule. While
+     there is room both sides are equal, so the transport sits exactly in the middle. */
+  .compact-grid {
+    grid-template-columns: minmax(0, 1fr) auto 1fr;
+  }
+</style>

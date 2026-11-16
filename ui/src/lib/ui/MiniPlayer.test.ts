@@ -18,6 +18,17 @@ describe("the bottom player bar", () => {
     expect(out).toContain("@max-[460px]:hidden");
   });
 
+  it("lays the compact bar out in three columns: title left, transport centred, capsule right", () => {
+    const out = html(true);
+    expect(out).toContain("compact-grid");
+    expect(out).toContain("data-transport");
+    expect(out).toContain("justify-self-end");
+    // Without a track the left column is still there, so the transport stays in the middle one.
+    const grid = out.slice(out.indexOf("compact-grid"));
+    expect(grid.indexOf("<div></div>")).toBeGreaterThan(-1);
+    expect(grid.indexOf("<div></div>")).toBeLessThan(grid.indexOf("data-transport"));
+  });
+
   it("renders outside the island too, with every control", () => {
     const out = html(false);
     expect(out).toContain("data-bar");
@@ -25,5 +36,6 @@ describe("the bottom player bar", () => {
     expect(out).toContain(label(t.tray.miniPlayer));
     expect(out).toContain(label(t.player.fullscreen));
     expect(out).not.toContain("@max-[460px]:hidden");
+    expect(out).not.toContain("compact-grid");
   });
 });
