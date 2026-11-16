@@ -16,6 +16,7 @@ const MIGRATIONS_SLICE: &[M<'static>] = &[
     M::up(include_str!("../migrations/007_track_analysis.sql")),
     M::up(include_str!("../migrations/008_media_containers.sql")),
     M::up(include_str!("../migrations/009_play_events_device.sql")),
+    M::up(include_str!("../migrations/010_recent_search.sql")),
 ];
 
 /// Creates `settings.device_id` (a random UUID v4, as JSON) when it is missing. Migration 009
@@ -43,6 +44,7 @@ pub fn open_writer(path: &Path) -> Result<Connection> {
     conn.busy_timeout(Duration::from_secs(5))?;
     migrations().to_latest(&mut conn)?;
     conn.execute(ENSURE_DEVICE_ID, [])?;
+    crate::recent::import_legacy_queries(&mut conn)?;
     Ok(conn)
 }
 

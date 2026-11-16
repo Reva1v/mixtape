@@ -14,12 +14,19 @@ use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
 use hkdf::Hkdf;
 use mixtape_library::peer_store::{Cursors, PeerEvent};
+use mixtape_library::recent::Snapshot;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-/// Protocol version in `Hello`.
+/// Protocol version in `Hello`. An app that doesn't know the version refuses the connection,
+/// so it stays 1 for every build that can still talk to the first ones; what a later build
+/// adds is announced by [`REV`].
 pub const VERSION: u32 = 1;
+/// Revision of the additions to version 1, in `Hello.rev` (absent = 0). A step is used only
+/// when both sides announce it ([`Session::rev`] is the lower of the two):
+/// 1 = the `Recent` snapshot (recent searches) after the plays.
+pub const REV: u32 = 1;
 /// The largest frame accepted: a batch of 1 000 events is ~300 KB.
 pub const MAX_FRAME: usize = 8 << 20;
 const INFO: &[u8] = b"mixtape-peer-1";
@@ -41,6 +48,9 @@ pub enum Clear {
         /// The client pairs with the one-time code key instead of exchanging.
         #[serde(default)]
         pair: bool,
+        /// Additions to `v` the sender understands ([`REV`]); old builds don't send it.
+        #[serde(default, skip_serializing_if = "is_zero")]
+        rev: u32,
     },
     /// The server's answer instead of `Hello` when it won't talk.
     Refused { reason: Refusal },
@@ -76,6 +86,9 @@ pub enum Msg {
         #[serde(default)]
         cursors: Option<Cursors>,
     },
+    /// Revision 1, after the plays: the client sends its recent searches, the server answers
+    /// with the merged list (both then hold the same one).
+    Recent { snapshot: Snapshot },
     /// Server → client: the client's plays are stored (or the pairing removed).
     Ack,
     /// Client → server: forget the pairing.
@@ -89,43 +102,62 @@ pub struct Session<S> {
     recv: ChaCha20Poly1305,
     sent: u64,
     received: u64,
+    /// The additions both sides understand: the lower of the two `Hello.rev`s.
+    rev: u32,
     /// The other side's device id, from its `Hello`.
     pub peer_device: String,
 }
 
 impl<S: Stream> Session<S> {
     /// Opens a session from the client side: sends `Hello`, reads the answer.
-    pub async fn client(mut stream: S, device: &str, psk: &[u8; 32], pair: bool) -> Result<Self, PeerError> {
+    pub async fn client(stream: S, device: &str, psk: &[u8; 32], pair: bool) -> Result<Self, PeerError> {
+        Self::client_rev(stream, device, psk, pair, REV).await
+    }
+
+    /// [`Self::client`] announcing `rev` instead of [`REV`] (`0` is how a build from before
+    /// the revisions talks).
+    pub(super) async fn client_rev(mut stream: S, device: &str, psk: &[u8; 32], pair: bool, rev: u32) -> Result<Self, PeerError> {
         let nonce_c = random32()?;
-        write_clear(&mut stream, &hello(device, &nonce_c, pair)).await?;
+        write_clear(&mut stream, &hello(device, &nonce_c, pair, rev)).await?;
         match read_clear(&mut stream).await? {
-            Clear::Hello { v, device: peer, nonce, .. } => {
+            Clear::Hello { v, device: peer, nonce, rev: peer_rev, .. } => {
                 if v != VERSION {
                     return Err(PeerError::Refused(Refusal::Version));
                 }
                 let nonce_s = decode_nonce(&nonce)?;
                 let (c2s, s2c) = derive(psk, &nonce_c, &nonce_s);
-                Ok(Self::new(stream, c2s, s2c, peer))
+                Ok(Self::new(stream, c2s, s2c, peer, rev.min(peer_rev)))
             }
             Clear::Refused { reason } => Err(PeerError::Refused(reason)),
         }
     }
 
     /// Answers the client's `hello` (read with [`read_hello`]) and opens the session.
-    pub async fn server(mut stream: S, hello_c: &Hello, device: &str, psk: &[u8; 32]) -> Result<Self, PeerError> {
-        let nonce_s = random32()?;
-        write_clear(&mut stream, &hello(device, &nonce_s, hello_c.pair)).await?;
-        let (c2s, s2c) = derive(psk, &hello_c.nonce, &nonce_s);
-        Ok(Self::new(stream, s2c, c2s, hello_c.device.clone()))
+    pub async fn server(stream: S, hello_c: &Hello, device: &str, psk: &[u8; 32]) -> Result<Self, PeerError> {
+        Self::server_rev(stream, hello_c, device, psk, REV).await
     }
 
-    fn new(stream: S, send: [u8; 32], recv: [u8; 32], peer_device: String) -> Self {
+    /// [`Self::server`] announcing `rev` instead of [`REV`].
+    pub(super) async fn server_rev(mut stream: S, hello_c: &Hello, device: &str, psk: &[u8; 32], rev: u32) -> Result<Self, PeerError> {
+        let nonce_s = random32()?;
+        write_clear(&mut stream, &hello(device, &nonce_s, hello_c.pair, rev)).await?;
+        let (c2s, s2c) = derive(psk, &hello_c.nonce, &nonce_s);
+        Ok(Self::new(stream, s2c, c2s, hello_c.device.clone(), rev.min(hello_c.rev)))
+    }
+
+    /// The additions both sides understand (see [`REV`]).
+    pub fn rev(&self) -> u32 {
+        self.rev
+    }
+
+    fn new(stream: S, send: [u8; 32], recv: [u8; 32], peer_device: String, rev: u32) -> Self {
         Self {
             stream,
             send: ChaCha20Poly1305::new(Key::from_slice(&send)),
             recv: ChaCha20Poly1305::new(Key::from_slice(&recv)),
             sent: 0,
             received: 0,
+            rev,
             peer_device,
         }
     }
@@ -168,18 +200,20 @@ pub struct Hello {
     pub device: String,
     pub nonce: [u8; 32],
     pub pair: bool,
+    /// The additions to version 1 the client understands; 0 from builds that predate them.
+    pub rev: u32,
 }
 
 /// Reads the client's `Hello`; the server then picks the key and calls [`Session::server`]
 /// or [`refuse`].
 pub async fn read_hello<S: Stream>(stream: &mut S) -> Result<Hello, PeerError> {
     match read_clear(stream).await? {
-        Clear::Hello { v, device, nonce, pair } => {
+        Clear::Hello { v, device, nonce, pair, rev } => {
             if v != VERSION {
                 refuse(stream, Refusal::Version).await?;
                 return Err(PeerError::Refused(Refusal::Version));
             }
-            Ok(Hello { device, nonce: decode_nonce(&nonce)?, pair })
+            Ok(Hello { device, nonce: decode_nonce(&nonce)?, pair, rev })
         }
         Clear::Refused { .. } => Err(PeerError::Protocol("a refusal from the client".into())),
     }
@@ -190,9 +224,14 @@ pub async fn refuse<S: Stream>(stream: &mut S, reason: Refusal) -> Result<(), Pe
     write_clear(stream, &Clear::Refused { reason }).await
 }
 
-fn hello(device: &str, nonce: &[u8; 32], pair: bool) -> Clear {
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
+fn hello(device: &str, nonce: &[u8; 32], pair: bool, rev: u32) -> Clear {
     Clear::Hello {
         v: VERSION,
+        rev,
         device: device.to_owned(),
         nonce: URL_SAFE_NO_PAD.encode(nonce),
         pair,
@@ -298,5 +337,42 @@ mod tests {
         let (c2s, s2c) = derive(&psk, &[1; 32], &[2; 32]);
         assert_ne!(c2s, s2c);
         assert_ne!(derive(&psk, &[1; 32], &[3; 32]).0, c2s);
+    }
+
+    #[test]
+    fn hello_of_a_build_without_revisions_still_parses_and_looks_the_same() {
+        // What the first builds send, byte for byte in shape: no `rev`.
+        let old = r#"{"t":"hello","v":1,"device":"d","nonce":"n","pair":false}"#;
+        let parsed: Clear = serde_json::from_str(old).unwrap();
+        assert_eq!(parsed, Clear::Hello { v: 1, device: "d".into(), nonce: "n".into(), pair: false, rev: 0 });
+        // A rev-0 hello of ours is that same JSON again; a newer one adds only the field.
+        assert!(!serde_json::to_string(&hello("d", &[0; 32], false, 0)).unwrap().contains("rev"));
+        assert!(serde_json::to_string(&hello("d", &[0; 32], false, REV)).unwrap().contains(r#""rev":1"#));
+        // And the first builds ignore the field they don't know: a v1 reader is a struct without it.
+        #[derive(Deserialize)]
+        #[serde(tag = "t", rename_all = "camelCase")]
+        enum OldClear {
+            #[allow(dead_code)]
+            Hello { v: u32, device: String, nonce: String, #[serde(default)] pair: bool },
+        }
+        let new = serde_json::to_string(&hello("d", &[0; 32], false, REV)).unwrap();
+        assert!(serde_json::from_str::<OldClear>(&new).is_ok());
+    }
+
+    #[tokio::test]
+    async fn the_session_revision_is_the_lower_of_the_two() {
+        for (client_rev, server_rev, want) in [(1, 1, 1), (1, 0, 0), (0, 1, 0), (0, 0, 0)] {
+            let (a, b) = tokio::io::duplex(1 << 16);
+            let psk = [9u8; 32];
+            let server = async move {
+                let mut b = b;
+                let h = read_hello(&mut b).await?;
+                assert_eq!(h.rev, client_rev);
+                Session::server_rev(b, &h, "pc", &psk, server_rev).await.map(|s| s.rev())
+            };
+            let client = async move { Session::client_rev(a, "phone", &psk, false, client_rev).await.map(|s| s.rev()) };
+            let (s, c) = tokio::join!(server, client);
+            assert_eq!((s.unwrap(), c.unwrap()), (want, want), "{client_rev}/{server_rev}");
+        }
     }
 }

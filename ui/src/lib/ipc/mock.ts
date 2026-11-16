@@ -26,6 +26,7 @@ import type { ViewKind } from "./bindings/ViewKind";
 import { setCoverSource } from "./index";
 import { router } from "$lib/stores/router.svelte";
 import { layout } from "$lib/stores/layout.svelte";
+import { added, removed, type RecentItem } from "$lib/stores/recentList";
 
 const params = new URLSearchParams(location.search);
 const lang = (["en", "uk", "ru"].includes(params.get("lang") ?? "") ? params.get("lang") : "en") as Lang;
@@ -432,6 +433,9 @@ function demoStatsFor(period: string, share: number): ListeningStats {
 
 // ---- Phone sync (Settings → «Phone») ----
 
+/** Recent searches (the core keeps them in the database). */
+let recent: RecentItem[] = [];
+
 let peer: PeerStatus =
   params.get("peer") === "paired"
     ? { paired: true, peerName: "Pixel 8", pairedAt: Date.now() - 86_400_000 * 3, lastExchange: Date.now() - 1_800_000, listening: true, firewall: "ok" }
@@ -587,6 +591,16 @@ mockIPC(
         return demoStats(a.period as string, (a.device as string | null) ?? undefined);
       case "peer_status":
         return peer;
+      case "recent_searches":
+        return recent;
+      case "recent_add":
+        return (recent = added(recent, a.item as RecentItem));
+      case "recent_remove":
+        return (recent = removed(recent, a.item as RecentItem));
+      case "recent_clear":
+        return (recent = []);
+      case "recent_import":
+        return (recent = (a.items as RecentItem[]).reduceRight((list, item) => added(list, item), recent));
       case "peer_pair_start": {
         setPeer({ listening: true, firewall: params.get("peer") === "firewall" ? "missing" : "ok" });
         const start: PairStart = { uri: "mixtape://pair?v=1", svg: demoQr(), expiresAt: Date.now() + 300_000 };

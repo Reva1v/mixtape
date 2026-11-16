@@ -4,11 +4,17 @@
 //! An exchange: client → `Cursors`; server → `Events`… `Done {cursors}`; client → `Events`…
 //! `Done`; server → `Ack`. Each received batch is merged in its own transaction, so a cut
 //! connection keeps what arrived, and the next exchange starts from the new cursors.
+//!
+//! When both sides announce revision 1 ([`super::wire::REV`]) the recent searches go between
+//! the client's `Done` and the `Ack`: client → `Recent {snapshot}`; the server merges it and
+//! answers `Recent {snapshot}` with the merged list, which the client merges too. Against a
+//! build without the revision that step is left out and the exchange is the one above.
 
-use super::wire::{Msg, Refusal, Session, Stream, read_hello, refuse};
+use super::wire::{Msg, REV, Refusal, Session, Stream, read_hello, refuse};
 use super::{PairCode, PeerError, now_s};
 use mixtape_library::Db;
 use mixtape_library::peer_store::{self, BATCH, Cursors, Pairing};
+use mixtape_library::recent::{self, MAX_LIVE, MAX_TOMBSTONES};
 use mixtape_library::repo::now_ms;
 use mixtape_library::settings;
 
@@ -19,7 +25,14 @@ pub struct Report {
     pub received: usize,
     /// Plays sent to the other side.
     pub sent: usize,
+    /// The other side's recent searches changed the list stored here (always `false`
+    /// against a build without them).
+    pub recent: bool,
 }
+
+/// The most records of a recent searches snapshot accepted: each side keeps at most
+/// `MAX_LIVE + MAX_TOMBSTONES`, so more than a few times that is not a Mixtape.
+const MAX_RECENT_RECORDS: usize = 5 * (MAX_LIVE + MAX_TOMBSTONES);
 
 /// How a served connection ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,7 +46,12 @@ pub enum Served {
 
 /// Answers one connection on the PC. `code` is the pairing code on screen, if any; a
 /// pairing replaces the stored one.
-pub async fn serve<S: Stream>(mut stream: S, db: &Db, code: Option<&PairCode>) -> Result<Served, PeerError> {
+pub async fn serve<S: Stream>(stream: S, db: &Db, code: Option<&PairCode>) -> Result<Served, PeerError> {
+    serve_rev(stream, db, code, REV).await
+}
+
+/// [`serve`] announcing revision `rev` (tests play a build without the revisions).
+async fn serve_rev<S: Stream>(mut stream: S, db: &Db, code: Option<&PairCode>, rev: u32) -> Result<Served, PeerError> {
     let hello = read_hello(&mut stream).await?;
     let (me, my_name) = blocking(db, |c| Ok((settings::device_id(c)?, settings::device_name(c)?))).await?;
     if hello.pair {
@@ -45,7 +63,7 @@ pub async fn serve<S: Stream>(mut stream: S, db: &Db, code: Option<&PairCode>) -
             refuse(&mut stream, Refusal::Expired).await?;
             return Err(PeerError::Expired);
         }
-        let mut s = Session::server(stream, &hello, &me, &code.key).await?;
+        let mut s = Session::server_rev(stream, &hello, &me, &code.key, rev).await?;
         let Msg::Pair { device, name } = s.recv().await? else {
             return Err(PeerError::Protocol("expected Pair".into()));
         };
@@ -72,7 +90,7 @@ pub async fn serve<S: Stream>(mut stream: S, db: &Db, code: Option<&PairCode>) -
         refuse(&mut stream, Refusal::UnknownDevice).await?;
         return Err(PeerError::NotPaired);
     };
-    let mut s = Session::server(stream, &hello, &me, &pairing.key).await?;
+    let mut s = Session::server_rev(stream, &hello, &me, &pairing.key, rev).await?;
     let theirs = match s.recv().await? {
         Msg::Cursors { cursors } => cursors,
         Msg::Unpair => {
@@ -86,9 +104,30 @@ pub async fn serve<S: Stream>(mut stream: S, db: &Db, code: Option<&PairCode>) -
     let sent = send_events(&mut s, db, theirs).await?;
     s.send(&Msg::Done { cursors: Some(mine) }).await?;
     let received = receive_events(&mut s, db).await?.0;
+    let recent = if s.rev() >= 1 { serve_recent(&mut s, db).await? } else { false };
     s.send(&Msg::Ack).await?;
     db_write(db, |t| peer_store::note_exchange(t, None, now_ms())).await?;
-    Ok(Served::Exchanged(Report { received, sent }))
+    Ok(Served::Exchanged(Report { received, sent, recent }))
+}
+
+/// Server side of the recent searches step: merges the client's list, answers with the
+/// merged one. Returns whether the list here changed.
+async fn serve_recent<S: Stream>(s: &mut Session<S>, db: &Db) -> Result<bool, PeerError> {
+    let Msg::Recent { snapshot } = s.recv().await? else {
+        return Err(PeerError::Protocol("expected Recent".into()));
+    };
+    let changed = merge_recent(db, snapshot).await?;
+    let mine = blocking(db, recent::snapshot).await?;
+    s.send(&Msg::Recent { snapshot: mine }).await?;
+    Ok(changed)
+}
+
+/// Merges a peer's recent searches into the stored list; whether the list changed.
+async fn merge_recent(db: &Db, snapshot: recent::Snapshot) -> Result<bool, PeerError> {
+    if snapshot.records.len() > MAX_RECENT_RECORDS {
+        return Err(PeerError::Protocol("recent searches too large".into()));
+    }
+    db_write(db, move |t| recent::merge_remote(t, &snapshot, now_ms())).await
 }
 
 /// Pairs this device (the phone) with the PC whose `code` was scanned and stores the
@@ -121,12 +160,17 @@ pub async fn pair<S: Stream>(stream: S, db: &Db, code: &PairCode) -> Result<Pair
 /// Exchanges plays with the paired PC (client side). `address` is the one `stream` was
 /// dialled to, remembered as the last good one.
 pub async fn exchange<S: Stream>(stream: S, db: &Db, address: Option<&str>) -> Result<Report, PeerError> {
+    exchange_rev(stream, db, address, REV).await
+}
+
+/// [`exchange`] announcing revision `rev` (tests play a build without the revisions).
+async fn exchange_rev<S: Stream>(stream: S, db: &Db, address: Option<&str>, rev: u32) -> Result<Report, PeerError> {
     let (me, pairing, mine) = blocking(db, |c| {
         Ok((settings::device_id(c)?, peer_store::pairing(c)?, peer_store::cursors(c)?))
     })
     .await?;
     let pairing = pairing.ok_or(PeerError::NotPaired)?;
-    let mut s = Session::client(stream, &me, &pairing.key, false).await?;
+    let mut s = Session::client_rev(stream, &me, &pairing.key, false, rev).await?;
     if s.peer_device != pairing.peer_device {
         return Err(PeerError::Protocol("another PC answered".into()));
     }
@@ -143,12 +187,21 @@ pub async fn exchange<S: Stream>(stream: S, db: &Db, address: Option<&str>) -> R
     let theirs = theirs.ok_or_else(|| PeerError::Protocol("Done without cursors".into()))?;
     let sent = send_events(&mut s, db, theirs).await?;
     s.send(&Msg::Done { cursors: None }).await?;
+    let mut recent = false;
+    if s.rev() >= 1 {
+        let mine = blocking(db, recent::snapshot).await?;
+        s.send(&Msg::Recent { snapshot: mine }).await?;
+        let Msg::Recent { snapshot } = s.recv().await? else {
+            return Err(PeerError::Protocol("expected Recent".into()));
+        };
+        recent = merge_recent(db, snapshot).await?;
+    }
     if s.recv().await? != Msg::Ack {
         return Err(PeerError::Protocol("expected Ack".into()));
     }
     let address = address.map(str::to_owned);
     db_write(db, move |t| peer_store::note_exchange(t, address.as_deref(), now_ms())).await?;
-    Ok(Report { received, sent })
+    Ok(Report { received, sent, recent })
 }
 
 /// Tells the paired PC to forget this device, then forgets the pairing here. When the PC
@@ -317,8 +370,8 @@ mod tests {
         seed(&pc, "p", 2);
         seed(&phone, "m", 3);
         let (report, served) = sync(&pc, &phone).await.unwrap();
-        assert_eq!(report, Report { received: 2, sent: 3 });
-        assert_eq!(served, Served::Exchanged(Report { received: 3, sent: 2 }));
+        assert_eq!(report, Report { received: 2, sent: 3, recent: false });
+        assert_eq!(served, Served::Exchanged(Report { received: 3, sent: 2, recent: false }));
         assert_eq!((plays(&pc), plays(&phone)), (5, 5));
         assert_eq!(origins(&pc), origins(&phone));
         // The phone got stubs of the PC's tracks, with names.
@@ -388,7 +441,7 @@ mod tests {
         assert_eq!(plays(&pc), 2_500);
 
         let (report, _) = sync(&pc, &phone).await.unwrap();
-        assert_eq!(report, Report { received: (2540 - got) as usize, sent: 40 });
+        assert_eq!(report, Report { received: (2540 - got) as usize, sent: 40, recent: false });
         assert_eq!((plays(&pc), plays(&phone)), (2_540, 2_540));
         assert_eq!(origins(&pc), origins(&phone));
         let (report, _) = sync(&pc, &phone).await.unwrap();
@@ -461,5 +514,155 @@ mod tests {
         done.unwrap();
         assert_eq!(served.unwrap(), Served::Unpaired);
         assert_eq!((pc.read(peer_store::pairing).unwrap(), phone.read(peer_store::pairing).unwrap()), (None, None));
+    }
+
+    // ---- Recent searches ----
+
+    use mixtape_library::recent::{RecentItem, Snapshot};
+
+    fn recent_add(db: &Db, text: &str, at: i64) {
+        let text = text.to_owned();
+        db.write(move |t| recent::add(t, RecentItem::query(text), at).map(drop)).unwrap();
+    }
+
+    fn recent_remove(db: &Db, text: &str, at: i64) {
+        let text = text.to_owned();
+        db.write(move |t| recent::remove(t, &RecentItem::query(text), at).map(drop)).unwrap();
+    }
+
+    fn recent_texts(db: &Db) -> Vec<String> {
+        db.read(recent::list)
+            .unwrap()
+            .into_iter()
+            .map(|i| match i {
+                RecentItem::Query { text } => text,
+                other => other.key(),
+            })
+            .collect()
+    }
+
+    /// One exchange where the PC and the phone announce the given revisions.
+    async fn sync_rev(pc: &Db, phone: &Db, pc_rev: u32, phone_rev: u32) -> Result<(Report, Served), PeerError> {
+        let (a, b) = tokio::io::duplex(1 << 16);
+        let (served, report) = tokio::join!(serve_rev(b, pc, None, pc_rev), exchange_rev(a, phone, None, phone_rev));
+        Ok((report?, served?))
+    }
+
+    fn served(s: Served) -> Report {
+        let Served::Exchanged(r) = s else { panic!("not an exchange") };
+        r
+    }
+
+    #[tokio::test]
+    async fn recent_searches_meet_in_the_middle_both_ways() {
+        let (_a, pc) = open();
+        let (_b, phone) = open();
+        paired(&pc, &phone).await;
+        let now = now_ms();
+        recent_add(&phone, "Loser", now - 3000);
+        recent_add(&pc, "Beck", now - 2000);
+        recent_add(&phone, "loser ", now - 1000);
+
+        let (report, s) = sync(&pc, &phone).await.unwrap();
+        assert!(report.recent && served(s).recent);
+        // The phone's "Loser" shows on the PC and the PC's "Beck" on the phone, the newest first.
+        assert_eq!(recent_texts(&pc), ["loser", "Beck"]);
+        assert_eq!(recent_texts(&phone), ["loser", "Beck"]);
+        assert_eq!(pc.read(recent::snapshot).unwrap().records.len(), 2);
+
+        // Nothing changed since: no news for either side, plays untouched.
+        let (report, s) = sync(&pc, &phone).await.unwrap();
+        assert_eq!((report, served(s)), (Report::default(), Report::default()));
+        assert_eq!(recent_texts(&pc), recent_texts(&phone));
+    }
+
+    #[tokio::test]
+    async fn a_removal_and_a_clear_on_one_device_reach_the_other() {
+        let (_a, pc) = open();
+        let (_b, phone) = open();
+        paired(&pc, &phone).await;
+        let now = now_ms();
+        recent_add(&pc, "keep", now - 5000);
+        recent_add(&pc, "drop", now - 4000);
+        sync(&pc, &phone).await.unwrap();
+        assert_eq!(recent_texts(&phone), ["drop", "keep"]);
+
+        // Removed on the phone: gone from the PC after the next exchange, not brought back by it.
+        recent_remove(&phone, "drop", now - 3000);
+        sync(&pc, &phone).await.unwrap();
+        assert_eq!(recent_texts(&pc), ["keep"]);
+        assert_eq!(recent_texts(&phone), ["keep"]);
+
+        // Searched again on the PC afterwards: the newer use beats the removal.
+        recent_add(&pc, "drop", now - 2000);
+        sync(&pc, &phone).await.unwrap();
+        assert_eq!(recent_texts(&phone), ["drop", "keep"]);
+
+        // Cleared on the PC, with something new on the phone that the PC never saw.
+        recent_add(&phone, "unseen", now - 1500);
+        pc.write(move |t| recent::clear(t, now - 1000).map(drop)).unwrap();
+        sync(&pc, &phone).await.unwrap();
+        assert!(recent_texts(&pc).is_empty() && recent_texts(&phone).is_empty());
+        // And a search after the clear is listed on both.
+        recent_add(&phone, "fresh", now);
+        sync(&pc, &phone).await.unwrap();
+        assert_eq!((recent_texts(&pc), recent_texts(&phone)), (vec!["fresh".to_owned()], vec!["fresh".to_owned()]));
+    }
+
+    #[tokio::test]
+    async fn a_build_without_revisions_still_exchanges_plays_but_not_searches() {
+        let now = now_ms();
+        // The phone is old, the PC new; then the other way round; then both old.
+        for (pc_rev, phone_rev) in [(REV, 0), (0, REV), (0, 0)] {
+            let (_a, pc) = open();
+            let (_b, phone) = open();
+            paired(&pc, &phone).await;
+            seed(&pc, "p", 2);
+            seed(&phone, "m", 3);
+            recent_add(&phone, "from phone", now - 2000);
+            recent_add(&pc, "from pc", now - 1000);
+
+            let (report, s) = sync_rev(&pc, &phone, pc_rev, phone_rev).await.unwrap();
+            assert_eq!(report, Report { received: 2, sent: 3, recent: false }, "{pc_rev}/{phone_rev}");
+            assert_eq!(served(s), Report { received: 3, sent: 2, recent: false });
+            assert_eq!((plays(&pc), plays(&phone)), (5, 5));
+            assert_eq!(recent_texts(&pc), ["from pc"], "{pc_rev}/{phone_rev}");
+            assert_eq!(recent_texts(&phone), ["from phone"]);
+            assert!(pc.read(peer_store::pairing).unwrap().unwrap().last_exchange.is_some());
+
+            // Once the old side is updated the lists meet.
+            let (report, s) = sync(&pc, &phone).await.unwrap();
+            assert!(report.recent && served(s).recent);
+            assert_eq!(recent_texts(&pc), ["from pc", "from phone"]);
+            assert_eq!(recent_texts(&phone), recent_texts(&pc));
+        }
+    }
+
+    #[tokio::test]
+    async fn an_oversized_snapshot_is_refused_and_keeps_the_plays() {
+        let (_a, pc) = open();
+        let (_b, phone) = open();
+        paired(&pc, &phone).await;
+        seed(&phone, "m", 3);
+        // A hand-made client: a valid exchange of plays, then too many records.
+        let (key, me, cursors) = phone
+            .read(|c| Ok((peer_store::pairing(c)?.unwrap().key, settings::device_id(c)?, peer_store::cursors(c)?)))
+            .unwrap();
+        let (a, b) = tokio::io::duplex(1 << 16);
+        let client = async move {
+            let mut s = Session::client(a, &me, &key, false).await?;
+            s.send(&Msg::Cursors { cursors }).await?;
+            while !matches!(s.recv().await?, Msg::Done { .. }) {}
+            s.send(&Msg::Done { cursors: None }).await?;
+            let records = (0..MAX_RECENT_RECORDS + 1)
+                .map(|i| recent::Record { key: format!("q:{i}"), at: 1, item: None })
+                .collect();
+            s.send(&Msg::Recent { snapshot: Snapshot { cleared_at: 0, records } }).await?;
+            s.recv().await.map(drop)
+        };
+        let (served, client) = tokio::join!(serve(b, &pc, None), client);
+        assert!(matches!(served, Err(PeerError::Protocol(_))), "{served:?}");
+        assert!(client.is_err());
+        assert!(pc.read(recent::snapshot).unwrap().records.is_empty());
     }
 }
