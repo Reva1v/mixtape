@@ -26,6 +26,32 @@ describe("the island frame's Tauri stand-in", () => {
     expect(islandFrame(other)).toBe(false);
   });
 
+  it("survives Tauri's own script assigning its internals later", () => {
+    const { w, internals } = setup();
+    const g = w as unknown as Record<string, unknown>;
+    const tauri = { invoke: () => Promise.resolve("tauri"), transformCallback: () => 0 };
+    // A plain assignment, as Tauri's init script does (throws only in strict mode).
+    try {
+      g.__TAURI_INTERNALS__ = tauri;
+    } catch {
+      /* strict mode: refused loudly, which is just as good */
+    }
+    try {
+      g.__TAURI_EVENT_PLUGIN_INTERNALS__ = {};
+    } catch {
+      /* same */
+    }
+    expect(g.__TAURI_INTERNALS__).toBe(internals);
+    expect((g.__TAURI_EVENT_PLUGIN_INTERNALS__ as { unregisterListener?: unknown }).unregisterListener).toBeTypeOf("function");
+  });
+
+  it("can still be replaced on purpose by redefining the property", () => {
+    const { w } = setup();
+    const mine = { invoke: () => Promise.resolve(1) };
+    Object.defineProperty(w, "__TAURI_INTERNALS__", { value: mine, configurable: true });
+    expect((w as unknown as Record<string, unknown>).__TAURI_INTERNALS__).toBe(mine);
+  });
+
   it("sends invokes to the island and settles them by its answer", async () => {
     const { sent, receive, internals } = setup();
     const a = internals.invoke("plugin:mixtape|queue_get", { n: 1 });

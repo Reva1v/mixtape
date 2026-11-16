@@ -86,13 +86,14 @@ export function install(
       currentWebview: { windowLabel: "island", label: "island" },
     },
   };
-  // Writable, so the dev mock (`?mock&host=island`) can swap in its own IPC.
-  Object.defineProperty(w, "__TAURI_INTERNALS__", { value: internals, configurable: true, writable: true });
+  // Not writable: inside the island Tauri's own init script runs in the frame too and assigns
+  // its `__TAURI_INTERNALS__`, which would bypass the bridge (channels and events never
+  // arrive). A plain assignment fails quietly; the shim stays.
+  Object.defineProperty(w, "__TAURI_INTERNALS__", { value: internals, configurable: true });
   // `listen`'s unlisten calls this before `plugin:event|unlisten`; the island drops its
   // listener on that command.
   Object.defineProperty(w, "__TAURI_EVENT_PLUGIN_INTERNALS__", {
     value: { unregisterListener() {} },
-    writable: true,
     configurable: true,
   });
 
@@ -119,7 +120,9 @@ const isField = (el: EventTarget | null): el is HTMLElement =>
 
 if (embedded) {
   document.documentElement.classList.add("in-island");
-  const receive = bridged ? install(window, post) : () => {};
+  // The dev mock (`?mock&host=island`) brings its own IPC; the shim would stand in its way.
+  const mocked = new URLSearchParams(location.search).has("mock");
+  const receive = bridged && !mocked ? install(window, post) : () => {};
   window.addEventListener("message", (e) => {
     if (e.source !== window.parent) return;
     const m = e.data as ToFrame | null;
