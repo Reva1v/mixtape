@@ -31,11 +31,14 @@
   import QueuePanel from "$lib/ui/QueuePanel.svelte";
   import LyricsPanel from "$lib/ui/LyricsPanel.svelte";
   import CoverBackdrop from "$lib/ui/CoverBackdrop.svelte";
-  import { embedded } from "$lib/ipc/embed";
+  import { embedded, toIsland } from "$lib/ipc/embed";
+  import IconLeave from "~icons/solar/close-circle-linear";
 
-  /** Inside Droplet Island the backdrop fades out into the island's black at the left, right
-   * and bottom, so the player reads as part of the island, not a box pasted into it. */
-  let { soft = embedded }: { soft?: boolean } = $props();
+  /** Inside Droplet Island: the backdrop fades out into the island's black at the left, right
+   * and bottom, so the player reads as part of the island, not a box pasted into it; and a
+   * close button at the top right goes back to the island's Home, as on the home screen. */
+  let { island = embedded }: { island?: boolean } = $props();
+  const soft = $derived(island);
 
   // Equalizers in the queue here are not hidden by this overlay.
   setContext("fullscreen-player", true);
@@ -106,7 +109,7 @@
   <!-- The backdrop in one layer, so the island's soft edges fade all of it and none of the
        content; inside the island it fades into plain black (the island's own colour), which
        also hides the app under the player. -->
-  <div class="pointer-events-none absolute inset-0 {soft ? 'soft-edges bg-[#070709]' : ''}">
+  <div class="pointer-events-none absolute inset-0 {soft ? 'soft-edges bg-[#070709]' : ''}" class:still={!(visible.live && !queueOpen)}>
     {#key bg}
       <div class="pointer-events-none absolute inset-0" transition:fade={{ duration: prefs.value.smoothBackground ? 1400 : 0 }}>
         <CoverBackdrop src={bg} running={player.playing && visible.live && !queueOpen} />
@@ -134,6 +137,21 @@
   >
     <IconCollapse class="size-[18px]" />
   </button>
+  {#if island}
+    <!-- The collapse button's twin, mirrored: back to the island's Home. -->
+    <button
+      type="button"
+      aria-label={t.island.back}
+      data-tip={t.island.back}
+      data-tip-pos="bottom"
+      data-island-close
+      class="absolute top-4 right-4 z-10 grid size-9 place-items-center rounded-full bg-white/10 text-ink-2
+        transition-colors hover:bg-white/16 hover:text-ink"
+      onclick={() => toIsland("close")}
+    >
+      <IconLeave class="size-[18px]" />
+    </button>
+  {/if}
 
   <div
     data-tauri-drag-region
@@ -245,18 +263,65 @@
 
 <style>
   /* Droplet Island: feathered left, right and bottom edges into the island's black; the top
-     stays (it sits under the island's tab bar). Where two fades meet the corner rounds off. */
+     stays (it sits under the island's tab bar). Each fade follows a smoothstep curve, so no line
+     shows where it starts; where two fades meet the corner rounds off. The edges breathe a few
+     px over a long period, the bottom out of step with the sides; still while the player is
+     hidden or under the queue, and static with reduced motion. */
   .soft-edges {
-    --side: 48px;
-    --foot: 64px;
-    -webkit-mask-image:
-      linear-gradient(to right, transparent, #000 var(--side), #000 calc(100% - var(--side)), transparent),
-      linear-gradient(to bottom, #000 calc(100% - var(--foot)), transparent);
+    --side: 28px;
+    --foot: 40px;
+    --h: linear-gradient(
+      to right,
+      transparent 0,
+      rgb(0 0 0 / 0.16) calc(var(--side) * 0.25),
+      rgb(0 0 0 / 0.5) calc(var(--side) * 0.5),
+      rgb(0 0 0 / 0.84) calc(var(--side) * 0.75),
+      #000 var(--side),
+      #000 calc(100% - var(--side)),
+      rgb(0 0 0 / 0.84) calc(100% - var(--side) * 0.75),
+      rgb(0 0 0 / 0.5) calc(100% - var(--side) * 0.5),
+      rgb(0 0 0 / 0.16) calc(100% - var(--side) * 0.25),
+      transparent 100%
+    );
+    --v: linear-gradient(
+      to bottom,
+      #000 calc(100% - var(--foot)),
+      rgb(0 0 0 / 0.84) calc(100% - var(--foot) * 0.75),
+      rgb(0 0 0 / 0.5) calc(100% - var(--foot) * 0.5),
+      rgb(0 0 0 / 0.16) calc(100% - var(--foot) * 0.25),
+      transparent 100%
+    );
+    -webkit-mask-image: var(--h), var(--v);
     -webkit-mask-composite: source-in;
-    mask-image:
-      linear-gradient(to right, transparent, #000 var(--side), #000 calc(100% - var(--side)), transparent),
-      linear-gradient(to bottom, #000 calc(100% - var(--foot)), transparent);
+    mask-image: var(--h), var(--v);
     mask-composite: intersect;
+    animation:
+      breathe-side 10s ease-in-out infinite alternate,
+      breathe-foot 13s ease-in-out -4s infinite alternate;
+  }
+  .soft-edges.still {
+    animation-play-state: paused;
+  }
+  @keyframes breathe-side {
+    from {
+      --side: 24px;
+    }
+    to {
+      --side: 32px;
+    }
+  }
+  @keyframes breathe-foot {
+    from {
+      --foot: 36px;
+    }
+    to {
+      --foot: 44px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .soft-edges {
+      animation: none;
+    }
   }
 
   /* Follows the player column; --vx is a registered property, so it animates. */

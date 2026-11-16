@@ -8,6 +8,17 @@
   inherits: false;
   initial-value: 50%;
 }
+/* The full-screen player's soft edges inside Droplet Island; registered so they breathe. */
+@property --side {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 28px;
+}
+@property --foot {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 40px;
+}
 
 @property --glow {
   syntax: "<color>";
