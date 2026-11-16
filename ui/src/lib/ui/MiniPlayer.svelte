@@ -1,7 +1,7 @@
 <script lang="ts">
   // Bottom bar, right of the sidebar and as wide as the content: now playing on the left
   // (its background fills up as the track plays), three buttons in the exact centre,
-  // everything else in one capsule on the right.
+  // everything else in one capsule on the right. `compact` (Droplet Island) is the narrow variant.
   import type { Component } from "svelte";
   import { followProgress, formatTime, player } from "$lib/stores/player.svelte";
   import { layout } from "$lib/stores/layout.svelte";
@@ -25,6 +25,12 @@
   import IconExpand from "~icons/solar/maximize-square-3-linear";
   import IconMini from "~icons/solar/to-pip-linear";
   import { mini } from "$lib/stores/mini";
+  import { embedded } from "$lib/ipc/embed";
+
+  // Inside Droplet Island the frame is narrow: the transport sits in the flow instead of the exact
+  // centre, the title shrinks, and the capsule drops what the island has no room or use for
+  // (window-sized extras always, shuffle/repeat on the narrowest frames, by container width).
+  let { compact = embedded }: { compact?: boolean } = $props();
 
   const track = $derived(player.track);
 
@@ -91,14 +97,14 @@
   }
 </script>
 
-{#snippet capsuleButton(label: string, Icon: Component, active: boolean, onclick: () => void, disabled = false)}
+{#snippet capsuleButton(label: string, Icon: Component, active: boolean, onclick: () => void, disabled = false, extra = "")}
   <button
     type="button"
     aria-label={label}
     data-tip={label}
     {disabled}
     {@attach pressable(0.86)}
-    class="grid size-8 place-items-center rounded-md transition-colors disabled:opacity-30
+    class="grid size-8 place-items-center rounded-md transition-colors disabled:opacity-30 {extra}
       {active ? 'text-ink' : 'text-[#8a8a8e] hover:text-ink'}"
     {onclick}
   >
@@ -116,7 +122,9 @@
   aria-valuemin={0}
   aria-valuemax={Math.round(player.state.durationMs / 1000)}
   aria-valuenow={Math.round(player.state.positionMs / 1000)}
-  class="relative flex h-(--player-h) shrink-0 cursor-pointer items-center overflow-hidden rounded-xl bg-panel pr-2.5 select-none
+  data-compact={compact || undefined}
+  class="@container relative flex h-(--player-h) shrink-0 cursor-pointer items-center overflow-hidden rounded-xl bg-panel pr-2.5 select-none
+    {compact ? 'rounded-b-[22px]' : ''}
     {scrub ? 'cursor-grabbing' : ''}"
   onpointerdown={(e) => {
     if (e.button !== 0) return;
@@ -182,7 +190,7 @@
   {/if}
   <!-- Now playing -->
   {#if track}
-    <div class="relative flex h-full max-w-[34%] min-w-[260px] items-center gap-3.5 pr-4 pl-4">
+    <div class="relative flex h-full items-center {compact ? 'min-w-0 flex-1 gap-2.5 pr-1 pl-3' : 'max-w-[34%] min-w-[260px] gap-3.5 pr-4 pl-4'}">
       <button
         type="button"
         {@attach pressable(0.94)}
@@ -208,7 +216,7 @@
         type="button"
         aria-label={track.liked ? t.track.unlike : t.track.like}
         {@attach pressable(0.8)}
-        class="relative ml-auto grid size-8 shrink-0 place-items-center transition-colors
+        class="relative ml-auto grid size-8 shrink-0 place-items-center transition-colors {compact ? '@max-[400px]:hidden' : ''}
           {track.liked ? 'text-ink' : 'text-[#8a8a8e] hover:text-ink'}"
         onclick={() => setLiked(track, !track.liked)}
       >
@@ -218,22 +226,30 @@
   {/if}
 
   <!-- Exactly centred on the bar. -->
-  <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
-    <div class="pointer-events-auto"><Transport /></div>
-  </div>
+  {#if compact}
+    <div class="relative shrink-0 px-2"><Transport /></div>
+  {:else}
+    <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
+      <div class="pointer-events-auto"><Transport /></div>
+    </div>
+  {/if}
 
-  <div data-no-seek class="relative ml-auto flex h-10 items-center gap-1 rounded-[10px] bg-fill-1 px-1.5 ring-1 ring-line">
-    {@render capsuleButton(t.player.shuffle, IconShuffle, player.state.shuffle, () => player.toggleShuffle())}
+  <div data-no-seek class="relative ml-auto flex h-10 shrink-0 items-center rounded-[10px] bg-fill-1 px-1.5 ring-1 ring-line {compact ? 'gap-0.5' : 'gap-1'}">
+    {@render capsuleButton(t.player.shuffle, IconShuffle, player.state.shuffle, () => player.toggleShuffle(), false, compact ? "@max-[460px]:hidden" : "")}
     {@render capsuleButton(
       player.state.repeat === "one" ? t.player.repeatOne : t.player.repeat,
       player.state.repeat === "one" ? IconRepeatOne : IconRepeat,
       player.state.repeat !== "off",
       () => player.cycleRepeat(),
+      false,
+      compact ? "@max-[460px]:hidden" : "",
     )}
     <Volume compact />
     {@render capsuleButton(t.player.lyrics, IconLyrics, false, () => layout.toggleLyrics(), !track)}
-    {@render capsuleButton(t.player.fullscreen, IconExpand, false, () => (layout.fullscreen = true), !track)}
-    {@render capsuleButton(t.tray.miniPlayer, IconMini, false, () => mini.set(true))}
+    {#if !compact}
+      {@render capsuleButton(t.player.fullscreen, IconExpand, false, () => (layout.fullscreen = true), !track)}
+      {@render capsuleButton(t.tray.miniPlayer, IconMini, false, () => mini.set(true))}
+    {/if}
     {@render capsuleButton(t.player.queue, IconQueue, layout.drawer === "queue", () => layout.toggleDrawer("queue"))}
   </div>
 </div>

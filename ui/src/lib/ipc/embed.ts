@@ -27,7 +27,7 @@ export function islandFrame(w: Window = window): boolean {
   }
 }
 
-/** Shown inside the island: no player bar, the logo opens the app, a way back. */
+/** Shown inside the island: a compact player bar, the logo opens the app, a way back. */
 export const embedded = typeof window !== "undefined" && islandFrame();
 
 /** The frame has no Tauri IPC of its own: calls go through the island's page. Some builds give
@@ -86,11 +86,13 @@ export function install(
       currentWebview: { windowLabel: "island", label: "island" },
     },
   };
-  Object.defineProperty(w, "__TAURI_INTERNALS__", { value: internals, configurable: true });
+  // Writable, so the dev mock (`?mock&host=island`) can swap in its own IPC.
+  Object.defineProperty(w, "__TAURI_INTERNALS__", { value: internals, configurable: true, writable: true });
   // `listen`'s unlisten calls this before `plugin:event|unlisten`; the island drops its
   // listener on that command.
   Object.defineProperty(w, "__TAURI_EVENT_PLUGIN_INTERNALS__", {
     value: { unregisterListener() {} },
+    writable: true,
     configurable: true,
   });
 
