@@ -137,6 +137,19 @@ pub fn open_url(url: &str) -> bool {
     false
 }
 
+/// A modal error box with an OK button, for failures before any window exists.
+pub fn error_box(title: &str, text: &str) {
+    #[cfg(windows)]
+    // SAFETY: both strings outlive the call; no owner window.
+    unsafe {
+        use windows::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
+        use windows::core::HSTRING;
+        MessageBoxW(None, &HSTRING::from(text), &HSTRING::from(title), MB_OK | MB_ICONERROR);
+    }
+    #[cfg(not(windows))]
+    eprintln!("{title}: {text}");
+}
+
 /// Posts `WM_CLOSE` to a top-level window, so whatever subclasses it (tauri-plugin-frame's
 /// snap overlay) tears itself down before the window goes.
 pub fn post_close(hwnd: isize) {

@@ -26,6 +26,20 @@ fn install_runtime() {
     std::mem::forget(rt);
 }
 
+/// The session could not open (e.g. a newer Mixtape moved the library on): say why in a box
+/// and leave, instead of the panic that `Builder::run` would turn this into.
+fn startup_failed(e: Box<dyn std::error::Error>) -> ! {
+    use mixtape_core::l10n::{Lang, set_lang};
+    set_lang(Lang::from_locale(mixtape_win::ui_language()));
+    let text = match e.downcast::<mixtape_library::Error>() {
+        Ok(lib) => mixtape_core::AppError::from(*lib).to_string(),
+        Err(e) => e.to_string(),
+    };
+    tracing::error!("startup failed: {text}");
+    mixtape_win::error_box("Mixtape", &text);
+    std::process::exit(1)
+}
+
 pub fn run() {
     let default_filter = if cfg!(debug_assertions) { "info,mixtape=debug" } else { "warn,mixtape=info" };
     tracing_subscriber::fmt()
@@ -51,7 +65,10 @@ pub fn run() {
         // The session's commands and `cover:`; the session itself opens in `setup`.
         .plugin(mixtape_session::plugin(Arc::new(host::AppHost)))
         .setup(|app| {
-            let state = mixtape_session::open(app.handle())?;
+            let state = match mixtape_session::open(app.handle()) {
+                Ok(state) => state,
+                Err(e) => startup_failed(e),
+            };
             let prefs = commands::settings::Prefs::load(&state);
             prefs.apply_language(&state);
             account::restore(&state);

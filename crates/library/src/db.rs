@@ -42,10 +42,22 @@ pub fn open_writer(path: &Path) -> Result<Connection> {
     conn.pragma_update(None, "temp_store", "MEMORY")?;
     conn.pragma_update(None, "cache_size", -16_000)?; // ~16 MB
     conn.busy_timeout(Duration::from_secs(5))?;
+    refuse_newer(&conn)?;
     migrations().to_latest(&mut conn)?;
     conn.execute(ENSURE_DEVICE_ID, [])?;
     crate::recent::import_legacy_queries(&mut conn)?;
     Ok(conn)
+}
+
+/// A schema past the last migration this build knows comes from a newer Mixtape (another
+/// app sharing the database, or a downgrade): leave it alone and say so.
+fn refuse_newer(conn: &Connection) -> Result<()> {
+    let found: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    let known = MIGRATIONS_SLICE.len() as u32;
+    if found > known {
+        return Err(crate::Error::TooNew { found, known });
+    }
+    Ok(())
 }
 
 /// Opens a read-only connection. Call after [`open_writer`] has created the schema.
@@ -68,6 +80,32 @@ mod tests {
             r.get(0)
         })
         .unwrap()
+    }
+
+    #[test]
+    fn a_newer_schema_is_refused_and_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        let known = MIGRATIONS_SLICE.len() as u32;
+        {
+            let c = Connection::open(&path).unwrap();
+            c.pragma_update(None, "user_version", known + 1).unwrap();
+        }
+        let err = open_writer(&path).unwrap_err();
+        assert!(matches!(err, crate::Error::TooNew { found, known: k } if found == known + 1 && k == known), "{err}");
+        let c = Connection::open(&path).unwrap();
+        let v: u32 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(v, known + 1, "the schema is not touched");
+        let tables: i64 = c.query_row("SELECT count(*) FROM sqlite_master WHERE type = 'table'", [], |r| r.get(0)).unwrap();
+        assert_eq!(tables, 0, "no migration ran");
+    }
+
+    #[test]
+    fn the_current_schema_opens_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        drop(open_writer(&path).unwrap());
+        open_writer(&path).unwrap();
     }
 
     #[test]

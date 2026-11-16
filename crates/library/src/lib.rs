@@ -36,6 +36,9 @@ pub enum Error {
     Json(#[from] serde_json::Error),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+    /// The database was moved on by a newer Mixtape: this build must not touch it.
+    #[error("the library was made by a newer Mixtape (schema {found}, this version knows {known})")]
+    TooNew { found: u32, known: u32 },
     #[error("database worker stopped")]
     WorkerGone,
     #[error("{0}")]
@@ -46,6 +49,16 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 impl From<Error> for mixtape_core::AppError {
     fn from(e: Error) -> Self {
+        if let Error::TooNew { .. } = e {
+            return mixtape_core::AppError::new(
+                mixtape_core::ErrorKind::Storage,
+                mixtape_core::tr(
+                    "Your library was updated by a newer version of Mixtape. Install the latest version from github.com/Reva1v/mixtape/releases.",
+                    "Вашу бібліотеку оновила новіша версія Mixtape. Встановіть останню версію з github.com/Reva1v/mixtape/releases.",
+                    "Вашу библиотеку обновила более новая версия Mixtape. Установите последнюю версию с github.com/Reva1v/mixtape/releases."
+                ),
+            );
+        }
         mixtape_core::AppError::new(
             mixtape_core::ErrorKind::Storage,
             mixtape_core::trf!("Library error: {e}", "Помилка бібліотеки: {e}", "Ошибка библиотеки: {e}"),
