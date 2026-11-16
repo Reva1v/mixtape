@@ -1,18 +1,20 @@
 //! The YouTube Music catalog (US4): search outside the library, artist pages from the
 //! catalog and «Скачать» for albums, playlists and discographies.
 
-use super::CmdResult;
+use super::{CmdResult, blocking};
 use crate::commands::library::emit_changed;
 use crate::state::Session;
 use mixtape_core::{
-    Album, AlbumId, AppError, Artist, ArtistId, ErrorKind, Playlist, PlaylistId, Track, TrackId, tr, trf,
+    Album, AlbumId, AppError, Artist, ArtistId, ErrorKind, Playlist, PlaylistId, Track, TrackId,
+    tr, trf,
 };
 use mixtape_library::repo;
 use mixtape_library::views::ViewKind;
+use mixtape_sync::search::{CoverSink, HttpCovers, SearchError, SearchKey, Stored, TopKind};
 use mixtape_sync::{catalog, sources, url_import};
 use mixtape_yt::YtError;
 use mixtape_yt::api::YtMusic;
-use mixtape_yt::search::{SearchItem, SearchKind, SearchPage};
+use mixtape_yt::search::SearchKind;
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::sync::atomic::Ordering;
@@ -129,75 +131,110 @@ async fn tracks_of(st: &Session, ids: &[mixtape_core::TrackId]) -> CmdResult<Vec
     Ok(st.db.read(|c| repo::tracks_by_ids(c, ids))?)
 }
 
-/// Stores what the page found and reads it back in the library's shapes.
-async fn page_of(st: &Session, page: SearchPage) -> CmdResult<CatalogPage> {
-    let http = st.yt.http();
-    let mut tracks = page.tracks;
-    let mut albums = page.albums;
-    let mut artists = page.artists;
-    let mut playlists = page.playlists;
-    // The top card is stored with the rest, then picked back out.
-    let top_kind = page.top.map(|top| match top {
-        SearchItem::Track(t) => {
-            tracks.insert(0, t);
-            0
-        }
-        SearchItem::Album(a) => {
-            albums.insert(0, a);
-            1
-        }
-        SearchItem::Artist(a) => {
-            artists.insert(0, a);
-            2
-        }
-        SearchItem::Playlist(p) => {
-            playlists.insert(0, p);
-            3
-        }
-    });
-    let track_ids = sources::store_tracks(http, &st.db, &st.covers, tracks).await?;
-    let album_ids = catalog::store_album_cards(http, &st.db, &st.covers, &albums).await;
-    let artist_ids = catalog::store_artist_cards(http, &st.db, &st.covers, &artists).await;
-    let mut playlists = catalog::playlist_cards(http, &st.covers, playlists).await;
-    let (mut tracks, mut albums, mut artists, owned) = st.db.read(|c| {
-        let owned: Vec<AlbumId> = album_ids
-            .iter()
-            .filter(|id| repo::album_owned(c, id).unwrap_or(false))
-            .cloned()
-            .collect();
+/// Event: covers that landed after a search answered; the payload is their keys.
+const COVERS_READY: &str = "covers:ready";
+
+/// Where a search's thumbnails go once the answer is out: one background task fetches them
+/// and announces each as it lands (`covers:ready`), so a tile draws without a new search.
+fn cover_sink(st: &Session) -> CoverSink<HttpCovers> {
+    let app = st.app.clone();
+    CoverSink {
+        db: st.db.clone(),
+        store: st.covers.clone(),
+        fetcher: HttpCovers::new(st.yt.http().clone(), st.covers.clone()),
+        on_ready: Arc::new(move |key| {
+            crate::host::emit(&app, COVERS_READY, vec![key.to_owned()]);
+        }),
+    }
+}
+
+fn search_error(st: &Session, e: SearchError<YtError>) -> AppError {
+    match e {
+        // The UI has asked again and drops this answer by its sequence number.
+        SearchError::Superseded => AppError::new(ErrorKind::Internal, "search superseded"),
+        SearchError::Read(e) => yt_error(st, e),
+        SearchError::Store(e) => e.into(),
+        SearchError::Internal(e) => AppError::new(ErrorKind::Internal, e),
+    }
+}
+
+/// Reads a stored page back in the library's shapes (the likes and downloads are current).
+/// The flag is false when a row is missing, e.g. cleaned away since a cached search.
+async fn page_of(st: &Arc<Session>, stored: Stored) -> CmdResult<(CatalogPage, bool)> {
+    let st = st.clone();
+    blocking(move || {
+        let Stored {
+            top,
+            tracks: track_ids,
+            albums: album_ids,
+            artists: artist_ids,
+            playlists,
+            continuation,
+            ..
+        } = stored;
+        let (tracks, albums, artists, owned) = st.db.read(|c| {
+            let owned: Vec<AlbumId> = album_ids
+                .iter()
+                .filter(|id| repo::album_owned(c, id).unwrap_or(false))
+                .cloned()
+                .collect();
+            Ok((
+                repo::tracks_by_ids(c, &track_ids)?,
+                repo::albums_by_ids(c, &album_ids)?,
+                repo::artists_by_ids(c, &artist_ids)?,
+                owned,
+            ))
+        })?;
+        let complete = tracks.len() == track_ids.len()
+            && albums.len() == album_ids.len()
+            && artists.len() == artist_ids.len();
         Ok((
-            repo::tracks_by_ids(c, &track_ids)?,
-            repo::albums_by_ids(c, &album_ids)?,
-            repo::artists_by_ids(c, &artist_ids)?,
-            owned,
+            assemble(top, tracks, albums, artists, playlists, owned, continuation),
+            complete,
         ))
-    })?;
-    let top = match top_kind {
-        Some(0) if !tracks.is_empty() => Some(CatalogTop::Track {
+    })
+    .await
+}
+
+/// Takes the top card off the front of its list; a top card that failed to store is dropped.
+fn assemble(
+    top: Option<TopKind>,
+    mut tracks: Vec<Track>,
+    mut albums: Vec<Album>,
+    mut artists: Vec<Artist>,
+    mut playlists: Vec<Playlist>,
+    owned_albums: Vec<AlbumId>,
+    continuation: Option<String>,
+) -> CatalogPage {
+    let top = match top {
+        Some(TopKind::Track) if !tracks.is_empty() => Some(CatalogTop::Track {
             track: tracks.remove(0),
         }),
-        Some(1) if !albums.is_empty() => Some(CatalogTop::Album {
+        Some(TopKind::Album) if !albums.is_empty() => Some(CatalogTop::Album {
             album: albums.remove(0),
         }),
-        Some(2) if !artists.is_empty() => Some(CatalogTop::Artist {
+        Some(TopKind::Artist) if !artists.is_empty() => Some(CatalogTop::Artist {
             artist: artists.remove(0),
         }),
-        Some(3) if !playlists.is_empty() => Some(CatalogTop::Playlist {
+        Some(TopKind::Playlist) if !playlists.is_empty() => Some(CatalogTop::Playlist {
             playlist: playlists.remove(0),
         }),
         _ => None,
     };
-    Ok(CatalogPage {
+    CatalogPage {
         top,
         tracks,
         albums,
         artists,
         playlists,
-        owned_albums: owned,
-        continuation: page.continuation,
-    })
+        owned_albums,
+        continuation,
+    }
 }
 
+/// Searches the catalog. The answer is out as soon as YouTube has answered and the rows are
+/// stored; the thumbnails follow (`covers:ready`). A repeat of a query within ten minutes
+/// comes from the cache, and a newer search cancels this one with its thumbnails.
 #[tauri::command]
 pub async fn catalog_search(
     state: St<'_>,
@@ -206,12 +243,21 @@ pub async fn catalog_search(
 ) -> CmdResult<CatalogPage> {
     let st = state.inner().clone();
     need_catalog(&st)?;
-    let page = st
-        .yt
-        .search(query.trim(), kind.into())
+    let (query, kind) = (query.trim().to_owned(), SearchKind::from(kind));
+    let key = SearchKey::new(&query, kind);
+    let yt = st.yt.clone();
+    let stored = st
+        .search
+        .search(key.clone(), cover_sink(&st), move || async move {
+            yt.search(&query, kind).await
+        })
         .await
-        .map_err(|e| yt_error(&st, e))?;
-    page_of(&st, page).await
+        .map_err(|e| search_error(&st, e))?;
+    let (page, complete) = page_of(&st, stored).await?;
+    if !complete {
+        st.search.forget(&key);
+    }
+    Ok(page)
 }
 
 #[tauri::command]
@@ -222,12 +268,15 @@ pub async fn catalog_more(
 ) -> CmdResult<CatalogPage> {
     let st = state.inner().clone();
     need_catalog(&st)?;
-    let page = st
-        .yt
-        .search_more(kind.into(), &continuation)
+    let yt = st.yt.clone();
+    let stored = st
+        .search
+        .more(cover_sink(&st), move || async move {
+            yt.search_more(kind.into(), &continuation).await
+        })
         .await
-        .map_err(|e| yt_error(&st, e))?;
-    page_of(&st, page).await
+        .map_err(|e| search_error(&st, e))?;
+    Ok(page_of(&st, stored).await?.0)
 }
 
 #[tauri::command]
@@ -334,9 +383,21 @@ pub async fn fill_artist(st: &Session, id: &ArtistId) -> bool {
 
 /// The first of the song's tracks whose title fits, else the top result; for a song named by
 /// Shazam, whose spelling differs a little.
-pub(crate) async fn first_track(st: &Session, query: &str, title: &str) -> CmdResult<Option<Track>> {
-    let page = st.yt.search(query.trim(), SearchKind::Tracks).await.map_err(|e| yt_error(st, e))?;
-    let tracks = page_of(st, page).await?.tracks;
+pub(crate) async fn first_track(
+    st: &Arc<Session>,
+    query: &str,
+    title: &str,
+) -> CmdResult<Option<Track>> {
+    let yt = st.yt.clone();
+    let query = query.trim().to_owned();
+    let stored = st
+        .search
+        .lookup(cover_sink(st), move || async move {
+            yt.search(&query, SearchKind::Tracks).await
+        })
+        .await
+        .map_err(|e| search_error(st, e))?;
+    let tracks = page_of(st, stored).await?.0.tracks;
     let want = title.to_lowercase();
     let pick = tracks
         .iter()
@@ -437,6 +498,52 @@ pub async fn catalog_playlist_to_play(
     id: &PlaylistId,
 ) -> CmdResult<(Playlist, Vec<Track>)> {
     catalog_page(st, id, Duration::MAX).await
+}
+
+#[cfg(test)]
+mod assemble_tests {
+    use super::*;
+    use mixtape_core::PlaylistOrigin;
+
+    fn list(id: &str) -> Playlist {
+        Playlist {
+            id: PlaylistId::new(id.to_owned()),
+            title: id.to_owned(),
+            origin: PlaylistOrigin::Ytm,
+            track_count: 1,
+            cover_key: None,
+        }
+    }
+
+    fn page(top: Option<TopKind>, lists: Vec<Playlist>) -> CatalogPage {
+        assemble(top, vec![], vec![], vec![], lists, vec![], Some("c".into()))
+    }
+
+    #[test]
+    fn the_top_card_comes_off_the_front_of_its_list() {
+        let p = page(Some(TopKind::Playlist), vec![list("a"), list("b")]);
+        assert!(
+            matches!(p.top, Some(CatalogTop::Playlist { ref playlist }) if playlist.id.as_str() == "a")
+        );
+        assert_eq!(p.playlists.len(), 1);
+        assert_eq!(p.playlists[0].id.as_str(), "b");
+        assert_eq!(p.continuation.as_deref(), Some("c"));
+    }
+
+    #[test]
+    fn no_top_leaves_every_list_whole() {
+        let p = page(None, vec![list("a"), list("b")]);
+        assert!(p.top.is_none());
+        assert_eq!(p.playlists.len(), 2);
+    }
+
+    #[test]
+    fn a_top_card_that_did_not_store_is_dropped_not_taken_from_another_list() {
+        // The top was a track, but no track came back: the playlists stay whole.
+        let p = page(Some(TopKind::Track), vec![list("a")]);
+        assert!(p.top.is_none());
+        assert_eq!(p.playlists.len(), 1);
+    }
 }
 
 #[cfg(test)]

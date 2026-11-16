@@ -4,7 +4,9 @@
 
 use crate::sources::{self, Collected};
 use mixtape_artwork::{CoverStore, Detail};
-use mixtape_core::{AlbumId, AlbumType, ArtistId, Playlist, PlaylistId, PlaylistOrigin, TrackId, trf};
+use mixtape_core::{
+    AlbumId, AlbumType, ArtistId, Playlist, PlaylistId, PlaylistOrigin, TrackId, trf,
+};
 use mixtape_library::repo::{self, AlbumMeta};
 use mixtape_library::{Db, ytm};
 use mixtape_yt::YtError;
@@ -14,11 +16,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 pub(crate) fn lib_err(e: mixtape_library::Error) -> YtError {
-    YtError::Parse(trf!(
-        "library: {e}",
-        "бібліотека: {e}",
-        "библиотека: {e}",
-    ))
+    YtError::Parse(trf!("library: {e}", "бібліотека: {e}", "библиотека: {e}",))
 }
 
 /// Stores a full album page; `download` also queues its tracks. Returns the track count.
@@ -38,7 +36,9 @@ pub async fn store_album<Y: YtMusic>(
     }
     c.tracks.extend(album.tracks.iter().cloned());
     c.albums.push(album);
-    sources::store(http, db, covers, c, download).await.map_err(lib_err)?;
+    sources::store(http, db, covers, c, download)
+        .await
+        .map_err(lib_err)?;
     Ok(n)
 }
 
@@ -57,7 +57,9 @@ pub async fn store_artist<Y: YtMusic>(
     id: &ArtistId,
 ) -> Result<ArtistCatalog, YtError> {
     let artist = yt.artist(id).await?;
-    let top = sources::store_tracks(http, db, covers, artist.top_tracks).await.map_err(lib_err)?;
+    let top = sources::store_tracks(http, db, covers, artist.top_tracks)
+        .await
+        .map_err(lib_err)?;
     store_artist_cards(http, db, covers, &[artist.card]).await;
     let albums = store_album_cards(http, db, covers, &artist.discography).await;
     Ok(ArtistCatalog { top, albums })
@@ -92,7 +94,9 @@ pub async fn playlist_page<Y: YtMusic>(
     id: &PlaylistId,
 ) -> Result<(Playlist, Vec<TrackId>), YtError> {
     let p = yt.playlist(id).await?;
-    let tracks = sources::store_tracks(http, db, covers, p.tracks).await.map_err(lib_err)?;
+    let tracks = sources::store_tracks(http, db, covers, p.tracks)
+        .await
+        .map_err(lib_err)?;
     let cover_key = cover(http, covers, id.as_str(), p.card.thumbnail.as_deref()).await;
     let playlist = Playlist {
         id: p.card.id,
@@ -106,19 +110,29 @@ pub async fn playlist_page<Y: YtMusic>(
 
 /// Downloads a missing card cover (small: these are only browsed); returns its key when
 /// it is on disk.
-async fn cover(http: &reqwest::Client, covers: &CoverStore, key: &str, url: Option<&str>) -> Option<String> {
+async fn cover(
+    http: &reqwest::Client,
+    covers: &CoverStore,
+    key: &str,
+    url: Option<&str>,
+) -> Option<String> {
     if !covers.exists(key)
         && let Some(url) = url
         && let Ok(bytes) = thumbs::download_small(http, url).await
     {
         let (covers, key2) = (covers.clone(), key.to_owned());
-        let _ = tokio::task::spawn_blocking(move || covers.process(&key2, &bytes, Detail::Small)).await;
+        let _ =
+            tokio::task::spawn_blocking(move || covers.process(&key2, &bytes, Detail::Small)).await;
     }
     covers.exists(key).then(|| key.to_owned())
 }
 
 /// Fetches missing covers six at a time; returns the keys that are on disk afterwards.
-async fn covers_for(http: &reqwest::Client, covers: &CoverStore, jobs: Vec<(String, Option<String>)>) -> HashSet<String> {
+async fn covers_for(
+    http: &reqwest::Client,
+    covers: &CoverStore,
+    jobs: Vec<(String, Option<String>)>,
+) -> HashSet<String> {
     let sem = Arc::new(tokio::sync::Semaphore::new(6));
     let mut set = tokio::task::JoinSet::new();
     for (key, url) in jobs {
@@ -138,13 +152,39 @@ async fn covers_for(http: &reqwest::Client, covers: &CoverStore, jobs: Vec<(Stri
 }
 
 /// Stores album cards (search results, a discography) that are not known yet.
-pub async fn store_album_cards(http: &reqwest::Client, db: &Db, covers: &CoverStore, cards: &[YtAlbumCard]) -> Vec<AlbumId> {
-    let have = covers_for(http, covers, cards.iter().map(|c| (c.id.to_string(), c.thumbnail.clone())).collect()).await;
+pub async fn store_album_cards(
+    http: &reqwest::Client,
+    db: &Db,
+    covers: &CoverStore,
+    cards: &[YtAlbumCard],
+) -> Vec<AlbumId> {
+    let have = covers_for(
+        http,
+        covers,
+        cards
+            .iter()
+            .map(|c| (c.id.to_string(), c.thumbnail.clone()))
+            .collect(),
+    )
+    .await;
+    write_album_cards(db, covers, cards, &have)
+}
+
+/// Writes album cards; `have` are the cover keys to record (on disk, or about to be).
+pub(crate) fn write_album_cards(
+    db: &Db,
+    covers: &CoverStore,
+    cards: &[YtAlbumCard],
+    have: &HashSet<String>,
+) -> Vec<AlbumId> {
     let mut metas = Vec::new();
     for c in cards {
         let key = c.id.to_string();
         let cover_key = have.contains(&key).then_some(key);
-        let palette = cover_key.as_ref().and_then(|k| covers.palette(k).ok()).unwrap_or_default();
+        let palette = cover_key
+            .as_ref()
+            .and_then(|k| covers.palette(k).ok())
+            .unwrap_or_default();
         metas.push(AlbumMeta {
             id: c.id.clone(),
             title: c.title.clone(),
@@ -180,13 +220,39 @@ pub async fn store_album_cards(http: &reqwest::Client, db: &Db, covers: &CoverSt
 }
 
 /// Stores artist cards with their pictures (only where none is stored yet).
-pub async fn store_artist_cards(http: &reqwest::Client, db: &Db, covers: &CoverStore, cards: &[YtArtistCard]) -> Vec<ArtistId> {
-    let have = covers_for(http, covers, cards.iter().map(|c| (c.id.to_string(), c.thumbnail.clone())).collect()).await;
+pub async fn store_artist_cards(
+    http: &reqwest::Client,
+    db: &Db,
+    covers: &CoverStore,
+    cards: &[YtArtistCard],
+) -> Vec<ArtistId> {
+    let have = covers_for(
+        http,
+        covers,
+        cards
+            .iter()
+            .map(|c| (c.id.to_string(), c.thumbnail.clone()))
+            .collect(),
+    )
+    .await;
+    write_artist_cards(db, covers, cards, &have)
+}
+
+/// Writes artist cards; `have` are the picture keys to record (on disk, or about to be).
+pub(crate) fn write_artist_cards(
+    db: &Db,
+    covers: &CoverStore,
+    cards: &[YtArtistCard],
+    have: &HashSet<String>,
+) -> Vec<ArtistId> {
     let mut rows = Vec::new();
     for c in cards {
         let key = c.id.to_string();
         let image = have.contains(&key).then_some(key);
-        let palette = image.as_ref().and_then(|k| covers.palette(k).ok()).unwrap_or_default();
+        let palette = image
+            .as_ref()
+            .and_then(|k| covers.palette(k).ok())
+            .unwrap_or_default();
         rows.push((c.clone(), image, palette));
     }
     let ids = rows.iter().map(|(c, _, _)| c.id.clone()).collect();
@@ -217,8 +283,25 @@ pub async fn store_artist_cards(http: &reqwest::Client, db: &Db, covers: &CoverS
 }
 
 /// Playlist cards from search, with covers, as the UI's `Playlist`.
-pub async fn playlist_cards(http: &reqwest::Client, covers: &CoverStore, cards: Vec<YtPlaylistCard>) -> Vec<Playlist> {
-    let have = covers_for(http, covers, cards.iter().map(|c| (c.id.to_string(), c.thumbnail.clone())).collect()).await;
+pub async fn playlist_cards(
+    http: &reqwest::Client,
+    covers: &CoverStore,
+    cards: Vec<YtPlaylistCard>,
+) -> Vec<Playlist> {
+    let have = covers_for(
+        http,
+        covers,
+        cards
+            .iter()
+            .map(|c| (c.id.to_string(), c.thumbnail.clone()))
+            .collect(),
+    )
+    .await;
+    playlist_rows(cards, &have)
+}
+
+/// Playlist cards as the UI's `Playlist`; `have` are the cover keys to record.
+pub(crate) fn playlist_rows(cards: Vec<YtPlaylistCard>, have: &HashSet<String>) -> Vec<Playlist> {
     let mut out = Vec::with_capacity(cards.len());
     for c in cards {
         let cover_key = have.contains(c.id.as_str()).then(|| c.id.to_string());

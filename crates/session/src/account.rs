@@ -106,6 +106,7 @@ fn apply(st: &Session, cookies: Option<Cookies>) {
     st.yt.set_cookies(cookies);
     st.account.revive();
     st.catalog_pages.clear();
+    st.search.clear();
 }
 
 /// There is a jar and YouTube has not refused it: worth sending requests with.

@@ -6,6 +6,7 @@ import { invoke as tauriInvoke, Channel } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AppError } from "./bindings/AppError";
 import { APP_COMMANDS, route } from "./route";
+import { coverReady } from "$lib/stores/coverReady.svelte";
 
 export { Channel };
 
@@ -57,5 +58,8 @@ export function setCoverSource(source: (key: string, size: number) => string) {
 /** URL of a cover thumbnail. Sizes are cut ahead of time: 64, 300 and 1024 px. */
 export function coverUrl(key: string | null | undefined, size: 64 | 300 | 1024): string | undefined {
   if (!key) return undefined;
-  return coverSource ? coverSource(key, size) : `http://cover.localhost/${key}/${size}`;
+  if (coverSource) return coverSource(key, size);
+  // A cover that landed after a failed load is asked for again under a new version.
+  const v = coverReady.version(key);
+  return `http://cover.localhost/${key}/${size}${v ? `?v=${v}` : ""}`;
 }
