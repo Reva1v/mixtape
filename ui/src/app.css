@@ -96,9 +96,18 @@ html.in-island body {
 .in-island-main :is(.pt-9, .pt-10) {
   padding-top: 22px;
 }
-/* Search's 48 px field row: 16 + 24 = 40. */
+/* Search's field row starts 24 px down, like its 24 px left side (user 2026-11-19). */
 .in-island-main .search-head {
-  padding-top: 16px;
+  padding-top: 24px;
+}
+/* A header row with buttons (search, Library, Stats, Downloads) ends left of the island's close button (24 px in,
+   32 px wide) and, when they show, the history arrows (56 px in, 66 px wide), 8 px clear: its own buttons never sit
+   under them (user 2026-11-19). The 24 px side padding is already there, so the margin adds the rest. */
+.in-island-main :is(.search-head, div.page-head) {
+  margin-inline-end: 40px;
+}
+.in-island-main[data-history] :is(.search-head, div.page-head) {
+  margin-inline-end: 106px;
 }
 .in-island-main .page-head {
   min-height: 36px;

@@ -190,7 +190,11 @@
           </div>
         {/if}
 
-        <main bind:this={layout.scrollEl} class="relative h-full overflow-x-hidden overflow-y-auto {embedded ? 'in-island-main' : ''}">
+        <main
+          bind:this={layout.scrollEl}
+          class="relative h-full overflow-x-hidden overflow-y-auto {embedded ? 'in-island-main' : ''}"
+          data-history={embedded && (router.canBack || router.canForward) ? "" : undefined}
+        >
           {#key screenKey}
           <div in:enter={router.direction === "new" ? { y: 8 } : { y: 0, x: router.direction === "back" ? -24 : 24 }}>
           {#if route.name === "home"}
