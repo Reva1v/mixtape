@@ -153,8 +153,8 @@
         {/if}
         {#if embedded}
           <!-- Inside Droplet Island there is no window: back to the island's Home instead. -->
-          <!-- Up in the top-right corner (user 2026-10-28), on Home header's middle line (32 px top + half the 36 px disc = 50, minus 16 = 34) and 24 px from the panel's right edge, where the island's phone view puts its own close button (user 2026-11-18). The history arrows sit just left of it (24 + 32). -->
-          <div class="absolute top-[34px] right-6 z-20 flex h-8 items-center">
+          <!-- Up in the top-right corner (user 2026-10-28), on the page header's middle line (22 px top + half the 36 px disc = 40, minus 16 = 24) and 24 px from the panel's right edge, where the island's phone view puts its own close button (user 2026-11-18). The history arrows sit just left of it (24 + 32). -->
+          <div class="absolute top-6 right-6 z-20 flex h-8 items-center">
             <button
               type="button"
               aria-label={t.island.back}
@@ -171,7 +171,7 @@
         {#if router.canBack || router.canForward}
           <!-- History arrows sit in the caption row, just left of the window buttons
                (~136 px wide), styled like them, so they never crowd page headers. -->
-          <div class="absolute {embedded ? 'top-[34px] right-14 h-8' : 'top-1 right-[140px] h-10'} z-20 flex items-center gap-0.5" transition:fadeSpring>
+          <div class="absolute {embedded ? 'top-6 right-14 h-8' : 'top-1 right-[140px] h-10'} z-20 flex items-center gap-0.5" transition:fadeSpring>
             {#each [{ id: "back", label: t.nav.back, tip: t.app.backTip, ok: router.canBack, go: () => router.back(), Icon: IconBack }, { id: "forward", label: t.nav.forward, tip: t.app.forwardTip, ok: router.canForward, go: () => router.forward(), Icon: IconForward }] as b (b.id)}
               <button
                 type="button"

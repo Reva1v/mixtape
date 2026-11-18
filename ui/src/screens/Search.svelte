@@ -157,7 +157,7 @@
 {/snippet}
 
 <div class="pb-10">
-  <div class="flex items-center gap-2 px-8 pt-10 pb-4">
+  <div class="search-head flex items-center gap-2 px-8 pt-10 pb-4">
     <label class="flex h-12 min-w-0 flex-1 items-center gap-3 rounded-xl bg-fill-1 px-4 ring-1 ring-line transition-colors focus-within:bg-fill-2 focus-within:ring-white/15">
       <IconSearch class="size-5 shrink-0 text-ink-3" />
       <input

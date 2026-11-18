@@ -83,10 +83,30 @@ html.in-island,
 html.in-island body {
   background: transparent;
 }
-/* Inside the island: the page title sits as far from the top as from the left (Home: pt-9 − 4 =
-   32 px, as its px-8). */
-.in-island-main > div {
-  margin-top: -4px;
+/* Inside the island the pages use the island's phone view metrics (user 2026-11-18): 24 px
+   side padding, the page header 22 px below the content panel's top, its row 36 px tall so its
+   middle line is 40 px down, where the close button's middle sits too. The standalone window
+   keeps its own layout. */
+.in-island-main :is(.px-8, .px-7) {
+  padding-inline: 24px;
+}
+.in-island-main .scroll-px-8 {
+  scroll-padding-inline: 24px;
+}
+.in-island-main :is(.pt-9, .pt-10) {
+  padding-top: 22px;
+}
+/* Search's 48 px field row: 16 + 24 = 40. */
+.in-island-main .search-head {
+  padding-top: 16px;
+}
+.in-island-main .page-head {
+  min-height: 36px;
+  align-items: center;
+}
+.in-island-main .page-head h1,
+.in-island-main h1.page-head {
+  line-height: 36px;
 }
 
 button,

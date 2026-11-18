@@ -109,7 +109,7 @@
 {/snippet}
 
 <div class="mx-auto flex min-h-full w-full max-w-[924px] flex-col px-8 pt-10 pb-12">
-  <div class="mb-8 flex items-end justify-between gap-4">
+  <div class="page-head mb-8 flex items-end justify-between gap-4">
     <h1 class="text-[28px] font-bold tracking-tight">{t.nav.downloads}</h1>
     <button
       type="button"

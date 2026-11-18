@@ -116,7 +116,7 @@
 {/snippet}
 
 <div class="mx-auto w-full max-w-[824px] px-8 pt-10 pb-12">
-  <h1 class="mb-8 text-[26px] font-bold tracking-tight">{t.nav.settings}</h1>
+  <h1 class="page-head mb-8 text-[26px] font-bold tracking-tight">{t.nav.settings}</h1>
 
   <section class="mb-8">
     <h2 class="mb-3 text-[13px] font-semibold tracking-wide text-ink-3 uppercase">{t.settings.account.title}</h2>

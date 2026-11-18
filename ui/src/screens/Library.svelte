@@ -140,7 +140,7 @@
 
 <div class="pb-10">
   <div class="px-8 pt-10 pb-3">
-    <div class="flex items-end justify-between gap-4">
+    <div class="page-head flex items-end justify-between gap-4">
       <h1 class="text-[28px] font-bold tracking-tight">{t.nav.library}</h1>
       {#if rows && rows.count > 0 && (kind === "tracks" || kind === "liked")}
         <div class="flex items-center gap-2">

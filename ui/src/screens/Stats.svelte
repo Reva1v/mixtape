@@ -206,7 +206,7 @@
 {/snippet}
 
 <div class="pb-12">
-  <div class="flex items-end justify-between gap-4 px-8 pt-10 pb-6">
+  <div class="page-head flex items-end justify-between gap-4 px-8 pt-10 pb-6">
     <h1 class="text-[28px] font-bold tracking-tight">{t.stats.title}</h1>
     <div class="flex items-center gap-2">
       {#if deviceOptions.length}
