@@ -12,9 +12,14 @@ use crate::resolver::{run_capture, ytdlp_command};
 use crate::{Result, YtError};
 
 const LATEST_URL: &str = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest";
+const RELEASES_URL: &str = "https://api.github.com/repos/yt-dlp/yt-dlp/releases?per_page=10";
 const FETCH_TIMEOUT: Duration = Duration::from_secs(15);
 const VERSION_TIMEOUT: Duration = Duration::from_secs(20);
-const MAX_BODY: usize = 512 * 1024;
+/// A page of ten releases with their asset lists is a few hundred KiB.
+const MAX_BODY: usize = 2 * 1024 * 1024;
+/// The first run of a freshly downloaded exe can take long (a virus scan of the PyInstaller
+/// bundle).
+pub const FIRST_RUN_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// `2026.10.26` or `2026.11.25.1` as numbers; `None` for anything else (a `v` prefix,
 /// nightly suffixes, empty text).
@@ -152,6 +157,47 @@ pub async fn fetch_release(http: &reqwest::Client) -> Result<Release> {
         .ok_or_else(|| YtError::Parse("yt-dlp release: no stable release".into()))
 }
 
+/// The stable releases on the first page of the release list (drafts, prereleases and
+/// entries that do not parse are skipped).
+pub fn parse_releases(json: &str) -> Vec<Release> {
+    let Ok(Value::Array(list)) = serde_json::from_str::<Value>(json) else {
+        return Vec::new();
+    };
+    list.iter()
+        .filter_map(|v| parse_release(&v.to_string()))
+        .collect()
+}
+
+/// The release with the highest version.
+pub fn newest(releases: &[Release]) -> Option<&Release> {
+    releases.iter().max_by_key(|r| parse_version(&r.tag))
+}
+
+/// The last ten stable releases, newest first as GitHub lists them. Same single request
+/// shape as [`fetch_release`]: a GET of the public API, nothing else.
+pub async fn fetch_releases(http: &reqwest::Client) -> Result<Vec<Release>> {
+    let resp = http
+        .get(RELEASES_URL)
+        .header(reqwest::header::USER_AGENT, "Mixtape")
+        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+        .timeout(FETCH_TIMEOUT)
+        .send()
+        .await?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(YtError::Network(format!("GitHub answered {status}")));
+    }
+    let body = read_limited(resp, MAX_BODY).await.map_err(|e| match e {
+        BodyError::Http(e) => YtError::from(e),
+        e @ BodyError::TooLarge(_) => YtError::Parse(format!("yt-dlp releases: {e}")),
+    })?;
+    let list = parse_releases(&String::from_utf8_lossy(&body));
+    if list.is_empty() {
+        return Err(YtError::Parse("yt-dlp releases: no stable release".into()));
+    }
+    Ok(list)
+}
+
 /// The latest stable yt-dlp release tag.
 pub async fn fetch_latest(http: &reqwest::Client) -> Result<String> {
     Ok(fetch_release(http).await?.tag)
@@ -159,10 +205,15 @@ pub async fn fetch_latest(http: &reqwest::Client) -> Result<String> {
 
 /// What `yt-dlp --version` of the bundled executable prints (first line).
 pub async fn installed_version(ytdlp: &Path) -> Result<String> {
+    installed_version_within(ytdlp, VERSION_TIMEOUT).await
+}
+
+/// [`installed_version`] with a time limit of the caller's choosing.
+pub async fn installed_version_within(ytdlp: &Path, timeout: Duration) -> Result<String> {
     let work_dir = std::env::temp_dir();
     let mut cmd = ytdlp_command(ytdlp, &work_dir);
     cmd.arg("--version");
-    let (out, _) = run_capture(cmd, VERSION_TIMEOUT)
+    let (out, _) = run_capture(cmd, timeout)
         .await
         .map_err(YtError::Tool)?;
     let line = out.lines().next().unwrap_or("").trim();
@@ -253,6 +304,32 @@ mod tests {
         for s in ["", "2026-11-24", "2026-13-24T00:00:00Z", "2026-11-24T25:00:00Z", "2026-11-24T00:00:00+01:00", "2026-11-2xT00:00:00Z"] {
             assert_eq!(parse_utc_time(s), None, "{s:?}");
         }
+    }
+
+    fn rel_json(tag: &str, extra: &str) -> String {
+        format!(r#"{{"tag_name":"{tag}","published_at":"2026-11-25T10:00:00Z"{extra}}}"#)
+    }
+
+    #[test]
+    fn reads_a_release_list() {
+        let json = format!(
+            "[{},{},{},{},{{\"junk\":1}}]",
+            rel_json("2026.11.25", ""),
+            rel_json("2026.11.20", r#","prerelease":true"#),
+            rel_json("2026.11.10", r#","draft":true"#),
+            rel_json("2026.11.05", ""),
+        );
+        let list = parse_releases(&json);
+        let tags: Vec<&str> = list.iter().map(|r| r.tag.as_str()).collect();
+        assert_eq!(tags, ["2026.11.25", "2026.11.05"]);
+        assert_eq!(newest(&list).unwrap().tag, "2026.11.25");
+        // not in list order: the highest version wins
+        let json = format!("[{},{}]", rel_json("2026.11.05", ""), rel_json("2026.11.25.1", ""));
+        assert_eq!(newest(&parse_releases(&json)).unwrap().tag, "2026.11.25.1");
+        for bad in ["", "{}", "null", "[1,2]", "not json"] {
+            assert!(parse_releases(bad).is_empty(), "{bad:?}");
+        }
+        assert!(newest(&[]).is_none());
     }
 
     #[test]

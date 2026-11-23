@@ -23,4 +23,8 @@ latest?: string, newer: boolean,
 /**
  * When the newer one installs itself (Unix seconds), if it will.
  */
-installAfter?: number, };
+installAfter?: number, 
+/**
+ * A version the user sent back with «Вернуть встроенную»; it is not installed again.
+ */
+reverted?: string, };

@@ -11,6 +11,11 @@ export const updates = {
   install: "Update",
   installing: (pct: number | null) => (pct === null ? "Downloading the update…" : `Downloading the update… ${pct}%`),
   restartHint: "The app restarts after the update and continues where you left off.",
+  island: {
+    available: (v: string) => `Droplet Island ${v} is available — it brings a new Mixtape`,
+    install: "Update the island",
+    restartHint: "Droplet Island restarts after the update.",
+  },
   ytdlp: {
     title: "yt-dlp",
     /** The version in use and where it came from. */
@@ -19,6 +24,7 @@ export const updates = {
     upToDate: "Up to date",
     pending: (latest: string, date: string) => `New version ${latest} will install itself after ${date}`,
     pendingManual: (latest: string) => `New version ${latest} is out; automatic update is off`,
+    revertedNote: (v: string) => `You went back to the bundled one; ${v} won't install again, a newer version will`,
     installed: (version: string) => `Installed ${version}`,
     revert: "Use the bundled one",
     reverting: "Switching…",

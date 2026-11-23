@@ -6,9 +6,11 @@ import type { UpdateInfo } from "$lib/ipc/bindings/UpdateInfo";
 import type { YtdlpChange } from "$lib/ipc/bindings/YtdlpChange";
 import type { YtdlpInfo } from "$lib/ipc/bindings/YtdlpInfo";
 import type { YtdlpStatus } from "$lib/ipc/bindings/YtdlpStatus";
+import { embedded } from "$lib/ipc/embed";
 import { locale, t } from "$lib/i18n";
 import { toasts } from "./overlay.svelte";
 import { shouldAnnounce } from "./ytdlpNotice";
+import { updateWords } from "./updateWords";
 
 type Status =
   | { kind: "idle" }
@@ -25,13 +27,20 @@ class Updates {
   ytdlp = $state<YtdlpStatus | null>(null);
   ytdlpBusy = $state<"checking" | "reverting" | null>(null);
 
+  /** The texts for this host: Mixtape itself, or Droplet Island when shown inside it (there
+   * an update is the island's, and it brings the new Mixtape). */
+  get words() {
+    return updateWords(embedded, t.updates);
+  }
+
   async init() {
     this.version = await invoke<string>("app_version").catch(() => "");
     await on<UpdateInfo>("update:available", (info) => {
       if (this.status.kind === "installing") return;
       this.status = { kind: "available", info };
-      toasts.push(t.updates.available(info.version), "info", 15000, {
-        label: t.updates.install,
+      const w = this.words;
+      toasts.push(w.available(info.version), "info", 15000, {
+        label: w.install,
         run: () => void this.install(),
       });
     });

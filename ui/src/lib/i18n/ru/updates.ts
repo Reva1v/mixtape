@@ -12,6 +12,11 @@ export const updates: typeof en = {
   install: "Обновить",
   installing: (pct: number | null) => (pct === null ? "Скачиваю обновление…" : `Скачиваю обновление… ${pct}%`),
   restartHint: "После обновления приложение перезапустится и продолжит с того же места.",
+  island: {
+    available: (v: string) => `Droplet Island ${v} доступен — с ним придёт новый Mixtape`,
+    install: "Обновить остров",
+    restartHint: "После обновления Droplet Island перезапустится.",
+  },
   ytdlp: {
     title: "yt-dlp",
     inUse: (version: string | null, updatedOn: string | null) =>
@@ -19,6 +24,7 @@ export const updates: typeof en = {
     upToDate: "Актуальная",
     pending: (latest: string, date: string) => `Новая версия ${latest} установится сама после ${date}`,
     pendingManual: (latest: string) => `Вышла новая версия ${latest}; автообновление выключено`,
+    revertedNote: (v: string) => `Вы вернули встроенную; ${v} снова не установится, более новая — установится`,
     installed: (version: string) => `Установлена ${version}`,
     revert: "Вернуть встроенную",
     reverting: "Переключаю…",

@@ -146,6 +146,9 @@ pub struct YtdlpStatus {
     /// When the newer one installs itself (Unix seconds), if it will.
     #[ts(optional, type = "number")]
     pub install_after: Option<i64>,
+    /// A version the user sent back with «Вернуть встроенную»; it is not installed again.
+    #[ts(optional)]
+    pub reverted: Option<String>,
 }
 
 #[derive(Default)]
@@ -156,6 +159,8 @@ struct YtdlpRt {
     updated_at: Option<i64>,
     latest: Option<String>,
     install_after: Option<i64>,
+    /// Versions the user sent back (a copy of the list on disk).
+    reverted: Vec<String>,
     counter: tools::RollbackCounter,
 }
 
@@ -184,49 +189,75 @@ fn status() -> YtdlpStatus {
         (Some(l), Some(i)) => release::is_newer(l, i),
         _ => false,
     };
+    let held_back = r.latest.as_ref().is_some_and(|l| r.reverted.contains(l));
+    // The newest version the user sent back, while it is still newer than what runs.
+    let reverted = r
+        .reverted
+        .iter()
+        .filter(|v| r.in_use.as_ref().is_some_and(|i| release::is_newer(v, i)))
+        .max_by_key(|v| release::parse_version(v))
+        .cloned();
     YtdlpStatus {
         installed: r.in_use.clone(),
         updated: r.updated_at.is_some(),
         updated_at: r.updated_at,
         latest: r.latest.clone(),
         newer,
-        install_after: if newer { r.install_after } else { None },
+        install_after: if newer && !held_back { r.install_after } else { None },
+        reverted,
     }
 }
 
-/// Reads the bundled yt-dlp's version once and points the resolver at the updated copy if
-/// that one is newer and intact.
-async fn ensure_in_use(st: &Session) {
-    if rt().bundled_version.is_some() {
-        return;
-    }
-    let bundled = st.resolver.bundled_ytdlp().to_path_buf();
-    let version = match release::installed_version(&bundled).await {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::info!("yt-dlp version: {e}");
-            return;
-        }
-    };
+/// Decides which exe runs by the full check of the tools copy (signature, hash, version,
+/// not refused, not sent back) and points the resolver at it, or at the bundled one. Also
+/// called before every cycle, which re-verifies a copy whose files changed.
+fn apply_choice(st: &Session) {
+    let Some(bundled_version) = rt().bundled_version.clone() else { return };
     let dir = tools_dir(st);
-    let (in_use, at) = match tools::choose(&version, &dir) {
+    let chosen = tools::choose(&bundled_version, &dir, tools::PUBLIC_KEY);
+    let reverted = tools::read_reverted(&dir);
+    let mut r = rt();
+    r.reverted = reverted;
+    match chosen {
         tools::Chosen::Updated { exe, meta } => {
-            tracing::info!(version = %meta.version, bundled = %version, "using the updated yt-dlp");
-            st.resolver.set_ytdlp_override(Some(exe));
-            (meta.version, Some(meta.installed_at))
+            if r.in_use.as_deref() != Some(meta.version.as_str()) || st.resolver.override_generation().is_none() {
+                tracing::info!(version = %meta.version, bundled = %bundled_version, "using the updated yt-dlp");
+                st.resolver.set_ytdlp_override(Some(exe));
+                r.counter.reset();
+            }
+            r.in_use = Some(meta.version);
+            r.updated_at = Some(meta.installed_at);
         }
         tools::Chosen::Bundled => {
-            st.resolver.set_ytdlp_override(None);
-            (version.clone(), None)
+            if r.updated_at.is_some() || st.resolver.override_generation().is_some() {
+                tracing::info!("the updated yt-dlp is not usable, using the bundled one");
+                st.resolver.set_ytdlp_override(None);
+            }
+            r.in_use = Some(bundled_version);
+            r.updated_at = None;
         }
-    };
-    let mut r = rt();
-    r.bundled_version = Some(version);
-    r.in_use = Some(in_use);
-    r.updated_at = at;
+    }
 }
 
-/// Downloads, verifies, smoke-tests and installs `rel`; `Err` is the reason it was refused.
+/// Reads the bundled yt-dlp's version once, then applies the choice.
+async fn ensure_in_use(st: &Session) {
+    if rt().bundled_version.is_none() {
+        let bundled = st.resolver.bundled_ytdlp().to_path_buf();
+        match release::installed_version(&bundled).await {
+            Ok(v) => rt().bundled_version = Some(v),
+            Err(e) => {
+                tracing::info!("yt-dlp version: {e}");
+                return;
+            }
+        }
+    }
+    apply_choice(st);
+}
+
+/// Downloads, verifies, smoke-tests and installs `rel`; `Err` is the reason it did not become
+/// the active yt-dlp. Authenticity failures (signature, hash, version string) mark the
+/// version bad for good; a smoke test that fails for any other reason is retried in the
+/// next cycles, a few times.
 async fn install_release(st: &Session, rel: &release::Release) -> Result<(), String> {
     let dir = tools_dir(st);
     let stage = tools::staging_dir(&dir);
@@ -242,29 +273,46 @@ async fn verify_and_install(st: &Session, rel: &release::Release, dir: &std::pat
     let sums = tools::pick_asset(rel, tools::SUMS_ASSET, tools::MAX_SUMS)?;
     let sig = tools::pick_asset(rel, tools::SIG_ASSET, tools::MAX_SIG)?;
     let http = tools::download_client()?;
-    let (exe_path, sums_path, sig_path) = (tools::tools_exe(stage), stage.join(tools::SUMS_ASSET), stage.join(tools::SIG_ASSET));
-    tools::download(&http, sums, tools::MAX_SUMS, &sums_path).await?;
-    tools::download(&http, sig, tools::MAX_SIG, &sig_path).await?;
-    tools::download(&http, exe, tools::MAX_EXE, &exe_path).await?;
+    let staged = tools::Staged::in_dir(stage);
+    tools::download(&http, sums, tools::MAX_SUMS, &staged.sums).await?;
+    tools::download(&http, sig, tools::MAX_SIG, &staged.sig).await?;
+    tools::download(&http, exe, tools::MAX_EXE, &staged.exe).await?;
     tracing::info!(version = %rel.tag, "yt-dlp downloaded, verifying");
     let read = |p: &std::path::Path| std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()));
-    let hash = tools::sha256_file(&exe_path).map_err(|e| format!("hash: {e}"))?;
-    // From here on a refusal means the release itself is not trustworthy or not working:
-    // it is remembered and never tried again.
-    let verified = tools::verify_download(tools::PUBLIC_KEY, &read(&sums_path)?, &read(&sig_path)?, &hash);
-    let outcome = match verified {
-        Ok(h) => smoke_test(st, &exe_path, &rel.tag).await.map(|()| h),
-        Err(e) => Err(e),
-    };
-    let hash = match outcome {
+    let hash = tools::sha256_file(&staged.exe).map_err(|e| format!("hash: {e}"))?;
+    let hash = match tools::verify_download(tools::PUBLIC_KEY, &read(&staged.sums)?, &read(&staged.sig)?, &hash) {
         Ok(h) => h,
         Err(e) => {
             let _ = tools::mark_bad(dir, &rel.tag);
             return Err(e);
         }
     };
-    let meta = tools::install(dir, &exe_path, &rel.tag, &hash, now()).map_err(|e| format!("install: {e}"))?;
-    st.resolver.set_ytdlp_override(Some(tools::tools_exe(dir)));
+    if let Err(f) = smoke_test(st, &staged.exe, &rel.tag).await {
+        return Err(match f {
+            tools::Failure::Permanent(e) => {
+                let _ = tools::mark_bad(dir, &rel.tag);
+                e
+            }
+            tools::Failure::Transient(e) => {
+                let n = tools::bump_attempts(dir, &rel.tag);
+                format!("{e} (attempt {n} of {})", tools::MAX_SMOKE_ATTEMPTS)
+            }
+        });
+    }
+    let in_use_updated = rt().updated_at.is_some();
+    let dir_owned = dir.to_path_buf();
+    let (tag, now_ts) = (rel.tag.clone(), now());
+    let meta = tauri::async_runtime::spawn_blocking(move || {
+        tools::install(&dir_owned, &staged, &tag, &hash, now_ts, in_use_updated, tools::PUBLIC_KEY)
+    })
+    .await
+    .map_err(|e| format!("install: {e}"))?
+    .map_err(|e| format!("install: {e}"))?;
+    // Run it only if the installed files verify as a whole, exactly like at the next start.
+    let Some(v) = tools::verified(dir, tools::PUBLIC_KEY) else {
+        return Err("installed copy does not verify".into());
+    };
+    st.resolver.set_ytdlp_override(Some(v.exe));
     {
         let mut r = rt();
         r.in_use = Some(meta.version.clone());
@@ -276,70 +324,90 @@ async fn verify_and_install(st: &Session, rel: &release::Release, dir: &std::pat
     Ok(())
 }
 
-/// `--version` prints exactly the release tag, then one anonymous resolve works.
-async fn smoke_test(st: &Session, exe: &std::path::Path, tag: &str) -> Result<(), String> {
-    let v = release::installed_version(exe).await.map_err(|e| format!("smoke test: {e}"))?;
+/// `--version` prints exactly the release tag (permanent if not), then one anonymous
+/// resolve works (any failure there is transient: the network, YouTube or the region may
+/// be the reason).
+async fn smoke_test(st: &Session, exe: &std::path::Path, tag: &str) -> Result<(), tools::Failure> {
+    let v = release::installed_version_within(exe, release::FIRST_RUN_TIMEOUT)
+        .await
+        .map_err(|e| tools::Failure::Transient(format!("smoke test: {e}")))?;
     if v != tag {
-        return Err(format!("smoke test: --version says {v}, release is {tag}"));
+        return Err(tools::Failure::Permanent(format!("smoke test: --version says {v}, release is {tag}")));
     }
     let id = TrackId::new(SMOKE_ID);
     match st.resolver.probe(exe, std::slice::from_ref(&id)).await.pop() {
         Some((_, Ok(_))) => Ok(()),
-        Some((_, Err(e))) => Err(format!("smoke test: resolve failed: {e}")),
-        None => Err("smoke test: no answer".into()),
+        Some((_, Err(e))) => Err(tools::Failure::Transient(format!("smoke test: resolve failed: {e}"))),
+        None => Err(tools::Failure::Transient("smoke test: no answer".into())),
     }
 }
 
-/// One cycle: look up the latest release; announce it; install it when it is old enough, the
-/// setting is on and it was not refused before.
+/// One cycle: look up the recent releases; announce the newest; install the newest one that
+/// is old enough when the setting is on and it was not refused, sent back or given up on.
 async fn ytdlp_cycle(st: &Arc<Session>) -> YtdlpStatus {
     let _guard = busy().lock().await;
     ensure_in_use(st).await;
-    let rel = match release::fetch_release(st.yt.http()).await {
+    let releases = match release::fetch_releases(st.yt.http()).await {
         Ok(r) => r,
         Err(e) => {
             tracing::info!("yt-dlp check: {e}");
             return status();
         }
     };
+    let Some(newest) = release::newest(&releases) else { return status() };
     let Some(in_use) = rt().in_use.clone() else { return status() };
     let auto = Prefs::load(st).ytdlp_auto_update;
     let dir = tools_dir(st);
-    let bad = tools::read_bad(&dir);
-    let after = tools::install_after(rel.published_at);
+    let (bad, reverted) = (tools::read_bad(&dir), tools::read_reverted(&dir));
+    let after = tools::install_after(newest.published_at);
     {
         let mut r = rt();
-        r.latest = Some(rel.tag.clone());
+        r.latest = Some(newest.tag.clone());
         r.install_after = auto.then_some(after);
+        r.reverted = reverted.clone();
     }
-    if !release::is_newer(&rel.tag, &in_use) {
-        tracing::info!(latest = %rel.tag, %in_use, "yt-dlp is up to date");
+    if !release::is_newer(&newest.tag, &in_use) {
+        tracing::info!(latest = %newest.tag, %in_use, "yt-dlp is up to date");
         return status();
     }
-    if bad.contains(&rel.tag) {
-        tracing::info!(latest = %rel.tag, "yt-dlp release was refused before, not installing it");
+    if !tools::wanted(&newest.tag, &in_use, &bad, &reverted) {
+        tracing::info!(latest = %newest.tag, "yt-dlp release was refused or sent back before, not announcing it");
         return status();
     }
     let _ = st.app.emit(
         "ytdlp:available",
-        YtdlpInfo { installed: in_use.clone(), latest: rel.tag.clone(), install_after: auto.then_some(after) },
+        YtdlpInfo { installed: in_use.clone(), latest: newest.tag.clone(), install_after: auto.then_some(after) },
     );
     if !auto {
-        tracing::info!(latest = %rel.tag, "new yt-dlp, automatic update is off");
-    } else if !tools::old_enough(rel.published_at, now()) {
-        tracing::info!(latest = %rel.tag, after, "new yt-dlp is too young to install");
-    } else if let Err(e) = install_release(st, &rel).await {
-        tracing::info!(latest = %rel.tag, "yt-dlp update refused: {e}");
+        tracing::info!(latest = %newest.tag, "new yt-dlp, automatic update is off");
+        return status();
+    }
+    let Some(cand) = tools::pick_candidate(&releases, &in_use, &bad, &reverted, now()) else {
+        tracing::info!(latest = %newest.tag, after, "new yt-dlp is too young to install");
+        return status();
+    };
+    if tools::gave_up(&dir, &cand.tag) {
+        tracing::info!(version = %cand.tag, "smoke test kept failing, notice only for this version");
+        return status();
+    }
+    if let Err(e) = install_release(st, cand).await {
+        tracing::info!(version = %cand.tag, "yt-dlp update refused: {e}");
     }
     status()
 }
 
-/// A batch finished: if the updated yt-dlp keeps failing where the previous one works,
-/// go back to the previous one.
-async fn on_batch(st: Arc<Session>, failed: Vec<TrackId>) {
-    let Some(version) = ({
+/// A batch finished. Only a batch that ran with the updated yt-dlp that runs now counts (a
+/// batch that started before an install or ran with the bundled exe because the copy
+/// changed is ignored). If the updated exe keeps failing where the previous one (or the
+/// bundled one) works, go back.
+async fn on_batch(st: Arc<Session>, failed: Vec<TrackId>, generation: Option<u64>) {
+    let Some(g) = generation else { return };
+    if st.resolver.override_generation() != Some(g) {
+        return;
+    }
+    let (Some(version), Some(bundled_version)) = ({
         let r = rt();
-        r.updated_at.and_then(|_| r.in_use.clone())
+        (r.updated_at.and_then(|_| r.in_use.clone()), r.bundled_version.clone())
     }) else {
         return;
     };
@@ -349,31 +417,41 @@ async fn on_batch(st: Arc<Session>, failed: Vec<TrackId>) {
     let previous_ok = if failed.is_empty() {
         false
     } else {
-        let prev = tools::previous_exe(&dir).unwrap_or_else(|| st.resolver.bundled_ytdlp().to_path_buf());
+        // What a rollback would run: the verified previous copy, else the bundled exe.
+        let back = tools::previous_verified(&dir, &bundled_version, tools::PUBLIC_KEY)
+            .map(|p| p.exe)
+            .unwrap_or_else(|| st.resolver.bundled_ytdlp().to_path_buf());
         let ids: Vec<TrackId> = failed.iter().take(3).cloned().collect();
-        st.resolver.probe(&prev, &ids).await.iter().any(|(_, r)| r.is_ok())
+        st.resolver.probe(&back, &ids).await.iter().any(|(_, r)| r.is_ok())
     };
-    let roll = rt().counter.report(!failed.is_empty(), previous_ok);
-    if !roll {
+    // The install may have changed while we probed.
+    if st.resolver.override_generation() != Some(g) {
+        return;
+    }
+    if !rt().counter.report(!failed.is_empty(), previous_ok) {
         return;
     }
     tracing::warn!(%version, "updated yt-dlp keeps failing where the previous one works, rolling back");
-    let restored = match tools::rollback(&dir, &version) {
-        Ok(r) => r,
+    // The resolver leaves the exe first; only then do the files move.
+    st.resolver.set_ytdlp_override(None);
+    let (d, v, b) = (dir.clone(), version.clone(), bundled_version.clone());
+    let restored = tauri::async_runtime::spawn_blocking(move || tools::rollback(&d, &v, &b, tools::PUBLIC_KEY)).await;
+    let (now_in_use, at) = match restored {
+        Ok(Ok(Some(v))) => match tools::verified(&dir, tools::PUBLIC_KEY) {
+            Some(ver) => {
+                st.resolver.set_ytdlp_override(Some(ver.exe));
+                (v, Some(ver.meta.installed_at))
+            }
+            None => (bundled_version, None),
+        },
+        Ok(Ok(None)) => (bundled_version, None),
+        Ok(Err(e)) => {
+            tracing::warn!("yt-dlp rollback: files could not be moved, keeping the bundled one: {e}");
+            (bundled_version, None)
+        }
         Err(e) => {
-            tracing::warn!("yt-dlp rollback failed: {e}");
-            return;
-        }
-    };
-    let bundled = rt().bundled_version.clone().unwrap_or_default();
-    let (now_in_use, at) = match &restored {
-        Some(v) => {
-            st.resolver.set_ytdlp_override(Some(tools::tools_exe(&dir)));
-            (v.clone(), tools::read_meta(&dir).map(|m| m.installed_at))
-        }
-        None => {
-            st.resolver.set_ytdlp_override(None);
-            (bundled, None)
+            tracing::warn!("yt-dlp rollback: {e}");
+            (bundled_version, None)
         }
     };
     {
@@ -388,9 +466,9 @@ async fn on_batch(st: Arc<Session>, failed: Vec<TrackId>) {
 /// The yt-dlp loop: 60 s after start, then daily, whatever the app's own update setting says.
 pub fn spawn_ytdlp(st: Arc<Session>) {
     let hook_st = st.clone();
-    st.resolver.set_batch_hook(move |failed| {
+    st.resolver.set_batch_hook(move |failed, generation| {
         let (st, failed) = (hook_st.clone(), failed.to_vec());
-        tauri::async_runtime::spawn(on_batch(st, failed));
+        tauri::async_runtime::spawn(on_batch(st, failed, generation));
     });
     tauri::async_runtime::spawn(async move {
         // Which exe runs is settled at once; the lookup waits.
@@ -416,19 +494,33 @@ pub async fn ytdlp_status(state: State<'_, Arc<Session>>) -> CmdResult<YtdlpStat
     Ok(status())
 }
 
-/// «Вернуть встроенную»: drops the updated copy.
+/// «Вернуть встроенную»: drops the updated copy and remembers the version, which then is
+/// not installed again (a newer one may be).
 #[tauri::command]
 pub async fn ytdlp_revert(state: State<'_, Arc<Session>>) -> CmdResult<YtdlpStatus> {
     let st = state.inner();
     let _guard = busy().lock().await;
-    tools::revert_to_bundled(&tools_dir(st));
+    // The resolver leaves the exe first, then the files go.
     st.resolver.set_ytdlp_override(None);
+    let (version, bundled) = {
+        let r = rt();
+        (r.updated_at.and_then(|_| r.in_use.clone()), r.bundled_version.clone())
+    };
+    let dir = tools_dir(st);
+    let v = version.clone();
+    let res = tauri::async_runtime::spawn_blocking(move || tools::revert_to_bundled(&dir, v.as_deref())).await;
+    match res {
+        Ok(Ok(())) => tracing::info!(?version, "reverted to the bundled yt-dlp"),
+        Ok(Err(e)) => tracing::warn!("revert: files could not be removed, the bundled one still runs: {e}"),
+        Err(e) => tracing::warn!("revert: {e}"),
+    }
+    let reverted = tools::read_reverted(&tools_dir(st));
     {
         let mut r = rt();
-        r.in_use = r.bundled_version.clone();
+        r.in_use = bundled;
         r.updated_at = None;
+        r.reverted = reverted;
         r.counter.reset();
     }
-    tracing::info!("reverted to the bundled yt-dlp");
     Ok(status())
 }

@@ -144,7 +144,9 @@ impl Resolve for StreamResolver {
 pub struct StreamResolver {
     ytdlp: PathBuf,
     /// An updated yt-dlp (see `ytdlp_update`) that runs instead of the bundled one.
-    ytdlp_override: Mutex<Option<PathBuf>>,
+    ytdlp_override: Mutex<Option<OverrideExe>>,
+    /// Counts every switch of the override; a batch is tagged with the one it ran with.
+    override_generation: AtomicU64,
     /// Told after each batch which ids failed in every run (rollback of an updated yt-dlp).
     batch_hook: OnceLock<BatchHook>,
     deno: PathBuf,
@@ -163,8 +165,34 @@ pub struct StreamResolver {
 
 type CookieReturn = Box<dyn Fn(&str) + Send + Sync>;
 
-/// The ids of a batch that failed in every run, with a retryable error (empty: all fine).
-type BatchHook = Box<dyn Fn(&[TrackId]) + Send + Sync>;
+/// The ids of a batch that failed in every run, with a retryable error (empty: all fine), and
+/// the generation of the updated yt-dlp the batch ran with (`None`: the bundled one ran).
+type BatchHook = Box<dyn Fn(&[TrackId], Option<u64>) + Send + Sync>;
+
+/// An updated yt-dlp the app verified, as the file looked then: if its size or time changes
+/// (or it vanishes) the bundled one runs instead, until the app has verified it again.
+#[derive(Debug, Clone)]
+struct OverrideExe {
+    path: PathBuf,
+    size: u64,
+    modified: Option<SystemTime>,
+    generation: u64,
+}
+
+impl OverrideExe {
+    fn intact(&self) -> bool {
+        std::fs::metadata(&self.path)
+            .is_ok_and(|m| m.is_file() && m.len() == self.size && m.modified().ok() == self.modified)
+    }
+}
+
+/// The executable one batch runs with.
+#[derive(Debug, Clone)]
+struct ExeChoice {
+    path: PathBuf,
+    /// Set when it is the updated yt-dlp.
+    generation: Option<u64>,
+}
 
 /// The answer for one id in flight: `None` until its yt-dlp process ends.
 type Pending = watch::Receiver<Option<Result<ResolvedStream>>>;
@@ -189,6 +217,7 @@ impl StreamResolver {
         Self {
             ytdlp,
             ytdlp_override: Mutex::new(None),
+            override_generation: AtomicU64::new(0),
             batch_hook: OnceLock::new(),
             deno,
             tmp_dir,
@@ -214,11 +243,30 @@ impl StreamResolver {
     }
 
     /// The yt-dlp executable in use (also for SoundCloud / Bandcamp imports): the updated
-    /// one if set, else the bundled one. Read again by every run, so a switch needs no restart.
+    /// one if set and still exactly as it was verified, else the bundled one. Read again by
+    /// every run, so a switch needs no restart.
     pub fn ytdlp(&self) -> PathBuf {
-        lock(&self.ytdlp_override)
-            .clone()
-            .unwrap_or_else(|| self.ytdlp.clone())
+        self.current_exe().path
+    }
+
+    fn current_exe(&self) -> ExeChoice {
+        let guard = lock(&self.ytdlp_override);
+        match guard.as_ref() {
+            Some(o) if o.intact() => ExeChoice {
+                path: o.path.clone(),
+                generation: Some(o.generation),
+            },
+            Some(o) => {
+                tracing::warn!(path = %o.path.display(), "the updated yt-dlp changed or vanished, using the bundled one");
+                ExeChoice { path: self.ytdlp.clone(), generation: None }
+            }
+            None => ExeChoice { path: self.ytdlp.clone(), generation: None },
+        }
+    }
+
+    /// The generation of the updated yt-dlp that runs now; `None` when the bundled one does.
+    pub fn override_generation(&self) -> Option<u64> {
+        self.current_exe().generation
     }
 
     /// The yt-dlp that ships with the app.
@@ -226,13 +274,20 @@ impl StreamResolver {
         &self.ytdlp
     }
 
-    /// Runs `exe` instead of the bundled yt-dlp from now on; `None`: the bundled one again.
-    pub fn set_ytdlp_override(&self, exe: Option<PathBuf>) {
-        *lock(&self.ytdlp_override) = exe;
+    /// Runs `exe` (which the caller has just verified) instead of the bundled yt-dlp from
+    /// now on; `None`: the bundled one again. Returns the new generation.
+    pub fn set_ytdlp_override(&self, exe: Option<PathBuf>) -> u64 {
+        let generation = self.override_generation.fetch_add(1, Ordering::Relaxed) + 1;
+        let o = exe.and_then(|path| {
+            let m = std::fs::metadata(&path).ok()?;
+            Some(OverrideExe { size: m.len(), modified: m.modified().ok(), path, generation })
+        });
+        *lock(&self.ytdlp_override) = o;
+        generation
     }
 
-    /// Called after each cookie-aware batch; set once.
-    pub fn set_batch_hook(&self, hook: impl Fn(&[TrackId]) + Send + Sync + 'static) {
+    /// Called after each batch; set once.
+    pub fn set_batch_hook(&self, hook: impl Fn(&[TrackId], Option<u64>) + Send + Sync + 'static) {
         let _ = self.batch_hook.set(Box::new(hook));
     }
 
@@ -384,6 +439,7 @@ impl StreamResolver {
             return out;
         }
         let started = Instant::now();
+        let exe = self.current_exe();
         let has_cookies = lock(&self.cookies).is_some();
         // YouTube keeps breaking the signed-in clients yt-dlp picks with cookies («The page
         // needs to be reloaded», a player whose challenge fails so only images are left and the
@@ -393,9 +449,9 @@ impl StreamResolver {
         // runs start anonymous for a while, so a track doesn't wait for a run bound to fail.
         let anon_first = has_cookies && now_unix() < self.anon_until.load(Ordering::Relaxed);
         let mut results = if anon_first {
-            self.run_plain(ids).await
+            self.run_plain(&exe, ids).await
         } else {
-            self.run_signed(ids).await
+            self.run_signed(&exe, ids).await
         };
         if has_cookies {
             let retry_ids: Vec<TrackId> = results
@@ -411,9 +467,9 @@ impl StreamResolver {
                     if anon_first { "with cookies" } else { "anonymously" }
                 );
                 let second = if anon_first {
-                    self.run_signed(&retry_ids).await
+                    self.run_signed(&exe, &retry_ids).await
                 } else {
-                    self.run_plain(&retry_ids).await
+                    self.run_plain(&exe, &retry_ids).await
                 };
                 let mut rescued = 0;
                 for (id, res) in second {
@@ -440,7 +496,7 @@ impl StreamResolver {
                 .filter(|(_, r)| matches!(r, Err(e) if retry_anonymously(e)))
                 .map(|(id, _)| id.clone())
                 .collect();
-            hook(&failed);
+            hook(&failed, exe.generation);
         }
         let ok = results.iter().filter(|(_, r)| r.is_ok()).count();
         tracing::debug!(
@@ -453,8 +509,8 @@ impl StreamResolver {
     }
 
     /// One yt-dlp run without cookies.
-    async fn run_plain(&self, ids: &[TrackId]) -> Vec<(TrackId, Result<ResolvedStream>)> {
-        let out = self.run_ytdlp(ids, None).await;
+    async fn run_plain(&self, exe: &ExeChoice, ids: &[TrackId]) -> Vec<(TrackId, Result<ResolvedStream>)> {
+        let out = self.run_ytdlp_with(&exe.path, ids, None).await;
         if let Some(f) = &out.failure {
             tracing::warn!("yt-dlp: {f}");
         }
@@ -463,7 +519,7 @@ impl StreamResolver {
 
     /// One yt-dlp run with a copy of the cookies (none set: an anonymous run), handing the
     /// copy as yt-dlp left it to the cookie hook.
-    async fn run_signed(&self, ids: &[TrackId]) -> Vec<(TrackId, Result<ResolvedStream>)> {
+    async fn run_signed(&self, exe: &ExeChoice, ids: &[TrackId]) -> Vec<(TrackId, Result<ResolvedStream>)> {
         let cookies = match self.write_cookie_copy().await {
             Ok(c) => c,
             Err(e) => {
@@ -479,7 +535,7 @@ impl StreamResolver {
             }
         };
         let out = self
-            .run_ytdlp(ids, cookies.as_ref().map(CookieCopy::path))
+            .run_ytdlp_with(&exe.path, ids, cookies.as_ref().map(CookieCopy::path))
             .await;
         if let (Some(copy), Some(hook)) = (&cookies, self.cookie_return.get())
             && let Ok(text) = tokio::fs::read_to_string(copy.path()).await
@@ -513,11 +569,6 @@ impl StreamResolver {
         };
         tokio::fs::write(copy.path(), body).await?;
         Ok(Some(copy))
-    }
-
-    async fn run_ytdlp(&self, ids: &[TrackId], cookies: Option<&Path>) -> RunOutput {
-        let exe = self.ytdlp();
-        self.run_ytdlp_with(&exe, ids, cookies).await
     }
 
     async fn run_ytdlp_with(&self, exe: &Path, ids: &[TrackId], cookies: Option<&Path>) -> RunOutput {
@@ -1387,6 +1438,56 @@ mod tests {
         let s = format!("{r:?}");
         assert!(s.contains("has_cookies: true"));
         assert!(!s.contains("secretvalue"));
+    }
+
+    #[test]
+    fn override_is_used_only_while_it_is_as_verified() {
+        let dir = std::env::temp_dir().join(format!("mixtape-yt-ovr-{}", fastrand::u64(..)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bundled = dir.join("bundled.exe");
+        let updated = dir.join("updated.exe");
+        std::fs::write(&updated, b"verified bytes").unwrap();
+        let r = StreamResolver::new(bundled.clone(), "deno.exe".into(), dir.join("tmp"));
+        assert_eq!(r.ytdlp(), bundled);
+        assert_eq!(r.override_generation(), None);
+
+        let g1 = r.set_ytdlp_override(Some(updated.clone()));
+        assert_eq!(r.ytdlp(), updated);
+        assert_eq!(r.override_generation(), Some(g1));
+
+        // Same size, new content and time: still refused if the time moved.
+        std::fs::write(&updated, b"verified bytes+").unwrap();
+        assert_eq!(r.ytdlp(), bundled, "size changed");
+        assert_eq!(r.override_generation(), None);
+
+        let g2 = r.set_ytdlp_override(Some(updated.clone()));
+        assert!(g2 > g1, "every switch is a new generation");
+        assert_eq!(r.ytdlp(), updated);
+        std::fs::remove_file(&updated).unwrap();
+        assert_eq!(r.ytdlp(), bundled, "deleted");
+
+        let g3 = r.set_ytdlp_override(Some(dir.join("missing.exe")));
+        assert!(g3 > g2);
+        assert_eq!(r.ytdlp(), bundled, "never existed");
+        r.set_ytdlp_override(None);
+        assert_eq!(r.ytdlp(), bundled);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn override_with_a_new_modified_time_is_refused() {
+        let dir = std::env::temp_dir().join(format!("mixtape-yt-ovr2-{}", fastrand::u64(..)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let updated = dir.join("updated.exe");
+        std::fs::write(&updated, b"abcd").unwrap();
+        let r = StreamResolver::new(dir.join("bundled.exe"), "deno.exe".into(), dir.join("tmp"));
+        r.set_ytdlp_override(Some(updated.clone()));
+        assert_eq!(r.ytdlp(), updated);
+        let f = std::fs::OpenOptions::new().write(true).open(&updated).unwrap();
+        f.set_modified(SystemTime::now() + Duration::from_secs(3600)).unwrap();
+        drop(f);
+        assert_eq!(r.ytdlp(), dir.join("bundled.exe"), "modified time changed");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// A temp dir with a fake `yt-dlp.cmd` that prints the fixture, reports one error and

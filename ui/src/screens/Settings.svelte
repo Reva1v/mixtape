@@ -394,7 +394,7 @@
             class="h-9 shrink-0 rounded-full bg-ink px-4 text-[13px] font-semibold text-black transition-opacity hover:opacity-90"
             onclick={() => updates.install()}
           >
-            {t.updates.install}
+            {updates.words.install}
           </button>
         {:else}
           <button
@@ -412,10 +412,10 @@
         (() => {
           const s = updates.status;
           if (s.kind === "latest") return t.updates.latest;
-          if (s.kind === "available") return `${t.updates.available(s.info.version)}. ${t.updates.restartHint}`;
+          if (s.kind === "available") return `${updates.words.available(s.info.version)}. ${updates.words.restartHint}`;
           if (s.kind === "installing") return t.updates.installing(s.total ? Math.round((s.done / s.total) * 100) : null);
           if (s.kind === "error") return s.message;
-          return t.updates.restartHint;
+          return updates.words.restartHint;
         })(),
         updateButton,
         IconUpdate,
@@ -452,6 +452,7 @@
         (() => {
           const y = updates.ytdlp;
           const use = t.updates.ytdlp.inUse(y?.installed ?? null, y?.updated && y.updatedAt ? updates.date(y.updatedAt) : null);
+          if (y?.reverted) return `${use}. ${t.updates.ytdlp.revertedNote(y.reverted)}`;
           if (!y?.latest) return use;
           if (y.newer && y.latest) {
             const next = y.installAfter === undefined ? t.updates.ytdlp.pendingManual(y.latest) : t.updates.ytdlp.pending(y.latest, updates.date(y.installAfter));
