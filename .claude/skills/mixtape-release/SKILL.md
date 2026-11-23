@@ -49,3 +49,7 @@ including `scripts/release.ps1`.
   in this repo before step 5.
 - If the script fails after `git push origin <tag>`, delete the tag locally and on origin
   before rerunning.
+- The script ends by starting `D:\Projects\droplet-island\scripts\follow-mixtape.ps1` in the
+  background (owner, 2026-11-24): it releases the island with the new Mixtape. Its log is the newest
+  file in `D:\Projects\droplet-island\target\follow-mixtape\` (last line = outcome); check it and
+  report the island version too.
