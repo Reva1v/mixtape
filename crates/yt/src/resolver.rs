@@ -68,6 +68,9 @@ impl Container {
 
 /// Opus 160k, then AAC 128k, then the smaller Opus/AAC streams and any audio in a
 /// container the library accepts — some videos lack 251/140.
+/// How long runs start without cookies after cookies failed where an anonymous run worked.
+const ANON_FIRST_SECS: u64 = 30 * 60;
+
 const FORMATS: &str = "251/140/250/249/139/bestaudio[ext=webm]/bestaudio[ext=m4a]";
 
 /// A direct, time-limited audio URL for one video.
@@ -150,6 +153,8 @@ pub struct StreamResolver {
     seq: AtomicU64,
     /// Gets the cookie file as yt-dlp left it, so what it refreshed is not lost with the copy.
     cookie_return: OnceLock<CookieReturn>,
+    /// Unix seconds until which runs start without cookies (see `run_batch`); 0: with them.
+    anon_until: AtomicU64,
 }
 
 type CookieReturn = Box<dyn Fn(&str) + Send + Sync>;
@@ -184,6 +189,7 @@ impl StreamResolver {
             inflight: Mutex::new(HashMap::new()),
             seq: AtomicU64::new(0),
             cookie_return: OnceLock::new(),
+            anon_until: AtomicU64::new(0),
         }
     }
 
@@ -341,6 +347,78 @@ impl StreamResolver {
             return out;
         }
         let started = Instant::now();
+        let has_cookies = lock(&self.cookies).is_some();
+        // YouTube keeps breaking the signed-in clients yt-dlp picks with cookies («The page
+        // needs to be reloaded», a player whose challenge fails so only images are left and the
+        // format «is not available»), while the same track resolves anonymously. So a failure
+        // of one kind of run is retried with the other; only a refused sign-in, a rate limit
+        // and a dead network are final. After cookies failed where an anonymous run worked,
+        // runs start anonymous for a while, so a track doesn't wait for a run bound to fail.
+        let anon_first = has_cookies && now_unix() < self.anon_until.load(Ordering::Relaxed);
+        let mut results = if anon_first {
+            self.run_plain(ids).await
+        } else {
+            self.run_signed(ids).await
+        };
+        if has_cookies {
+            let retry_ids: Vec<TrackId> = results
+                .iter()
+                .filter(|(_, r)| matches!(r, Err(e) if retry_anonymously(e)))
+                .map(|(id, _)| id.clone())
+                .collect();
+            if !retry_ids.is_empty() {
+                tracing::warn!(
+                    retried = retry_ids.len(),
+                    anon_first,
+                    "yt-dlp failed, retrying {}",
+                    if anon_first { "with cookies" } else { "anonymously" }
+                );
+                let second = if anon_first {
+                    self.run_signed(&retry_ids).await
+                } else {
+                    self.run_plain(&retry_ids).await
+                };
+                let mut rescued = 0;
+                for (id, res) in second {
+                    if res.is_ok()
+                        && let Some(slot) = results.iter_mut().find(|(rid, _)| *rid == id)
+                    {
+                        slot.1 = res;
+                        rescued += 1;
+                    }
+                }
+                if !anon_first && rescued > 0 {
+                    self.anon_until
+                        .store(now_unix() + ANON_FIRST_SECS, Ordering::Relaxed);
+                    tracing::info!(
+                        minutes = ANON_FIRST_SECS / 60,
+                        "yt-dlp runs start without cookies for a while"
+                    );
+                }
+            }
+        }
+        let ok = results.iter().filter(|(_, r)| r.is_ok()).count();
+        tracing::debug!(
+            batch = ids.len(),
+            ok,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "yt-dlp batch resolved"
+        );
+        results
+    }
+
+    /// One yt-dlp run without cookies.
+    async fn run_plain(&self, ids: &[TrackId]) -> Vec<(TrackId, Result<ResolvedStream>)> {
+        let out = self.run_ytdlp(ids, None).await;
+        if let Some(f) = &out.failure {
+            tracing::warn!("yt-dlp: {f}");
+        }
+        attribute(ids, &out, now_unix())
+    }
+
+    /// One yt-dlp run with a copy of the cookies (none set: an anonymous run), handing the
+    /// copy as yt-dlp left it to the cookie hook.
+    async fn run_signed(&self, ids: &[TrackId]) -> Vec<(TrackId, Result<ResolvedStream>)> {
         let cookies = match self.write_cookie_copy().await {
             Ok(c) => c,
             Err(e) => {
@@ -363,46 +441,11 @@ impl StreamResolver {
         {
             hook(&text);
         }
-        let used_cookies = cookies.is_some();
         drop(cookies);
-        let mut results = attribute(ids, &out, now_unix());
         if let Some(f) = &out.failure {
             tracing::warn!("yt-dlp: {f}");
         }
-        // YouTube keeps breaking the signed-in clients yt-dlp picks with cookies («The page
-        // needs to be reloaded», a player whose challenge fails so only images are left and the
-        // format «is not available»), while the same track resolves anonymously. Only a refused
-        // sign-in, a rate limit and a dead network are final: retrying those can't help.
-        if used_cookies {
-            let retry_ids: Vec<TrackId> = results
-                .iter()
-                .filter(|(_, r)| matches!(r, Err(e) if retry_anonymously(e)))
-                .map(|(id, _)| id.clone())
-                .collect();
-            if !retry_ids.is_empty() {
-                tracing::warn!(
-                    retried = retry_ids.len(),
-                    "yt-dlp failed with cookies, retrying anonymously"
-                );
-                let anon_out = self.run_ytdlp(&retry_ids, None).await;
-                let anon = attribute(&retry_ids, &anon_out, now_unix());
-                for (id, res) in anon {
-                    if res.is_ok()
-                        && let Some(slot) = results.iter_mut().find(|(rid, _)| *rid == id)
-                    {
-                        slot.1 = res;
-                    }
-                }
-            }
-        }
-        let ok = results.iter().filter(|(_, r)| r.is_ok()).count();
-        tracing::debug!(
-            batch = ids.len(),
-            ok,
-            elapsed_ms = started.elapsed().as_millis() as u64,
-            "yt-dlp batch resolved"
-        );
-        results
+        attribute(ids, &out, now_unix())
     }
 
     async fn write_cookie_copy(&self) -> std::io::Result<Option<CookieCopy>> {
@@ -1537,6 +1580,75 @@ mod tests {
         assert!(!retry_anonymously(&YtError::Auth));
         assert!(!retry_anonymously(&YtError::RateLimited));
         assert!(!retry_anonymously(&YtError::Network("x".into())));
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn after_a_rescue_runs_start_without_cookies() {
+        let (dir, script) = fake_ytdlp(&retry_script(RELOAD_ERR, TYPE_BATCH));
+        let r = StreamResolver::new(script, "deno.exe".into(), dir.join("tmp"));
+        r.set_cookies(Some(".youtube.com	TRUE	/	TRUE	0	NAME	fake".into()));
+        r.resolve_one(&TrackId::new("dQw4w9WgXcQ")).await.unwrap();
+        assert!(r.anon_until.load(Ordering::Relaxed) > now_unix());
+        let res = r.resolve_one(&TrackId::new("aaaaaaaaaaa")).await.unwrap();
+        assert_eq!(res.itag, 140);
+        let calls = call_lines(&dir);
+        assert_eq!(calls.len(), 3, "{calls:?}");
+        assert!(!calls[2].contains("--cookies"), "{calls:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn anonymous_first_failure_falls_back_to_cookies() {
+        // With cookies it works, anonymously the track needs a sign-in (a private upload).
+        let anon = "echo ERROR: [youtube] dQw4w9WgXcQ: Video unavailable 1>&2
+exit /b 1";
+        let script = format!(
+            "echo %* >> \"%~dp0calls.txt\"
+             echo %* | findstr /c:\"--cookies\" >nul
+             if errorlevel 1 goto anon
+             {TYPE_BATCH}
+             exit /b 0
+             :anon
+             {anon}"
+        );
+        let (dir, script) = fake_ytdlp(&script);
+        let r = StreamResolver::new(script, "deno.exe".into(), dir.join("tmp"));
+        r.set_cookies(Some(".youtube.com	TRUE	/	TRUE	0	NAME	fake".into()));
+        r.anon_until.store(now_unix() + 600, Ordering::Relaxed);
+        let res = r.resolve_one(&TrackId::new("dQw4w9WgXcQ")).await.unwrap();
+        assert_eq!(res.itag, 251);
+        let calls = call_lines(&dir);
+        assert_eq!(calls.len(), 2, "{calls:?}");
+        assert!(!calls[0].contains("--cookies"), "{calls:?}");
+        assert!(calls[1].contains("--cookies"), "{calls:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn failed_rescue_keeps_cookies_first() {
+        let anon = "echo ERROR: [youtube] dQw4w9WgXcQ: anonymous boom 1>&2";
+        let (dir, script) = fake_ytdlp(&retry_script(RELOAD_ERR, anon));
+        let r = StreamResolver::new(script, "deno.exe".into(), dir.join("tmp"));
+        r.set_cookies(Some(".youtube.com	TRUE	/	TRUE	0	NAME	fake".into()));
+        r.resolve_one(&TrackId::new("dQw4w9WgXcQ")).await.unwrap_err();
+        assert_eq!(r.anon_until.load(Ordering::Relaxed), 0);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn expired_window_goes_back_to_cookies() {
+        let (dir, script) = fake_ytdlp(&retry_script(TYPE_BATCH, TYPE_BATCH));
+        let r = StreamResolver::new(script, "deno.exe".into(), dir.join("tmp"));
+        r.set_cookies(Some(".youtube.com	TRUE	/	TRUE	0	NAME	fake".into()));
+        r.anon_until.store(now_unix().saturating_sub(1), Ordering::Relaxed);
+        r.resolve_one(&TrackId::new("dQw4w9WgXcQ")).await.ok();
+        let calls = call_lines(&dir);
+        assert!(calls[0].contains("--cookies"), "{calls:?}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[cfg(windows)]
