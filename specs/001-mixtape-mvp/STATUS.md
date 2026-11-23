@@ -200,7 +200,10 @@
 - Репозиторий: https://github.com/Reva1v/mixtape (ветка main, пушить после коммитов по просьбе).
 - Секреты: `.secrets/cookies.txt` (cookies YouTube Music для живых проверок, в .gitignore).
 - yt-dlp и deno — `src-tauri/binaries/` (скрипт `scripts/fetch-sidecars.ps1`: версии
-  зафиксированы, SHA-256 проверяется).
+  зафиксированы, SHA-256 проверяется). Сейчас yt-dlp 2026.10.26; если yt-dlp с cookies падает не из-за
+  входа, `StreamResolver` повторяет без cookies и 30 минут начинает без них
+  (`.specify/bugs/ytdlp-page-reload/fix.md`). Ошибка yt-dlp в тосте → сначала проверить возраст
+  yt-dlp и трекер yt-dlp, а не сессию.
 - Не воспроизводить звук самому и не давать агентам открывать аудиоустройство — пользователь
   в наушниках.
 
