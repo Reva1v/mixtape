@@ -23,7 +23,7 @@ Tauri 2 с UI на Svelte 5. Библиотека выкачивается из 
   rusqlite 0.40 (bundled) + rusqlite_migration 2.6, fast_image_resize 6.1 + image 0.25,
   kmeans_colors 0.7, windows 0.62.
 - Frontend: vite 8, svelte 5.57, tailwindcss 4.3, virtua 0.53, unplugin-icons 24.
-- Sidecar: yt-dlp 2026.08.19 + yt-dlp-ejs + deno.
+- Sidecar: yt-dlp 2026.10.26 + yt-dlp-ejs + deno.
 
 **Storage**: SQLite (WAL) + файлы аудио и обложек в `%LOCALAPPDATA%\Mixtape\`
 (`library\`, `cache\`, `covers\`, `mixtape.db`); модель в [data-model.md](data-model.md).

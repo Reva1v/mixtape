@@ -16,7 +16,7 @@ request to Shazam's recognition endpoint. The port lives in `crates/recognize/sr
 
 | Component | Version | License | Source |
 |---|---|---|---|
-| yt-dlp (`yt-dlp.exe`, sidecar) | 2026.08.19 | [Unlicense](https://github.com/yt-dlp/yt-dlp/blob/master/LICENSE) | https://github.com/yt-dlp/yt-dlp |
+| yt-dlp (`yt-dlp.exe`, sidecar) | 2026.10.26 | [Unlicense](https://github.com/yt-dlp/yt-dlp/blob/master/LICENSE) | https://github.com/yt-dlp/yt-dlp |
 | Deno (`deno.exe`, sidecar, used by yt-dlp) | 2.9.7 | [MIT](https://github.com/denoland/deno/blob/main/LICENSE.md) | https://github.com/denoland/deno |
 
 The official `yt-dlp.exe` is a PyInstaller build that also contains Python and yt-dlp's Python

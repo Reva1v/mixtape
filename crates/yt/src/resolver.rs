@@ -363,8 +363,36 @@ impl StreamResolver {
         {
             hook(&text);
         }
+        let used_cookies = cookies.is_some();
         drop(cookies);
-        let results = attribute(ids, &out, now_unix());
+        let mut results = attribute(ids, &out, now_unix());
+        if let Some(f) = &out.failure {
+            tracing::warn!("yt-dlp: {f}");
+        }
+        // A signed-in client YouTube refuses fails with a tool error while the same
+        // track resolves anonymously; auth, rate-limit and unavailable errors are final.
+        if used_cookies {
+            let retry_ids: Vec<TrackId> = results
+                .iter()
+                .filter(|(_, r)| matches!(r, Err(YtError::Tool(_))))
+                .map(|(id, _)| id.clone())
+                .collect();
+            if !retry_ids.is_empty() {
+                tracing::warn!(
+                    retried = retry_ids.len(),
+                    "yt-dlp failed with cookies, retrying anonymously"
+                );
+                let anon_out = self.run_ytdlp(&retry_ids, None).await;
+                let anon = attribute(&retry_ids, &anon_out, now_unix());
+                for (id, res) in anon {
+                    if res.is_ok()
+                        && let Some(slot) = results.iter_mut().find(|(rid, _)| *rid == id)
+                    {
+                        slot.1 = res;
+                    }
+                }
+            }
+        }
         let ok = results.iter().filter(|(_, r)| r.is_ok()).count();
         tracing::debug!(
             batch = ids.len(),
@@ -372,9 +400,6 @@ impl StreamResolver {
             elapsed_ms = started.elapsed().as_millis() as u64,
             "yt-dlp batch resolved"
         );
-        if let Some(f) = &out.failure {
-            tracing::warn!("yt-dlp: {f}");
-        }
         results
     }
 
@@ -1397,6 +1422,123 @@ mod tests {
             "{calls}"
         );
         assert!(!calls.contains("evil"), "{calls}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Fake yt-dlp for the anonymous retry: logs its arguments; a run with `--cookies`
+    /// prints `with_cookies`, a run without prints `without`.
+    #[cfg(windows)]
+    fn retry_script(with_cookies: &str, without: &str) -> String {
+        format!(
+            "echo %* >> \"%~dp0calls.txt\"\r\n\
+             echo %* | findstr /c:\"--cookies\" >nul\r\n\
+             if errorlevel 1 goto anon\r\n\
+             {with_cookies}\r\n\
+             exit /b 1\r\n\
+             :anon\r\n\
+             {without}\r\n\
+             exit /b 0"
+        )
+    }
+
+    #[cfg(windows)]
+    const RELOAD_ERR: &str =
+        "echo ERROR: [youtube] dQw4w9WgXcQ: The page needs to be reloaded. 1>&2";
+    #[cfg(windows)]
+    const TYPE_BATCH: &str = "type \"%~dp0batch.jsonl\"";
+
+    #[cfg(windows)]
+    fn call_lines(dir: &Path) -> Vec<String> {
+        std::fs::read_to_string(dir.join("calls.txt"))
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn tool_error_with_cookies_is_retried_anonymously() {
+        let (dir, script) = fake_ytdlp(&retry_script(RELOAD_ERR, TYPE_BATCH));
+        let r = StreamResolver::new(script, "deno.exe".into(), dir.join("tmp"));
+        r.set_cookies(Some(".youtube.com\tTRUE\t/\tTRUE\t0\tNAME\tfake".into()));
+        let res = r.resolve_one(&TrackId::new("dQw4w9WgXcQ")).await.unwrap();
+        assert_eq!(res.itag, 251);
+        let calls = call_lines(&dir);
+        assert_eq!(calls.len(), 2, "{calls:?}");
+        assert!(calls[0].contains("--cookies"), "{calls:?}");
+        assert!(!calls[1].contains("--cookies"), "{calls:?}");
+        assert_eq!(std::fs::read_dir(dir.join("tmp")).unwrap().count(), 0);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn rate_limit_with_cookies_is_not_retried() {
+        let err = "echo ERROR: [youtube] dQw4w9WgXcQ: Sign in to confirm you're not a bot 1>&2";
+        let (dir, script) = fake_ytdlp(&retry_script(err, TYPE_BATCH));
+        let r = StreamResolver::new(script, "deno.exe".into(), dir.join("tmp"));
+        r.set_cookies(Some(".youtube.com\tTRUE\t/\tTRUE\t0\tNAME\tfake".into()));
+        let e = r
+            .resolve_one(&TrackId::new("dQw4w9WgXcQ"))
+            .await
+            .unwrap_err();
+        assert!(!matches!(e, YtError::Tool(_)), "{e:?}");
+        assert_eq!(call_lines(&dir).len(), 1);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn tool_error_without_cookies_is_not_retried() {
+        let (dir, script) = fake_ytdlp(&format!(
+            "echo %* >> \"%~dp0calls.txt\"\r\n{RELOAD_ERR}\r\nexit /b 1"
+        ));
+        let r = StreamResolver::new(script, "deno.exe".into(), dir.join("tmp"));
+        let e = r
+            .resolve_one(&TrackId::new("dQw4w9WgXcQ"))
+            .await
+            .unwrap_err();
+        assert!(matches!(e, YtError::Tool(_)), "{e:?}");
+        assert_eq!(call_lines(&dir).len(), 1);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn mixed_batch_retries_only_the_failed_id() {
+        let with = "findstr /c:\"dQw4w9WgXcQ\" \"%~dp0batch.jsonl\"\r\n\
+                    echo ERROR: [youtube] aaaaaaaaaaa: The page needs to be reloaded. 1>&2";
+        let (dir, script) = fake_ytdlp(&retry_script(with, TYPE_BATCH));
+        let r = StreamResolver::new(script, "deno.exe".into(), dir.join("tmp"));
+        r.set_cookies(Some(".youtube.com\tTRUE\t/\tTRUE\t0\tNAME\tfake".into()));
+        let res = r.resolve(&ids(&["dQw4w9WgXcQ", "aaaaaaaaaaa"])).await;
+        assert_eq!(res[0].1.as_ref().unwrap().itag, 251);
+        assert_eq!(res[1].1.as_ref().unwrap().itag, 140);
+        let calls = call_lines(&dir);
+        assert_eq!(calls.len(), 2, "{calls:?}");
+        assert!(!calls[1].contains("--cookies"), "{calls:?}");
+        assert!(calls[1].contains("aaaaaaaaaaa"), "{calls:?}");
+        assert!(!calls[1].contains("dQw4w9WgXcQ"), "{calls:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn failed_anonymous_retry_keeps_the_original_error() {
+        let anon = "echo ERROR: [youtube] dQw4w9WgXcQ: anonymous boom 1>&2";
+        let (dir, script) = fake_ytdlp(&retry_script(RELOAD_ERR, anon));
+        let r = StreamResolver::new(script, "deno.exe".into(), dir.join("tmp"));
+        r.set_cookies(Some(".youtube.com\tTRUE\t/\tTRUE\t0\tNAME\tfake".into()));
+        let e = r
+            .resolve_one(&TrackId::new("dQw4w9WgXcQ"))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(e, YtError::Tool(ref s) if s.contains("page needs to be reloaded")),
+            "{e:?}"
+        );
+        assert_eq!(call_lines(&dir).len(), 2);
         std::fs::remove_dir_all(&dir).ok();
     }
 

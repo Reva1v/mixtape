@@ -7,8 +7,8 @@
 # paste it here in the same commit.
 $ErrorActionPreference = 'Stop'
 
-$YtDlpVersion = '2026.08.19'
-$YtDlpSha256 = '66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a'  # yt-dlp.exe
+$YtDlpVersion = '2026.10.26'
+$YtDlpSha256 = 'f5389d3698ecde4ef06f4e6b1ce0294fe9ac1396228c8990b8d3416d6d177a7d'  # yt-dlp.exe
 $DenoVersion = '2.9.7'
 $DenoZipSha256 = 'a0c3101b4158d1dfb7d6a78a7bf0f3de80c96bb423c152beec8beb22786f2238'  # deno-x86_64-pc-windows-msvc.zip
 
