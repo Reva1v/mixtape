@@ -407,7 +407,7 @@ async fn import_external(st: Arc<Session>, link: ExternalLink) -> CmdResult<Impo
         &st,
         status(trf!("Reading {site}", "Читаю {site}", "Читаю {site}"), 0, 0),
     );
-    let listing = match external::list(st.resolver.ytdlp(), &link).await {
+    let listing = match external::list(&st.resolver.ytdlp(), &link).await {
         Ok(l) => l,
         Err(e) => {
             external_status(&st, None);
@@ -428,8 +428,9 @@ async fn import_external(st: Arc<Session>, link: ExternalLink) -> CmdResult<Impo
     };
     tauri::async_runtime::spawn(async move {
         let _slot = slot;
+        let ytdlp = st.resolver.ytdlp();
         let target = Target {
-            ytdlp: st.resolver.ytdlp(),
+            ytdlp: &ytdlp,
             root: &st.paths.root,
             http: st.yt.http(),
             db: &st.db,

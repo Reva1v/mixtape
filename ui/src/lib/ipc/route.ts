@@ -19,6 +19,9 @@ export const APP_COMMANDS: ReadonlySet<string> = new Set([
   "app_version",
   "update_check",
   "update_install",
+  "ytdlp_check",
+  "ytdlp_status",
+  "ytdlp_revert",
 ]);
 
 /** The name to invoke: app commands as they are, the rest with the plugin prefix. */

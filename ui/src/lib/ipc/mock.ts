@@ -485,9 +485,13 @@ mockIPC(
       case "app_ready":
         return null;
       case "prefs_get":
-        return { smoothBackground: true, crossfade: false, crossfadeSec: 6, mixFullscreen: false, autoUpdate: true, iconStyle: "outline", language: lang, closeToTray: true, discordPresence: true, normalizeVolume: true, smartTransitions: false };
+        return { smoothBackground: true, crossfade: false, crossfadeSec: 6, mixFullscreen: false, autoUpdate: true, ytdlpAutoUpdate: true, iconStyle: "outline", language: lang, closeToTray: true, discordPresence: true, normalizeVolume: true, smartTransitions: false };
       case "prefs_set":
         return null;
+      case "ytdlp_status":
+      case "ytdlp_check":
+      case "ytdlp_revert":
+        return { installed: "2026.10.26", updated: false, newer: false };
       case "autostart_get":
         return "off";
       case "autostart_set":

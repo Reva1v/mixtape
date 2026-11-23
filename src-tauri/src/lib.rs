@@ -81,6 +81,7 @@ pub fn run() {
             // Pending likes, artist pictures, unused covers: once, after start.
             background::spawn(state.clone());
             updates::spawn(state.clone());
+            updates::spawn_ytdlp(state.clone());
             prefs.apply_playback(&state);
             tracing::debug!("setup: crossfade applied");
             // `setup` runs on the main (UI) thread, which the thumbnail toolbar needs.
@@ -136,6 +137,9 @@ pub fn run() {
             updates::app_version,
             updates::update_check,
             updates::update_install,
+            updates::ytdlp_check,
+            updates::ytdlp_status,
+            updates::ytdlp_revert,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Mixtape")
