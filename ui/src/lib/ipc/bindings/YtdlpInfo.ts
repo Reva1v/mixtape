@@ -3,11 +3,11 @@
 /**
  * A new stable yt-dlp exists (`ytdlp:available`).
  */
-export type YtdlpInfo = {
+export type YtdlpInfo = { 
 /**
  * The version in use.
  */
-installed: string, latest: string,
+installed: string, latest: string, 
 /**
  * When it installs itself (Unix seconds); absent when the update setting is off.
  */

@@ -3,11 +3,11 @@
 /**
  * yt-dlp was installed (`ytdlp:installed`) or rolled back (`ytdlp:rolledback`).
  */
-export type YtdlpChange = {
+export type YtdlpChange = { 
 /**
  * The version now in use, or the one that was installed.
  */
-version: string,
+version: string, 
 /**
  * On a rollback: the version that did not work.
  */

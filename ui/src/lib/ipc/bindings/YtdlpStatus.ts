@@ -3,23 +3,23 @@
 /**
  * What Settings shows.
  */
-export type YtdlpStatus = {
+export type YtdlpStatus = { 
 /**
  * The version in use; absent when it could not be read.
  */
-installed?: string,
+installed?: string, 
 /**
  * An updated copy runs (otherwise the bundled one).
  */
-updated: boolean,
+updated: boolean, 
 /**
  * When the updated copy was installed (Unix seconds).
  */
-updatedAt?: number,
+updatedAt?: number, 
 /**
  * The latest stable release, when a check found it.
  */
-latest?: string, newer: boolean,
+latest?: string, newer: boolean, 
 /**
  * When the newer one installs itself (Unix seconds), if it will.
  */
