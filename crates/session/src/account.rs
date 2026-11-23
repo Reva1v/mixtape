@@ -218,6 +218,12 @@ pub async fn keep_alive(st: &Session) -> bool {
 /// to confirm you're not a bot»), so one signed-in request decides; a session really gone is
 /// announced once per jar. `downloads_paused`: the caller stopped the downloads over this.
 pub fn auth_failed(app: &AppHandle, downloads_paused: bool) {
+    verify(app, Some(downloads_paused));
+}
+
+/// The one signed-in request that decides. `refused`: `Some(downloads_paused)` after a refused
+/// request, `None` for the look at startup, which only logs a session that is fine at debug level.
+fn verify(app: &AppHandle, refused: Option<bool>) {
     let Some(st) = app.try_state::<Arc<Session>>() else {
         return;
     };
@@ -234,6 +240,10 @@ pub fn auth_failed(app: &AppHandle, downloads_paused: bool) {
             tracing::warn!("YouTube session is signed out");
             crate::host::emit(&st.app, "account:expired", ());
         } else if !signed_out && verdict.is_ok() {
+            let Some(downloads_paused) = refused else {
+                tracing::debug!("YouTube session checked at startup: signed in");
+                return;
+            };
             tracing::warn!("a YouTube request was refused, yet the session is signed in");
             if downloads_paused {
                 crate::events::toast_error(
@@ -300,7 +310,7 @@ pub fn status(st: &Session) -> AccountStatus {
     // A process that is not the session's owner sends nothing by itself, so without this it would
     // show the profile of a session long signed out.
     if st.account.first_look() {
-        auth_failed(&st.app, false);
+        verify(&st.app, None);
     }
     let stored: Stored = settings::get(&st.db, KEY)
         .ok()
