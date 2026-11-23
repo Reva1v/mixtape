@@ -490,7 +490,11 @@ pub async fn ytdlp_check(state: State<'_, Arc<Session>>) -> CmdResult<YtdlpStatu
 /// The yt-dlp in use, without touching the network.
 #[tauri::command]
 pub async fn ytdlp_status(state: State<'_, Arc<Session>>) -> CmdResult<YtdlpStatus> {
-    ensure_in_use(state.inner()).await;
+    // While an install, rollback or revert moves files, the choice it ends with is the one to
+    // keep: choosing now could record one version while the path already holds another.
+    if let Ok(_guard) = busy().try_lock() {
+        ensure_in_use(state.inner()).await;
+    }
     Ok(status())
 }
 
