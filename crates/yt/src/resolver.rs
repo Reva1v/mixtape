@@ -369,12 +369,14 @@ impl StreamResolver {
         if let Some(f) = &out.failure {
             tracing::warn!("yt-dlp: {f}");
         }
-        // A signed-in client YouTube refuses fails with a tool error while the same
-        // track resolves anonymously; auth, rate-limit and unavailable errors are final.
+        // YouTube keeps breaking the signed-in clients yt-dlp picks with cookies («The page
+        // needs to be reloaded», a player whose challenge fails so only images are left and the
+        // format «is not available»), while the same track resolves anonymously. Only a refused
+        // sign-in, a rate limit and a dead network are final: retrying those can't help.
         if used_cookies {
             let retry_ids: Vec<TrackId> = results
                 .iter()
-                .filter(|(_, r)| matches!(r, Err(YtError::Tool(_))))
+                .filter(|(_, r)| matches!(r, Err(e) if retry_anonymously(e)))
                 .map(|(id, _)| id.clone())
                 .collect();
             if !retry_ids.is_empty() {
@@ -1016,6 +1018,14 @@ pub fn classify(message: &str) -> YtError {
     }
 }
 
+/// A failure of a run with cookies that a run without them may not share.
+fn retry_anonymously(e: &YtError) -> bool {
+    matches!(
+        e,
+        YtError::Tool(_) | YtError::Unavailable(_) | YtError::Parse(_)
+    )
+}
+
 fn clone_result(r: &Result<ResolvedStream>) -> Result<ResolvedStream> {
     match r {
         Ok(s) => Ok(s.clone()),
@@ -1486,6 +1496,47 @@ mod tests {
         assert!(!matches!(e, YtError::Tool(_)), "{e:?}");
         assert_eq!(call_lines(&dir).len(), 1);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn missing_format_with_cookies_is_retried_anonymously() {
+        let err = "echo ERROR: [youtube] dQw4w9WgXcQ: Requested format is not available. Use --list-formats for a list of available formats 1>&2";
+        let (dir, script) = fake_ytdlp(&retry_script(err, TYPE_BATCH));
+        let r = StreamResolver::new(script, "deno.exe".into(), dir.join("tmp"));
+        r.set_cookies(Some(".youtube.com	TRUE	/	TRUE	0	NAME	fake".into()));
+        let res = r.resolve_one(&TrackId::new("dQw4w9WgXcQ")).await.unwrap();
+        assert_eq!(res.itag, 251);
+        let calls = call_lines(&dir);
+        assert_eq!(calls.len(), 2, "{calls:?}");
+        assert!(!calls[1].contains("--cookies"), "{calls:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn refused_sign_in_with_cookies_is_not_retried() {
+        let err = "echo ERROR: [youtube] dQw4w9WgXcQ: The provided YouTube account cookies are no longer valid 1>&2";
+        let (dir, script) = fake_ytdlp(&retry_script(err, TYPE_BATCH));
+        let r = StreamResolver::new(script, "deno.exe".into(), dir.join("tmp"));
+        r.set_cookies(Some(".youtube.com	TRUE	/	TRUE	0	NAME	fake".into()));
+        let e = r
+            .resolve_one(&TrackId::new("dQw4w9WgXcQ"))
+            .await
+            .unwrap_err();
+        assert!(matches!(e, YtError::Auth), "{e:?}");
+        assert_eq!(call_lines(&dir).len(), 1);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn only_final_errors_skip_the_anonymous_retry() {
+        assert!(retry_anonymously(&YtError::Tool("x".into())));
+        assert!(retry_anonymously(&YtError::Unavailable("x".into())));
+        assert!(retry_anonymously(&YtError::Parse("x".into())));
+        assert!(!retry_anonymously(&YtError::Auth));
+        assert!(!retry_anonymously(&YtError::RateLimited));
+        assert!(!retry_anonymously(&YtError::Network("x".into())));
     }
 
     #[cfg(windows)]
