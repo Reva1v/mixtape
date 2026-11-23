@@ -6,9 +6,12 @@
 use mixtape_session::commands::CmdResult;
 use mixtape_session::commands::settings::Prefs;
 use mixtape_session::Session;
-use mixtape_core::{AppError, ErrorKind};
+use mixtape_core::{AppError, ErrorKind, TrackId};
+use mixtape_yt::ytdlp_release as release;
+use mixtape_yt::ytdlp_update as tools;
 use serde::Serialize;
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_updater::UpdaterExt;
@@ -91,4 +94,341 @@ pub async fn update_install(app: AppHandle, state: State<'_, Arc<Session>>) -> C
         .await
         .map_err(failed)?;
     app.restart();
+}
+
+// ---- yt-dlp: notice, delayed verified update, rollback ----------------------------------
+
+/// A public video for the smoke test of a candidate yt-dlp.
+const SMOKE_ID: &str = "dQw4w9WgXcQ";
+
+/// A new stable yt-dlp exists (`ytdlp:available`).
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct YtdlpInfo {
+    /// The version in use.
+    pub installed: String,
+    pub latest: String,
+    /// When it installs itself (Unix seconds); absent when the update setting is off.
+    #[ts(optional, type = "number")]
+    pub install_after: Option<i64>,
+}
+
+/// yt-dlp was installed (`ytdlp:installed`) or rolled back (`ytdlp:rolledback`).
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct YtdlpChange {
+    /// The version now in use, or the one that was installed.
+    pub version: String,
+    /// On a rollback: the version that did not work.
+    #[ts(optional)]
+    pub bad: Option<String>,
+}
+
+/// What Settings shows.
+#[derive(Debug, Clone, Default, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct YtdlpStatus {
+    /// The version in use; absent when it could not be read.
+    #[ts(optional)]
+    pub installed: Option<String>,
+    /// An updated copy runs (otherwise the bundled one).
+    pub updated: bool,
+    /// When the updated copy was installed (Unix seconds).
+    #[ts(optional, type = "number")]
+    pub updated_at: Option<i64>,
+    /// The latest stable release, when a check found it.
+    #[ts(optional)]
+    pub latest: Option<String>,
+    pub newer: bool,
+    /// When the newer one installs itself (Unix seconds), if it will.
+    #[ts(optional, type = "number")]
+    pub install_after: Option<i64>,
+}
+
+#[derive(Default)]
+struct YtdlpRt {
+    /// Version of the bundled yt-dlp, read once.
+    bundled_version: Option<String>,
+    in_use: Option<String>,
+    updated_at: Option<i64>,
+    latest: Option<String>,
+    install_after: Option<i64>,
+    counter: tools::RollbackCounter,
+}
+
+fn rt() -> std::sync::MutexGuard<'static, YtdlpRt> {
+    static RT: OnceLock<Mutex<YtdlpRt>> = OnceLock::new();
+    RT.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// One check, install or rollback at a time.
+fn busy() -> &'static tokio::sync::Mutex<()> {
+    static BUSY: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    BUSY.get_or_init(Default::default)
+}
+
+fn now() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+}
+
+fn tools_dir(st: &Session) -> PathBuf {
+    st.paths.root.join("tools")
+}
+
+fn status() -> YtdlpStatus {
+    let r = rt();
+    let newer = match (&r.latest, &r.in_use) {
+        (Some(l), Some(i)) => release::is_newer(l, i),
+        _ => false,
+    };
+    YtdlpStatus {
+        installed: r.in_use.clone(),
+        updated: r.updated_at.is_some(),
+        updated_at: r.updated_at,
+        latest: r.latest.clone(),
+        newer,
+        install_after: if newer { r.install_after } else { None },
+    }
+}
+
+/// Reads the bundled yt-dlp's version once and points the resolver at the updated copy if
+/// that one is newer and intact.
+async fn ensure_in_use(st: &Session) {
+    if rt().bundled_version.is_some() {
+        return;
+    }
+    let bundled = st.resolver.bundled_ytdlp().to_path_buf();
+    let version = match release::installed_version(&bundled).await {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::info!("yt-dlp version: {e}");
+            return;
+        }
+    };
+    let dir = tools_dir(st);
+    let (in_use, at) = match tools::choose(&version, &dir) {
+        tools::Chosen::Updated { exe, meta } => {
+            tracing::info!(version = %meta.version, bundled = %version, "using the updated yt-dlp");
+            st.resolver.set_ytdlp_override(Some(exe));
+            (meta.version, Some(meta.installed_at))
+        }
+        tools::Chosen::Bundled => {
+            st.resolver.set_ytdlp_override(None);
+            (version.clone(), None)
+        }
+    };
+    let mut r = rt();
+    r.bundled_version = Some(version);
+    r.in_use = Some(in_use);
+    r.updated_at = at;
+}
+
+/// Downloads, verifies, smoke-tests and installs `rel`; `Err` is the reason it was refused.
+async fn install_release(st: &Session, rel: &release::Release) -> Result<(), String> {
+    let dir = tools_dir(st);
+    let stage = tools::staging_dir(&dir);
+    let _ = std::fs::remove_dir_all(&stage);
+    std::fs::create_dir_all(&stage).map_err(|e| format!("staging folder: {e}"))?;
+    let result = verify_and_install(st, rel, &dir, &stage).await;
+    let _ = std::fs::remove_dir_all(&stage);
+    result
+}
+
+async fn verify_and_install(st: &Session, rel: &release::Release, dir: &std::path::Path, stage: &std::path::Path) -> Result<(), String> {
+    let exe = tools::pick_asset(rel, tools::EXE_ASSET, tools::MAX_EXE)?;
+    let sums = tools::pick_asset(rel, tools::SUMS_ASSET, tools::MAX_SUMS)?;
+    let sig = tools::pick_asset(rel, tools::SIG_ASSET, tools::MAX_SIG)?;
+    let http = tools::download_client()?;
+    let (exe_path, sums_path, sig_path) = (tools::tools_exe(stage), stage.join(tools::SUMS_ASSET), stage.join(tools::SIG_ASSET));
+    tools::download(&http, sums, tools::MAX_SUMS, &sums_path).await?;
+    tools::download(&http, sig, tools::MAX_SIG, &sig_path).await?;
+    tools::download(&http, exe, tools::MAX_EXE, &exe_path).await?;
+    tracing::info!(version = %rel.tag, "yt-dlp downloaded, verifying");
+    let read = |p: &std::path::Path| std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()));
+    let hash = tools::sha256_file(&exe_path).map_err(|e| format!("hash: {e}"))?;
+    // From here on a refusal means the release itself is not trustworthy or not working:
+    // it is remembered and never tried again.
+    let verified = tools::verify_download(tools::PUBLIC_KEY, &read(&sums_path)?, &read(&sig_path)?, &hash);
+    let outcome = match verified {
+        Ok(h) => smoke_test(st, &exe_path, &rel.tag).await.map(|()| h),
+        Err(e) => Err(e),
+    };
+    let hash = match outcome {
+        Ok(h) => h,
+        Err(e) => {
+            let _ = tools::mark_bad(dir, &rel.tag);
+            return Err(e);
+        }
+    };
+    let meta = tools::install(dir, &exe_path, &rel.tag, &hash, now()).map_err(|e| format!("install: {e}"))?;
+    st.resolver.set_ytdlp_override(Some(tools::tools_exe(dir)));
+    {
+        let mut r = rt();
+        r.in_use = Some(meta.version.clone());
+        r.updated_at = Some(meta.installed_at);
+        r.counter.reset();
+    }
+    tracing::info!(version = %meta.version, previous = ?meta.previous, "yt-dlp updated");
+    let _ = st.app.emit("ytdlp:installed", YtdlpChange { version: meta.version, bad: None });
+    Ok(())
+}
+
+/// `--version` prints exactly the release tag, then one anonymous resolve works.
+async fn smoke_test(st: &Session, exe: &std::path::Path, tag: &str) -> Result<(), String> {
+    let v = release::installed_version(exe).await.map_err(|e| format!("smoke test: {e}"))?;
+    if v != tag {
+        return Err(format!("smoke test: --version says {v}, release is {tag}"));
+    }
+    let id = TrackId::new(SMOKE_ID);
+    match st.resolver.probe(exe, std::slice::from_ref(&id)).await.pop() {
+        Some((_, Ok(_))) => Ok(()),
+        Some((_, Err(e))) => Err(format!("smoke test: resolve failed: {e}")),
+        None => Err("smoke test: no answer".into()),
+    }
+}
+
+/// One cycle: look up the latest release; announce it; install it when it is old enough, the
+/// setting is on and it was not refused before.
+async fn ytdlp_cycle(st: &Arc<Session>) -> YtdlpStatus {
+    let _guard = busy().lock().await;
+    ensure_in_use(st).await;
+    let rel = match release::fetch_release(st.yt.http()).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::info!("yt-dlp check: {e}");
+            return status();
+        }
+    };
+    let Some(in_use) = rt().in_use.clone() else { return status() };
+    let auto = Prefs::load(st).ytdlp_auto_update;
+    let dir = tools_dir(st);
+    let bad = tools::read_bad(&dir);
+    let after = tools::install_after(rel.published_at);
+    {
+        let mut r = rt();
+        r.latest = Some(rel.tag.clone());
+        r.install_after = auto.then_some(after);
+    }
+    if !release::is_newer(&rel.tag, &in_use) {
+        tracing::info!(latest = %rel.tag, %in_use, "yt-dlp is up to date");
+        return status();
+    }
+    if bad.contains(&rel.tag) {
+        tracing::info!(latest = %rel.tag, "yt-dlp release was refused before, not installing it");
+        return status();
+    }
+    let _ = st.app.emit(
+        "ytdlp:available",
+        YtdlpInfo { installed: in_use.clone(), latest: rel.tag.clone(), install_after: auto.then_some(after) },
+    );
+    if !auto {
+        tracing::info!(latest = %rel.tag, "new yt-dlp, automatic update is off");
+    } else if !tools::old_enough(rel.published_at, now()) {
+        tracing::info!(latest = %rel.tag, after, "new yt-dlp is too young to install");
+    } else if let Err(e) = install_release(st, &rel).await {
+        tracing::info!(latest = %rel.tag, "yt-dlp update refused: {e}");
+    }
+    status()
+}
+
+/// A batch finished: if the updated yt-dlp keeps failing where the previous one works,
+/// go back to the previous one.
+async fn on_batch(st: Arc<Session>, failed: Vec<TrackId>) {
+    let Some(version) = ({
+        let r = rt();
+        r.updated_at.and_then(|_| r.in_use.clone())
+    }) else {
+        return;
+    };
+    // A probe at a time; a batch that arrives meanwhile is not counted.
+    let Ok(_guard) = busy().try_lock() else { return };
+    let dir = tools_dir(&st);
+    let previous_ok = if failed.is_empty() {
+        false
+    } else {
+        let prev = tools::previous_exe(&dir).unwrap_or_else(|| st.resolver.bundled_ytdlp().to_path_buf());
+        let ids: Vec<TrackId> = failed.iter().take(3).cloned().collect();
+        st.resolver.probe(&prev, &ids).await.iter().any(|(_, r)| r.is_ok())
+    };
+    let roll = rt().counter.report(!failed.is_empty(), previous_ok);
+    if !roll {
+        return;
+    }
+    tracing::warn!(%version, "updated yt-dlp keeps failing where the previous one works, rolling back");
+    let restored = match tools::rollback(&dir, &version) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("yt-dlp rollback failed: {e}");
+            return;
+        }
+    };
+    let bundled = rt().bundled_version.clone().unwrap_or_default();
+    let (now_in_use, at) = match &restored {
+        Some(v) => {
+            st.resolver.set_ytdlp_override(Some(tools::tools_exe(&dir)));
+            (v.clone(), tools::read_meta(&dir).map(|m| m.installed_at))
+        }
+        None => {
+            st.resolver.set_ytdlp_override(None);
+            (bundled, None)
+        }
+    };
+    {
+        let mut r = rt();
+        r.in_use = Some(now_in_use.clone());
+        r.updated_at = at;
+        r.counter.reset();
+    }
+    let _ = st.app.emit("ytdlp:rolledback", YtdlpChange { version: now_in_use, bad: Some(version) });
+}
+
+/// The yt-dlp loop: 60 s after start, then daily, whatever the app's own update setting says.
+pub fn spawn_ytdlp(st: Arc<Session>) {
+    let hook_st = st.clone();
+    st.resolver.set_batch_hook(move |failed| {
+        let (st, failed) = (hook_st.clone(), failed.to_vec());
+        tauri::async_runtime::spawn(on_batch(st, failed));
+    });
+    tauri::async_runtime::spawn(async move {
+        // Which exe runs is settled at once; the lookup waits.
+        ensure_in_use(&st).await;
+        tokio::time::sleep(FIRST_CHECK).await;
+        loop {
+            ytdlp_cycle(&st).await;
+            tokio::time::sleep(EVERY).await;
+        }
+    });
+}
+
+/// Checks by hand (and installs when it is due); no toast, the answer is the status.
+#[tauri::command]
+pub async fn ytdlp_check(state: State<'_, Arc<Session>>) -> CmdResult<YtdlpStatus> {
+    Ok(ytdlp_cycle(state.inner()).await)
+}
+
+/// The yt-dlp in use, without touching the network.
+#[tauri::command]
+pub async fn ytdlp_status(state: State<'_, Arc<Session>>) -> CmdResult<YtdlpStatus> {
+    ensure_in_use(state.inner()).await;
+    Ok(status())
+}
+
+/// «Вернуть встроенную»: drops the updated copy.
+#[tauri::command]
+pub async fn ytdlp_revert(state: State<'_, Arc<Session>>) -> CmdResult<YtdlpStatus> {
+    let st = state.inner();
+    let _guard = busy().lock().await;
+    tools::revert_to_bundled(&tools_dir(st));
+    st.resolver.set_ytdlp_override(None);
+    {
+        let mut r = rt();
+        r.in_use = r.bundled_version.clone();
+        r.updated_at = None;
+        r.counter.reset();
+    }
+    tracing::info!("reverted to the bundled yt-dlp");
+    Ok(status())
 }

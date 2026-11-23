@@ -143,6 +143,10 @@ impl Resolve for StreamResolver {
 /// Resolves video ids to audio URLs with yt-dlp, caching the results in memory.
 pub struct StreamResolver {
     ytdlp: PathBuf,
+    /// An updated yt-dlp (see `ytdlp_update`) that runs instead of the bundled one.
+    ytdlp_override: Mutex<Option<PathBuf>>,
+    /// Told after each batch which ids failed in every run (rollback of an updated yt-dlp).
+    batch_hook: OnceLock<BatchHook>,
     deno: PathBuf,
     tmp_dir: PathBuf,
     timeout: Duration,
@@ -158,6 +162,9 @@ pub struct StreamResolver {
 }
 
 type CookieReturn = Box<dyn Fn(&str) + Send + Sync>;
+
+/// The ids of a batch that failed in every run, with a retryable error (empty: all fine).
+type BatchHook = Box<dyn Fn(&[TrackId]) + Send + Sync>;
 
 /// The answer for one id in flight: `None` until its yt-dlp process ends.
 type Pending = watch::Receiver<Option<Result<ResolvedStream>>>;
@@ -181,6 +188,8 @@ impl StreamResolver {
         purge_cookie_copies(&tmp_dir);
         Self {
             ytdlp,
+            ytdlp_override: Mutex::new(None),
+            batch_hook: OnceLock::new(),
             deno,
             tmp_dir,
             timeout: CALL_TIMEOUT,
@@ -204,9 +213,37 @@ impl StreamResolver {
         self
     }
 
-    /// The yt-dlp executable (also used for SoundCloud / Bandcamp imports).
-    pub fn ytdlp(&self) -> &Path {
+    /// The yt-dlp executable in use (also for SoundCloud / Bandcamp imports): the updated
+    /// one if set, else the bundled one. Read again by every run, so a switch needs no restart.
+    pub fn ytdlp(&self) -> PathBuf {
+        lock(&self.ytdlp_override)
+            .clone()
+            .unwrap_or_else(|| self.ytdlp.clone())
+    }
+
+    /// The yt-dlp that ships with the app.
+    pub fn bundled_ytdlp(&self) -> &Path {
         &self.ytdlp
+    }
+
+    /// Runs `exe` instead of the bundled yt-dlp from now on; `None`: the bundled one again.
+    pub fn set_ytdlp_override(&self, exe: Option<PathBuf>) {
+        *lock(&self.ytdlp_override) = exe;
+    }
+
+    /// Called after each cookie-aware batch; set once.
+    pub fn set_batch_hook(&self, hook: impl Fn(&[TrackId]) + Send + Sync + 'static) {
+        let _ = self.batch_hook.set(Box::new(hook));
+    }
+
+    /// One anonymous run of `exe` on `ids`, bypassing the cache (smoke test of a candidate
+    /// yt-dlp, and the check whether the previous one still works).
+    pub async fn probe(&self, exe: &Path, ids: &[TrackId]) -> Vec<(TrackId, Result<ResolvedStream>)> {
+        let out = self.run_ytdlp_with(exe, ids, None).await;
+        if let Some(f) = &out.failure {
+            tracing::info!("yt-dlp probe: {f}");
+        }
+        attribute(ids, &out, now_unix())
     }
 
     /// Netscape `cookies.txt` text passed to yt-dlp, or `None` to resolve anonymously.
@@ -397,6 +434,14 @@ impl StreamResolver {
                 }
             }
         }
+        if let Some(hook) = self.batch_hook.get() {
+            let failed: Vec<TrackId> = results
+                .iter()
+                .filter(|(_, r)| matches!(r, Err(e) if retry_anonymously(e)))
+                .map(|(id, _)| id.clone())
+                .collect();
+            hook(&failed);
+        }
         let ok = results.iter().filter(|(_, r)| r.is_ok()).count();
         tracing::debug!(
             batch = ids.len(),
@@ -471,6 +516,11 @@ impl StreamResolver {
     }
 
     async fn run_ytdlp(&self, ids: &[TrackId], cookies: Option<&Path>) -> RunOutput {
+        let exe = self.ytdlp();
+        self.run_ytdlp_with(&exe, ids, cookies).await
+    }
+
+    async fn run_ytdlp_with(&self, exe: &Path, ids: &[TrackId], cookies: Option<&Path>) -> RunOutput {
         if let Err(e) = tokio::fs::create_dir_all(&self.tmp_dir).await {
             return RunOutput::failed(trf!(
                 "couldn't create the temporary folder: {e}",
@@ -478,7 +528,7 @@ impl StreamResolver {
                 "не удалось создать временную папку: {e}",
             ));
         }
-        let mut cmd = ytdlp_command(&self.ytdlp, &self.tmp_dir);
+        let mut cmd = ytdlp_command(exe, &self.tmp_dir);
         if let Some(path) = cookies {
             cmd.arg("--cookies").arg(path);
         }

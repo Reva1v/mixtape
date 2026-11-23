@@ -49,6 +49,9 @@ pub struct Prefs {
     pub language: Option<Lang>,
     /// Look for a new version on start and once a day.
     pub auto_update: bool,
+    /// Install a new yt-dlp by itself, 5 days after its release and only after the signature,
+    /// hash and a smoke test check out; off: only tell that a new one exists.
+    pub ytdlp_auto_update: bool,
     pub icon_style: IconStyle,
     /// The window's close button hides it to the tray; the music keeps playing.
     pub close_to_tray: bool,
@@ -58,7 +61,7 @@ pub struct Prefs {
 
 impl Default for Prefs {
     fn default() -> Self {
-        Self { smooth_background: true, crossfade: false, crossfade_sec: 6, mix_fullscreen: false, language: None, auto_update: true, icon_style: IconStyle::Outline, close_to_tray: true, discord_presence: true, normalize_volume: true, smart_transitions: false }
+        Self { smooth_background: true, crossfade: false, crossfade_sec: 6, mix_fullscreen: false, language: None, auto_update: true, ytdlp_auto_update: true, icon_style: IconStyle::Outline, close_to_tray: true, discord_presence: true, normalize_volume: true, smart_transitions: false }
     }
 }
 

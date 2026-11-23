@@ -17,6 +17,8 @@ pub mod radio;
 pub mod resolver;
 pub mod search;
 pub mod thumbs;
+pub mod ytdlp_release;
+pub mod ytdlp_update;
 
 use mixtape_core::{AppError, ErrorKind, tr};
 

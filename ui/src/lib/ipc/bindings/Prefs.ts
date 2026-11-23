@@ -35,7 +35,12 @@ language?: Lang,
 /**
  * Look for a new version on start and once a day.
  */
-autoUpdate: boolean, iconStyle: IconStyle, 
+autoUpdate: boolean, 
+/**
+ * Install a new yt-dlp by itself, 5 days after its release and only after the signature,
+ * hash and a smoke test check out; off: only tell that a new one exists.
+ */
+ytdlpAutoUpdate: boolean, iconStyle: IconStyle, 
 /**
  * The window's close button hides it to the tray; the music keeps playing.
  */

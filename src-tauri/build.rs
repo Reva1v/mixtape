@@ -17,6 +17,9 @@ const COMMANDS: &[&str] = &[
     "app_version",
     "update_check",
     "update_install",
+    "ytdlp_check",
+    "ytdlp_status",
+    "ytdlp_revert",
 ];
 
 fn main() {

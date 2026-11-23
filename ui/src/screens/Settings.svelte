@@ -18,6 +18,7 @@
   import IconAutostart from "~icons/solar/power-linear";
   import IconUpdate from "~icons/solar/refresh-circle-linear";
   import IconAutoUpdate from "~icons/solar/cloud-download-linear";
+  import IconYtdlp from "~icons/solar/music-library-2-linear";
   import IconImport from "~icons/solar/folder-with-files-linear";
   import { prefs } from "$lib/stores/prefs.svelte";
   import { LANGS, locale, t } from "$lib/i18n";
@@ -423,6 +424,48 @@
         <Switch checked={p.autoUpdate} label={t.updates.auto} onchange={(v) => prefs.update({ autoUpdate: v })} />
       {/snippet}
       {@render row(t.updates.auto, t.updates.autoHint, autoSwitch, IconAutoUpdate)}
+      {#snippet ytdlpButtons()}
+        {@const y = updates.ytdlp}
+        <div class="flex shrink-0 items-center gap-2">
+          {#if y?.updated}
+            <button
+              type="button"
+              disabled={updates.ytdlpBusy !== null}
+              class="h-9 shrink-0 rounded-full bg-fill-2 px-4 text-[13px] font-medium text-ink transition-colors hover:bg-fill-3 disabled:opacity-60"
+              onclick={() => updates.revertYtdlp()}
+            >
+              {updates.ytdlpBusy === "reverting" ? t.updates.ytdlp.reverting : t.updates.ytdlp.revert}
+            </button>
+          {/if}
+          <button
+            type="button"
+            disabled={updates.ytdlpBusy !== null}
+            class="h-9 shrink-0 rounded-full bg-fill-2 px-4 text-[13px] font-medium text-ink transition-colors hover:bg-fill-3 disabled:opacity-60"
+            onclick={() => updates.checkYtdlp()}
+          >
+            {updates.ytdlpBusy === "checking" ? t.updates.checking : t.updates.check}
+          </button>
+        </div>
+      {/snippet}
+      {@render row(
+        t.updates.ytdlp.title,
+        (() => {
+          const y = updates.ytdlp;
+          const use = t.updates.ytdlp.inUse(y?.installed ?? null, y?.updated && y.updatedAt ? updates.date(y.updatedAt) : null);
+          if (!y?.latest) return use;
+          if (y.newer && y.latest) {
+            const next = y.installAfter === undefined ? t.updates.ytdlp.pendingManual(y.latest) : t.updates.ytdlp.pending(y.latest, updates.date(y.installAfter));
+            return `${use}. ${next}`;
+          }
+          return `${use}. ${y.updated && y.installed === y.latest ? t.updates.ytdlp.installed(y.latest) : t.updates.ytdlp.upToDate}`;
+        })(),
+        ytdlpButtons,
+        IconYtdlp,
+      )}
+      {#snippet ytdlpAutoSwitch()}
+        <Switch checked={p.ytdlpAutoUpdate} label={t.updates.ytdlp.auto} onchange={(v) => prefs.update({ ytdlpAutoUpdate: v })} />
+      {/snippet}
+      {@render row(t.updates.ytdlp.auto, t.updates.ytdlp.autoHint, ytdlpAutoSwitch, IconYtdlp)}
     </div>
   </section>
 
