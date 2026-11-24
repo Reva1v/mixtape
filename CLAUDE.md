@@ -18,3 +18,9 @@ build's cache, so the next installer builds fast (user, 2026-11-03); `--full` on
   goes to 2–3 agents on disjoint crates; no heavy build of your own while agents build.
 - Tests are headless: nothing that opens windows, plays sound or records the screen/mic runs without the
   user's consent, and only when they are away from the machine.
+
+## Location (moved 2026-11-25)
+
+This repo lives in `D:\Projects\Mixtape-projects\mixtape` (was `D:\Projects\mixtape`); paths in the tree point there. Older specs, logs and
+`.wolf` may still name the old path.
+Droplet Island, which builds against this repo, is at `../../Droplet-projects/droplet-island`.

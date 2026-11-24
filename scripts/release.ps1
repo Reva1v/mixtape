@@ -83,7 +83,7 @@ try {
 
     # Every Mixtape release ships into Droplet Island too (owner, 2026-11-24): the island's own
     # script syncs Mixtape, bumps the island, runs its gates and releases, in the background.
-    $follow = 'D:\Projects\droplet-island\scripts\follow-mixtape.ps1'
+    $follow = 'D:\Projects\Droplet-projects\droplet-island\scripts\follow-mixtape.ps1'
     if (Test-Path -LiteralPath $follow) {
         Start-Process pwsh -ArgumentList '-NoProfile', '-File', $follow -WindowStyle Hidden
         Write-Host "Droplet Island release started in the background ($follow)"
