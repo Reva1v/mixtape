@@ -21,6 +21,7 @@ import type { PairStart, PeerStatus } from "./peer";
 import type { Lyrics } from "./bindings/Lyrics";
 import type { PlaybackState } from "./bindings/PlaybackState";
 import type { QueueView } from "./bindings/QueueView";
+import type { SharedKind } from "./bindings/SharedKind";
 import type { Track } from "./bindings/Track";
 import type { ViewKind } from "./bindings/ViewKind";
 import { setCoverSource } from "./index";
@@ -619,6 +620,34 @@ mockIPC(
         return setPeer({ firewall: "ok" });
       case "integrations_status":
         return { lastfmAvailable: true, lastfmUser: account.connected ? "demo" : undefined, lastfmPending: false, discordAvailable: true };
+      case "link_parse": {
+        // Just enough of the real parser to try the search card: watch / browse / channel / list URLs.
+        const text = String(a.text);
+        const rules: [SharedKind, RegExp][] = [
+          ["track", /[?&]v=([\w-]{11})/],
+          ["track", /youtu\.be\/([\w-]{11})/],
+          ["album", /\/browse\/(MPREb_[\w-]+)/],
+          ["artist", /\/channel\/(UC[\w-]+)/],
+          ["playlist", /[?&]list=([\w-]+)/],
+        ];
+        for (const [kind, re] of rules) {
+          const m = re.exec(text);
+          if (m) return { kind, id: m[1] };
+        }
+        return null;
+      }
+      case "link_track":
+        return { ...allTracks[0], id: a.id };
+      case "link_share_url": {
+        const id = String(a.id);
+        const base = "https://music.youtube.com/";
+        if (a.kind === "track") return `${base}watch?v=${id}`;
+        if (a.kind === "album") return `${base}browse/${id}`;
+        if (a.kind === "artist") return `${base}channel/${id}`;
+        return `${base}playlist?list=${id.replace(/^VL/, "")}`;
+      }
+      case "extension_open_folder":
+        return null;
       case "storage_get":
         return { cacheBytes: 1_830_000_000, cacheLimit: 5 * 1024 ** 3, autosavePlays: 3, dataDir: "C:\\Users\\demo\\AppData\\Local\\Mixtape" };
     }

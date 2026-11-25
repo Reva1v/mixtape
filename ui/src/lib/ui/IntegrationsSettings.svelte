@@ -4,6 +4,7 @@
   import type { Component, Snippet } from "svelte";
   import IconLastfm from "~icons/solar/radio-minimalistic-linear";
   import IconDiscord from "~icons/solar/gamepad-linear";
+  import IconExtension from "~icons/solar/widget-add-linear";
   import { t } from "$lib/i18n";
   import { invoke, on } from "$lib/ipc";
   import { prefs } from "$lib/stores/prefs.svelte";
@@ -52,6 +53,16 @@
   const connect = () => call("lastfm_connect", () => (announce = true));
   const confirm = () => call("lastfm_confirm", () => info && announced(info));
   const disconnect = () => call("lastfm_disconnect", () => toasts.push(t.integrations.disconnected));
+
+  // Settings → «Расширение для браузера»: the folder is unpacked by hand in the browser
+  // (developer mode), so the app only opens it; nothing here depends on `info`.
+  async function openExtensionFolder() {
+    try {
+      await invoke("extension_open_folder");
+    } catch (e) {
+      toasts.push(e instanceof Error && e.message ? e.message : t.extension.openFailed, "error");
+    }
+  }
 
   const btn = "h-9 shrink-0 rounded-full px-4 text-[13px] font-medium transition-colors disabled:opacity-50";
 </script>
@@ -113,3 +124,27 @@
     </div>
   </section>
 {/if}
+
+<section class="mb-8">
+  <h2 class="mb-3 text-[13px] font-semibold tracking-wide text-ink-3 uppercase">{t.extension.title}</h2>
+  <div class="divide-y divide-line overflow-hidden rounded-lg bg-white/[0.04]">
+    {#snippet folderButton()}
+      <button
+        type="button"
+        class="{btn} bg-ink font-semibold text-black hover:bg-[#dcdcdc]"
+        onclick={() => void openExtensionFolder()}
+      >
+        {t.extension.openFolder}
+      </button>
+    {/snippet}
+    {@render row(t.extension.name, t.extension.hint, folderButton, IconExtension)}
+    <ol class="space-y-2 px-5 py-4 text-[13px] leading-snug text-ink-2">
+      {#each t.extension.steps as step, i (i)}
+        <li class="flex gap-3">
+          <span class="grid size-5 shrink-0 place-items-center rounded-full bg-fill-2 text-[11.5px] font-semibold text-ink-2 tnum">{i + 1}</span>
+          <span class="min-w-0">{step}</span>
+        </li>
+      {/each}
+    </ol>
+  </div>
+</section>
