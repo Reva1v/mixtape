@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Mixtape Link Catcher",
+  "version": "1.0.0",
+  "description": "Opens YouTube Music links from outside the site in Mixtape.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzIhGPgJMnbRP+z4jMl8HOs48Y6SQm2gaE8229fPbU8RVrsK8NVU0VLgBcvH9pcBEmxi5ZC1ubj9HCL5Yi1ssXehIcJSaN4aSpG22MKV8ff9SfLdCJNp+hV/S1MrUX8w0Y6232wAijx2lx3+ejZM0k3zqiAFZ+1zh9UgPPqFMGoC+SzN5M3Y9/7zFEPZ53D0cjpvRNcb53+DvPIIfNYr1Fkh1UaTiQuBo0s5b9IJcfHcRH17FoXg+yDVHP3C+oexBhUuCz2Jy3ReWDfwQtek+g97UH1uVkC/V+US3M9bLQVbv5w1p8NWlpdT7PKe7xdLpSZQuZhg4/py7TqT4TQWGhwIDAQAB",
+  "permissions": ["webNavigation", "storage"],
+  "host_permissions": [
+    "*://music.youtube.com/*",
+    "*://www.youtube.com/*",
+    "*://youtube.com/*",
+    "*://m.youtube.com/*",
+    "*://youtu.be/*"
+  ],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_title": "Mixtape Link Catcher", "default_popup": "popup.html" },
+  "icons": { "32": "icons/32x32.png", "64": "icons/64x64.png", "128": "icons/128x128.png" }
+}
