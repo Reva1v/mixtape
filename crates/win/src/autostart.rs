@@ -132,8 +132,10 @@ mod imp {
     pub fn read_string(key: &str, name: &str) -> Result<Option<String>, Error> {
         Ok(read(key, name, RRF_RT_REG_SZ)?.map(|b| {
             let wide: Vec<u16> = b
-                .chunks_exact(2)
-                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_le_bytes(*c))
                 .collect();
             String::from_utf16_lossy(&wide)
                 .trim_end_matches('\0')
