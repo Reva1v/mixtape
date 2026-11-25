@@ -196,13 +196,18 @@ fn trim(st: &Session, limit: u64) -> CmdResult<()> {
 
 #[tauri::command]
 pub fn open_data_dir(state: State<'_, Arc<Session>>) -> CmdResult<()> {
+    open_in_explorer(&state.paths.root)
+}
+
+/// Shows a folder in Explorer.
+pub(crate) fn open_in_explorer(dir: &std::path::Path) -> CmdResult<()> {
     // By full path, so an explorer.exe in the working directory or on PATH never runs.
     let windows = std::env::var_os("SystemRoot")
         .map(std::path::PathBuf::from)
         .filter(|p| p.is_absolute())
         .unwrap_or_else(|| r"C:\Windows".into());
     std::process::Command::new(windows.join("explorer.exe"))
-        .arg(&state.paths.root)
+        .arg(dir)
         .spawn()
         .map(drop)
         .map_err(|e| mixtape_core::AppError::new(mixtape_core::ErrorKind::Internal, e.to_string()))
