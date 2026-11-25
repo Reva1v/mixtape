@@ -1,5 +1,6 @@
 pub mod catalog;
 pub mod library;
+pub mod link;
 pub mod dev;
 pub mod home;
 pub mod mix;

@@ -1,5 +1,6 @@
 mod autostart;
 mod host;
+mod links;
 mod mini;
 mod tray;
 mod tray_menu;
@@ -51,7 +52,11 @@ pub fn run() {
 
     tauri::Builder::default()
         // A second launch brings the running app's window forward (also out of the tray).
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| window::show_main(app)))
+        // A link in its arguments (the browser extension, the protocol handler) is opened too.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            window::show_main(app);
+            links::hand_over_all(app, links::links_in(args.into_iter()));
+        }))
         // The window is shown by `app_ready` (or stays in the tray), never by the plugin.
         .plugin(
             tauri_plugin_window_state::Builder::default()
@@ -87,7 +92,9 @@ pub fn run() {
             // `setup` runs on the main (UI) thread, which the thumbnail toolbar needs.
             state.media.install(app.handle());
             tracing::debug!("setup: media installed");
-            window::install(app.handle(), autostart::launched_hidden());
+            // A start that carries a link shows the window, also when autostart said `--hidden`.
+            let start_links = links::links_in(std::env::args().skip(1));
+            window::install(app.handle(), autostart::launched_hidden() && start_links.is_empty());
             if let Err(e) = tray::install(app.handle(), &state) {
                 tracing::warn!(error = %e, "tray icon unavailable");
             }
@@ -95,6 +102,10 @@ pub fn run() {
             // The hand-off channel with the island's music module: serve `-app`, claim what
             // the island plays.
             mixtape_session::handoff::app::start(&state);
+            // Links from this start and from a second launch that came before the session
+            // was up wait for the interface (`app_ready`).
+            links::hand_over_all(app.handle(), start_links);
+            links::hand_over_early(&state);
             #[cfg(debug_assertions)]
             if let Ok(dir) = std::env::var("MIXTAPE_DEV_IMPORT") {
                 let st = state.clone();

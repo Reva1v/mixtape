@@ -3,5 +3,8 @@ import type { SharedKind } from "./SharedKind";
 
 /**
  * A YouTube Music link found in text: what it points at and its id.
+ *
+ * The id is in the form the interface's routes take: a playlist keeps the `VL` browse prefix
+ * (`VLPL…`, `VLOLAK5uy_…`), the way playlists from the catalog and the library carry it.
  */
 export type SharedLink = { kind: SharedKind, id: string, };

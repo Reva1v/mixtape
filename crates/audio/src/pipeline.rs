@@ -187,7 +187,7 @@ impl Pipeline {
 
     fn apply_gain(&mut self, samples: &mut [f32]) {
         let limit = self.gain.boosts();
-        for frame in samples.chunks_exact_mut(2) {
+        for frame in samples.as_chunks_mut::<2>().0 {
             let mut g = self.gain.next();
             if self.fade_left > 0 {
                 g *= 1.0 - self.fade_left as f32 / self.fade_len as f32;
@@ -219,8 +219,8 @@ mod tests {
     /// Longest run of near-silent frames in `pcm[from..to]` (frames).
     fn longest_silence(pcm: &[f32], from: usize, to: usize) -> usize {
         let (mut best, mut run) = (0, 0);
-        for f in pcm[from * 2..to * 2].chunks_exact(2) {
-            run = if f[0].abs() < 0.01 { run + 1 } else { 0 };
+        for [left, _] in pcm[from * 2..to * 2].as_chunks::<2>().0 {
+            run = if left.abs() < 0.01 { run + 1 } else { 0 };
             best = best.max(run);
         }
         best
