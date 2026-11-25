@@ -10,7 +10,7 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 Create branch `004-open-shared-links` from `main`; agents work in worktrees off it (skill `parallel-agents`)
+- [X] T001 Create branch `004-open-shared-links` from `main`; agents work in worktrees off it (skill `parallel-agents`)
 
 ---
 
@@ -34,11 +34,11 @@ Pure link logic in `mixtape-sync`, shared by the PC and the phone.
 **Goal**: a link in the search box shows a «Трек по ссылке» (or album/playlist/artist) card instead of «Ничего не найдено».
 **Independent test**: quickstart, PC step 2.
 
-- [ ] T008 [US1] New `crates/session/src/commands/link.rs`: `#[derive(Serialize, TS)] #[ts(export)] struct SharedLink { kind: SharedKind /* "track"|"album"|"playlist"|"artist" */, id: String }` with `From<&Link>`. The playlist id is in the form the UI `playlist` route and `catalog_playlist` expect: check how `catalog.rs` / the router build playlist ids (`VL` or not) and match it; `OLAK5uy_…` → kind `playlist`
-- [ ] T009 [US1] Command `link_parse(text: String) -> Option<SharedLink>` (sync, `find_link`) in `crates/session/src/commands/link.rs`; register in `crates/session/src/lib.rs` `generate_handler!` and `commands/mod.rs`
-- [ ] T010 [US1] Command `link_track(id: TrackId) -> CmdResult<Track>` in `crates/session/src/commands/link.rs`: `st.yt.track(&id)` → `sources::store_tracks(st.yt.http(), &st.db, &st.covers, vec![t])` → the stored `Track`; map errors as catalog commands do (`search_error`/`yt_error`); no account needed
-- [ ] T011 [US1] Tests in `crates/session/src/commands/link.rs`: `SharedLink` mapping for all kinds incl. `OLAK5uy_` and the playlist-id form; `link_parse` on text with/without a link
-- [ ] T012 [US1] Regenerate ts-rs bindings (`SharedLink`, `SharedKind`) into `ui/src/lib/ipc/bindings/` the way the repo does it (see how other `#[ts(export)]` types are exported)
+- [X] T008 [US1] New `crates/session/src/commands/link.rs`: `#[derive(Serialize, TS)] #[ts(export)] struct SharedLink { kind: SharedKind /* "track"|"album"|"playlist"|"artist" */, id: String }` with `From<&Link>`. The playlist id is in the form the UI `playlist` route and `catalog_playlist` expect: check how `catalog.rs` / the router build playlist ids (`VL` or not) and match it; `OLAK5uy_…` → kind `playlist`
+- [X] T009 [US1] Command `link_parse(text: String) -> Option<SharedLink>` (sync, `find_link`) in `crates/session/src/commands/link.rs`; register in `crates/session/src/lib.rs` `generate_handler!` and `commands/mod.rs`
+- [X] T010 [US1] Command `link_track(id: TrackId) -> CmdResult<Track>` in `crates/session/src/commands/link.rs`: `st.yt.track(&id)` → `sources::store_tracks(st.yt.http(), &st.db, &st.covers, vec![t])` → the stored `Track`; map errors as catalog commands do (`search_error`/`yt_error`); no account needed
+- [X] T011 [US1] Tests in `crates/session/src/commands/link.rs`: `SharedLink` mapping for all kinds incl. `OLAK5uy_` and the playlist-id form; `link_parse` on text with/without a link
+- [X] T012 [US1] Regenerate ts-rs bindings (`SharedLink`, `SharedKind`) into `ui/src/lib/ipc/bindings/` the way the repo does it (see how other `#[ts(export)]` types are exported)
 - [X] T013 [P] [US1] New `ui/src/lib/ui/LinkCard.svelte`: props `link: SharedLink`. Track: icon + «Трек по ссылке» + the raw link until `link_track` answers, then cover/title/artists; buttons Играть (`player.play({kind:"tracks", trackIds:[id]})`), Далее / В очередь (`player.queueAdd([id], "next"|"end")` + the existing toasts). Every button first awaits the card's `link_track` promise (the track row must exist before the player gets the id); a pressed button shows a spinner while it waits. On `link_track` error the card keeps the raw link, shows «Не удалось загрузить данные трека», and the buttons try the action once anyway with the bare id; if that fails too, the error toast. State lives in `ui/src/lib/ui/linkCard.svelte.ts` (T016a) Album/playlist/artist: a card «Альбом по ссылке» / «Плейлист по ссылке» / «Исполнитель по ссылке», click → `router.go`. Visual style as the phone screenshot and the PC's catalog top card; buttons keyboard-focusable
 - [X] T014 [US1] `ui/src/screens/Search.svelte`: on query change call `link_parse` (only when the text contains `youtu` or looks like a bare id, to skip IPC for ordinary typing); when it hits, render `LinkCard` and skip `library_search` and `CatalogResults`; Enter in the input plays a track link; plain text unchanged
 - [X] T015 [US1] Strings ru/uk/en for the card in `ui/src/lib/i18n/*/` (skill `i18n-keys`)
@@ -54,7 +54,7 @@ Pure link logic in `mixtape-sync`, shared by the PC and the phone.
 **Goal**: track/album/playlist/artist menus copy the YouTube Music link.
 **Independent test**: quickstart, PC step 3.
 
-- [ ] T017 [P] [US4] Command `link_share_url(kind: SharedKind, id: String) -> CmdResult<String>` in `crates/session/src/commands/link.rs` (builds `Link`, `share_url`); reject a local id (`local…`, `sc…`, `bc…`, `local:` playlists) with `ErrorKind::Invalid`; tests for each kind and the rejections
+- [X] T017 [P] [US4] Command `link_share_url(kind: SharedKind, id: String) -> CmdResult<String>` in `crates/session/src/commands/link.rs` (builds `Link`, `share_url`); reject a local id (`local…`, `sc…`, `bc…`, `local:` playlists) with `ErrorKind::Invalid`; tests for each kind and the rejections
 - [X] T018 [P] [US4] New `ui/src/lib/ui/share.ts`: `isYtmTrack(id)` = `/^[A-Za-z0-9_-]{11}$/`, `isYtmPlaylist(id)` = not `local:`; `share(kind, id)` → `link_share_url` → `navigator.clipboard.writeText` → toast «Ссылка скопирована», error toast on failure; vitest `share.test.ts` for the two predicates (YTM ids, `local0000000001`, `sc` + 16 hex, `local:uuid`, `VL…`, `PL…`)
 - [X] T019 [US4] `ui/src/lib/ui/trackMenu.ts`: «Поделиться треком» (lucide/solar share icon, as other icons) after «Перейти к исполнителю», only when `isYtmTrack(track.id)`
 - [X] T020 [US4] `ui/src/lib/ui/collectionMenu.ts`: «Поделиться альбомом» in `albumMenu`, «Поделиться исполнителем» in `artistMenu`, «Поделиться плейлистом» in `playlistMenu` (hidden for local playlists), in the last group
@@ -67,11 +67,11 @@ Pure link logic in `mixtape-sync`, shared by the PC and the phone.
 **Goal**: `mixtape://play?ids=…` and `mixtape://open?url=…` start/bring up Mixtape and act.
 **Independent test**: quickstart, PC steps 1, 4, 6.
 
-- [ ] T022 [US2] In `crates/session/src/commands/link.rs`: `pub fn hand_over(st: &Arc<Session>, url: String)` with a pending FIFO (`Mutex<VecDeque<String>>` + `ready: AtomicBool` on a static or in `Session`). Before ready → push; `pub fn set_ready(st)` drains in order. Acting on one link: `mixtape_link::parse`, else `url_import::find_link` on the raw string (a plain https link passed on the command line works too); Track (or `Play` first id) → `link_track` logic → `queue_add(Next)` then `next()` on the player (current queue stays); Album/Playlist/Artist → emit `link://route` with `SharedLink`; nothing → emit `link://failed` with localised «Не удалось открыть ссылку» (`tr(en, uk, ru)`); track load error → `link://failed` with the error text. Links are acted on one after another (a single tokio task / mutex), so the last one is what plays
-- [ ] T023 [US2] Tests for `hand_over` ordering and buffering in `crates/session/src/commands/link.rs` with the acting step behind a small trait/closure so the test needs no player or network: before ready nothing runs; `set_ready` runs them in arrival order; after ready runs at once; garbage → failed path
-- [ ] T024 [US2] New `src-tauri/src/links.rs`: `fn links_in(args: impl Iterator<Item=String>) -> Vec<String>` = arguments starting with `mixtape:` (case-insensitive); tests (none, one, with `--hidden`, upper-case, a path argument)
-- [ ] T025 [US2] `src-tauri/src/lib.rs`: single-instance callback → `window::show_main(app)` then for each `links_in(args)` → `hand_over`; in `setup` → `links_in(std::env::args().skip(1))` → `hand_over` (buffered); a start that carries a link always shows the window, even when it was launched by autostart with `--hidden` (a link counts as a non-hidden start)
-- [ ] T026 [US2] `src-tauri/src/window.rs` `app_ready`: call `set_ready` after the window is shown (and also in the tray branch, after `show_main` if links are pending)
+- [X] T022 [US2] In `crates/session/src/commands/link.rs`: `pub fn hand_over(st: &Arc<Session>, url: String)` with a pending FIFO (`Mutex<VecDeque<String>>` + `ready: AtomicBool` on a static or in `Session`). Before ready → push; `pub fn set_ready(st)` drains in order. Acting on one link: `mixtape_link::parse`, else `url_import::find_link` on the raw string (a plain https link passed on the command line works too); Track (or `Play` first id) → `link_track` logic → `queue_add(Next)` then `next()` on the player (current queue stays); Album/Playlist/Artist → emit `link://route` with `SharedLink`; nothing → emit `link://failed` with localised «Не удалось открыть ссылку» (`tr(en, uk, ru)`); track load error → `link://failed` with the error text. Links are acted on one after another (a single tokio task / mutex), so the last one is what plays
+- [X] T023 [US2] Tests for `hand_over` ordering and buffering in `crates/session/src/commands/link.rs` with the acting step behind a small trait/closure so the test needs no player or network: before ready nothing runs; `set_ready` runs them in arrival order; after ready runs at once; garbage → failed path
+- [X] T024 [US2] New `src-tauri/src/links.rs`: `fn links_in(args: impl Iterator<Item=String>) -> Vec<String>` = arguments starting with `mixtape:` (case-insensitive); tests (none, one, with `--hidden`, upper-case, a path argument)
+- [X] T025 [US2] `src-tauri/src/lib.rs`: single-instance callback → `window::show_main(app)` then for each `links_in(args)` → `hand_over`; in `setup` → `links_in(std::env::args().skip(1))` → `hand_over` (buffered); a start that carries a link always shows the window, even when it was launched by autostart with `--hidden` (a link counts as a non-hidden start)
+- [X] T026 [US2] `src-tauri/src/window.rs` `app_ready`: call `set_ready` after the window is shown (and also in the tray branch, after `show_main` if links are pending)
 - [X] T027 [US2] `ui/src/App.svelte`: listen `link://route` → `router.go({name: kind, id})`, `link://failed` → error toast
 - [X] T028 [US2] `src-tauri/installer-hooks.nsh`: in `NSIS_HOOK_POSTINSTALL` write `HKCU\Software\Classes\mixtape` (default `URL:Mixtape`, `URL Protocol` = ``, `DefaultIcon` = `"$INSTDIR\${MAINBINARYNAME}.exe",0`, `shell\open\command` = `"$INSTDIR\${MAINBINARYNAME}.exe" "%1"`); add `NSIS_HOOK_POSTUNINSTALL` (or PREUNINSTALL) that `DeleteRegKey HKCU "Software\Classes\mixtape"`. Check the macro and variable names Tauri's NSIS template provides (`MAINBINARYNAME`, `$INSTDIR`) in the Tauri bundler template before writing
 - [X] T029 [US2] Strings: «Не удалось открыть ссылку» in Rust `tr(...)` (no UI i18n needed)
@@ -90,7 +90,7 @@ Pure link logic in `mixtape-sync`, shared by the PC and the phone.
 - [X] T034 [US3] `tools/link-catcher/handoff.html` + `handoff.js`: on load set `location.href = handoffUrl(url)` via a hidden `<a>` click or `window.location`; show «Открыто в Mixtape» and the original link with «Открыть в браузере» (pauses catching for that one navigation, then goes there); if `promptAllowed` → after 1.5 s close the tab (`chrome.tabs.remove`, or `history.back()` when the tab has history before the caught page); else show the first-run hint «Отметьте "Всегда разрешать" в запросе браузера» and a button «Браузер больше не спрашивает» that sets `promptAllowed`. Dark style matching Mixtape
 - [X] T035 [US3] `tools/link-catcher/popup.html` + `popup.js`: switches «Перехватывать и обычный YouTube» (`catchYoutube`, off) and «Пауза» (`paused`, off), stored in `chrome.storage.local`
 - [X] T036 [US3] Ship the extension: `src-tauri/tauri.conf.json` `bundle.resources` += `"../tools/link-catcher/": "link-catcher/"` (the folder holds no tests, see T032)
-- [ ] T036a [US3] Session command `extension_open_folder()` in `crates/session/src/commands/link.rs` (or the host trait if resource paths live in `src-tauri`): opens `resource_dir()/link-catcher` in Explorer, dev builds `tools/link-catcher` in the repo; register it
+- [X] T036a [US3] Session command `extension_open_folder()` in `crates/session/src/commands/link.rs` (or the host trait if resource paths live in `src-tauri`): opens `resource_dir()/link-catcher` in Explorer, dev builds `tools/link-catcher` in the repo; register it
 - [X] T037 [US3] `ui/src/lib/ui/IntegrationsSettings.svelte`: block «Расширение для браузера» with one-line purpose, «Открыть папку», and the three steps (open `chrome://extensions` / `edge://extensions`, turn on developer mode, «Загрузить распакованное» → the folder); strings ru/uk/en (`i18n-keys`)
 - [ ] T038 [US3] Live check of «Always allow» for the extension origin in Chrome and Edge (quickstart step 5). Only if it's missing: in `installer-hooks.nsh` write `HKCU\Software\Policies\Google\Chrome\AutoLaunchProtocolsFromOrigins` and the Edge equivalent as JSON `[{"protocol":"mixtape","allowed_origins":["chrome-extension://<id>"]}]`, removed on uninstall; record the outcome in research.md R6
 
@@ -120,10 +120,10 @@ Starts after the PC branch is merged and tagged (T050).
 
 ## Phase 9: Polish & cross-cutting
 
-- [ ] T049 Merge the agents' branches into `004-open-shared-links`; full `cargo build`, `cargo clippy --workspace -- -D warnings`, `cargo test --workspace`, `pnpm -C ui check`, `pnpm -C ui test`, `node --test "tools/link-catcher-tests/*.test.js"` (one run, after the merge)
+- [X] T049 Merge the agents' branches into `004-open-shared-links`; full `cargo build`, `cargo clippy --workspace -- -D warnings`, `cargo test --workspace`, `pnpm -C ui check`, `pnpm -C ui test`, `node --test "tools/link-catcher-tests/*.test.js"` (one run, after the merge)
 - [ ] T050 Merge to `main`, then tag for Android deps per `mixtape-android` memory (tag form `v<version>-android.<n>`, next after `v0.3.1-android.18`), push the tag
-- [ ] T051 [P] README.md / README.ru.md / README.uk.md: «Открывать ссылки в Mixtape»: the search box, «Поделиться», the extension install steps
-- [ ] T052 Mutation check of the new Rust parsers (`find_link`, `share_url`, `mixtape_link::parse`, `links_in`) with skill `mutation-check`, once after the merge
+- [X] T051 [P] README.md / README.ru.md / README.uk.md: «Открывать ссылки в Mixtape»: the search box, «Поделиться», the extension install steps
+- [X] T052 Mutation check of the new Rust parsers (`find_link`, `share_url`, `mixtape_link::parse`, `links_in`) with skill `mutation-check`, once after the merge
 - [ ] T053 Owner's live checks (quickstart, PC and phone), only with consent and when sound is OK; then release per `mixtape-release` / phone release script
 - [ ] T054 Update `specs/001-mixtape-mvp/STATUS.md` and run `clean-cache` (dry run first)
 
