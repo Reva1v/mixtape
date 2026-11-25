@@ -146,6 +146,39 @@ fn playlist(id: &str) -> Option<Link> {
     (known && id.len() >= 12 && id_chars(id)).then(|| Link::Playlist(PlaylistId::from(id)))
 }
 
+/// The first link [`parse_link`] recognises inside free text: a shared message, a pasted
+/// paragraph, a clipboard with a title next to the URL. The text is cut into tokens at
+/// whitespace and `<>()"'«»` (chat apps wrap links in them), and `.,;:!?` closing a sentence
+/// are trimmed off the end of each token. A bare id (`dQw4w9WgXcQ`, `PL…`, `MPREb_…`, `UC…`)
+/// counts only when it is the whole trimmed text, so an 11-letter word inside a sentence is
+/// not mistaken for a track.
+pub fn find_link(text: &str) -> Option<Link> {
+    if let Some(link) = parse_bare(text.trim()) {
+        return Some(link);
+    }
+    text.split(|c: char| c.is_whitespace() || "<>()\"'«»".contains(c))
+        .map(|t| t.trim_end_matches(['.', ',', ';', ':', '!', '?']))
+        // A token without any of these is bare-id shaped, which a sentence must not provide.
+        .filter(|t| t.contains(['/', '.', '?', '=']))
+        .find_map(parse_link)
+}
+
+/// The `music.youtube.com` URL of a link, the form [`parse_link`] reads back unchanged: it is
+/// what the app puts into `mixtape://open?url=…` and into "copy link". Playlist ids carry no
+/// `VL` prefix (see the module docs); `OLAK5uy_…` album playlists keep their `playlist` form.
+pub fn share_url(link: &Link) -> String {
+    match link {
+        Link::Track(id) => format!("https://music.youtube.com/watch?v={}", id.as_str()),
+        Link::Album(id) => format!("https://music.youtube.com/browse/{}", id.as_str()),
+        Link::Playlist(id) => {
+            let id = id.as_str();
+            let id = id.strip_prefix("VL").unwrap_or(id);
+            format!("https://music.youtube.com/playlist?list={id}")
+        }
+        Link::Artist(id) => format!("https://music.youtube.com/channel/{}", id.as_str()),
+    }
+}
+
 /// Where an [`ExternalLink`] points.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Site {
@@ -354,6 +387,136 @@ mod tests {
         for (input, want) in cases {
             assert_eq!(parse_link(&input), want, "input: {input:?}");
         }
+    }
+
+    #[test]
+    fn find_link_in_free_text() {
+        let want = t(V);
+        for text in [
+            format!("https://youtu.be/{V}"),
+            format!("  https://music.youtube.com/watch?v={V}\n"),
+            format!("послушай https://youtu.be/{V}!"),
+            format!("Смотри, что нашёл: https://music.youtube.com/watch?v={V}&si=abc."),
+            format!("<https://youtu.be/{V}>"),
+            format!("«https://youtu.be/{V}»"),
+            format!("(https://youtu.be/{V})"),
+            format!("\"https://youtu.be/{V}\", отличный трек"),
+            format!("[ссылка](https://youtu.be/{V}) тут"),
+            format!("https://youtu.be/{V}\nhttps://youtu.be/9bZkp7q19f0"),
+            format!("see HTTPS://MUSIC.YOUTUBE.COM/watch?v={V}"),
+            format!("see music.youtube.com/watch?v={V}?"),
+            format!("see youtu.be/{V}"),
+            // The whole text is a bare id.
+            V.to_owned(),
+            format!("  {V}\n"),
+        ] {
+            assert_eq!(find_link(&text), want, "text: {text:?}");
+        }
+        assert_eq!(find_link(PL), p(PL));
+        assert_eq!(
+            find_link(&format!(
+                "альбом: https://music.youtube.com/browse/{ALBUM}."
+            )),
+            Some(Link::Album(AlbumId::from(ALBUM)))
+        );
+        assert_eq!(
+            find_link(&format!("артист https://music.youtube.com/channel/{UC}")),
+            Some(Link::Artist(ArtistId::from(UC)))
+        );
+    }
+
+    #[test]
+    fn find_link_takes_the_first_of_two() {
+        let text = format!(
+            "a https://youtu.be/9bZkp7q19f0 b https://music.youtube.com/playlist?list={PL}"
+        );
+        assert_eq!(find_link(&text), t("9bZkp7q19f0"));
+        // A link that is not ours does not hide the one after it.
+        let text = format!("https://example.com/x then https://youtu.be/{V}");
+        assert_eq!(find_link(&text), t(V));
+    }
+
+    #[test]
+    fn find_link_without_a_link() {
+        for text in [
+            "",
+            "   ",
+            "hello world",
+            "just some text, no link.",
+            "https://example.com/watch?v=dQw4w9WgXcQ",
+            "https://music.youtube.com/",
+            "https://music.youtube.com/watch?v=short",
+            // Bare ids inside a sentence are words, not links.
+            "listen to dQw4w9WgXcQ today",
+            "look at PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI now",
+            "Приветствую!",
+            "abcdefghijk.",
+            "(dQw4w9WgXcQ)",
+        ] {
+            assert_eq!(find_link(text), None, "text: {text:?}");
+        }
+    }
+
+    #[test]
+    fn share_url_forms_and_round_trip() {
+        let links = [
+            Link::Track(TrackId::from(V)),
+            Link::Track(TrackId::from("u1t22blUCnU")),
+            Link::Album(AlbumId::from(ALBUM)),
+            Link::Playlist(PlaylistId::from(PL)),
+            Link::Playlist(PlaylistId::from(OLAK)),
+            Link::Playlist(PlaylistId::from(RDCLAK)),
+            Link::Artist(ArtistId::from(UC)),
+        ];
+        for l in links {
+            let url = share_url(&l);
+            assert_eq!(parse_link(&url), Some(l.clone()), "{url}");
+            assert_eq!(find_link(&format!("look: {url}.")), Some(l), "{url}");
+        }
+        assert_eq!(
+            share_url(&Link::Track(TrackId::from(V))),
+            format!("https://music.youtube.com/watch?v={V}")
+        );
+        assert_eq!(
+            share_url(&Link::Album(AlbumId::from(ALBUM))),
+            format!("https://music.youtube.com/browse/{ALBUM}")
+        );
+        assert_eq!(
+            share_url(&Link::Playlist(PlaylistId::from(PL))),
+            format!("https://music.youtube.com/playlist?list={PL}")
+        );
+        assert_eq!(
+            share_url(&Link::Artist(ArtistId::from(UC))),
+            format!("https://music.youtube.com/channel/{UC}")
+        );
+        // A browse id with its `VL` prefix never leaks into the URL.
+        assert_eq!(
+            share_url(&Link::Playlist(PlaylistId::new(format!("VL{PL}")))),
+            format!("https://music.youtube.com/playlist?list={PL}")
+        );
+    }
+
+    /// SC-005: everything the phone's own search box accepts (`mixtape-android` `link.rs`,
+    /// `accepts_every_link_form`) is the same track here, and so is the link the owner reported.
+    #[test]
+    fn accepts_every_form_the_phone_accepts() {
+        for s in [
+            "dQw4w9WgXcQ",
+            "  dQw4w9WgXcQ\n",
+            "https://music.youtube.com/watch?v=dQw4w9WgXcQ",
+            "https://music.youtube.com/watch?v=dQw4w9WgXcQ&list=RDAMVMdQw4w9WgXcQ",
+            "https://www.youtube.com/watch?feature=share&v=dQw4w9WgXcQ&si=abc",
+            "http://m.youtube.com/watch?v=dQw4w9WgXcQ",
+            "youtube.com/watch?v=dQw4w9WgXcQ",
+            "https://youtu.be/dQw4w9WgXcQ?si=Xy12",
+            "https://youtube.com/shorts/dQw4w9WgXcQ",
+        ] {
+            assert_eq!(parse_link(s), t(V), "{s}");
+            assert_eq!(find_link(s), t(V), "{s}");
+        }
+        let owner = "https://music.youtube.com/watch?v=u1t22blUCnU&si=bCH2wvLRATSlFy5M&drli=1";
+        assert_eq!(parse_link(owner), t("u1t22blUCnU"));
+        assert_eq!(find_link(&format!("Слушай {owner}")), t("u1t22blUCnU"));
     }
 
     #[test]
