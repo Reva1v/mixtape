@@ -7,6 +7,7 @@ import { player } from "$lib/stores/player.svelte";
 import { router } from "$lib/stores/router.svelte";
 import { toasts, type MenuItem } from "$lib/stores/overlay.svelte";
 import { playlistPicker } from "$lib/stores/playlistPicker.svelte";
+import { isYtmTrack, share } from "./share";
 import IconMix from "~icons/solar/radio-minimalistic-linear";
 import IconNext from "~icons/solar/list-arrow-up-linear";
 import IconQueue from "~icons/solar/list-arrow-down-linear";
@@ -15,6 +16,7 @@ import IconHeart from "~icons/solar/heart-linear";
 import IconHeartOff from "~icons/solar/heart-unlock-linear";
 import IconAlbum from "~icons/solar/vinyl-linear";
 import IconArtist from "~icons/solar/microphone-3-linear";
+import IconShare from "~icons/solar/share-linear";
 import IconDownload from "~icons/solar/download-minimalistic-linear";
 import IconTrash from "~icons/solar/trash-bin-minimalistic-linear";
 
@@ -73,6 +75,10 @@ export function trackMenu(track: Track, extra: MenuItem[] = []): MenuItem[] {
       disabled: !artist,
       action: () => artist?.id && router.go({ name: "artist", id: artist.id }),
     },
+    // Local files have no YouTube Music page to link to.
+    ...(isYtmTrack(track.id)
+      ? [{ label: t.share.track, icon: IconShare, action: () => void share("track", track.id) }]
+      : []),
     ...extra,
     "separator",
     owned

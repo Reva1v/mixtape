@@ -15,6 +15,7 @@ import { player } from "$lib/stores/player.svelte";
 import { router } from "$lib/stores/router.svelte";
 import { toasts, type MenuItem } from "$lib/stores/overlay.svelte";
 import { playlistPicker } from "$lib/stores/playlistPicker.svelte";
+import { isYtmPlaylist, share } from "./share";
 import IconMix from "~icons/solar/radio-minimalistic-linear";
 import IconPlay from "~icons/solar/play-linear";
 import IconShuffle from "~icons/solar/shuffle-linear";
@@ -23,6 +24,7 @@ import IconQueue from "~icons/solar/list-arrow-down-linear";
 import IconPlaylist from "~icons/solar/playlist-linear";
 import IconAlbum from "~icons/solar/vinyl-linear";
 import IconArtist from "~icons/solar/microphone-3-linear";
+import IconShare from "~icons/solar/share-linear";
 
 type Load = () => Promise<Track[]>;
 
@@ -93,6 +95,7 @@ export function albumMenu(a: Album): MenuItem[] {
       disabled: !artist,
       action: () => artist?.id && router.go({ name: "artist", id: artist.id }),
     },
+    { label: t.share.album, icon: IconShare, action: () => void share("album", a.id) },
   ];
 }
 
@@ -102,6 +105,7 @@ export function artistMenu(a: Artist): MenuItem[] {
     ...common({ kind: "artist", id: a.id }, load),
     "separator",
     { label: t.track.openArtist, icon: IconArtist, action: () => router.go({ name: "artist", id: a.id }) },
+    { label: t.share.artist, icon: IconShare, action: () => void share("artist", a.id) },
   ];
 }
 
@@ -111,5 +115,9 @@ export function playlistMenu(p: Playlist): MenuItem[] {
     ...common({ kind: "playlist", id: p.id }, load, false),
     "separator",
     { label: t.collectionMenu.openPlaylist, icon: IconPlaylist, action: () => router.go({ name: "playlist", id: p.id }) },
+    // A local playlist exists only on this computer.
+    ...(isYtmPlaylist(p.id)
+      ? [{ label: t.share.playlist, icon: IconShare, action: () => void share("playlist", p.id) }]
+      : []),
   ];
 }

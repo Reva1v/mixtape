@@ -2,7 +2,8 @@
   import { net } from "$lib/stores/net.svelte";
   import { updates } from "$lib/stores/updates.svelte";
   import { onMount } from "svelte";
-  import { router } from "$lib/stores/router.svelte";
+  import { router, type Route } from "$lib/stores/router.svelte";
+  import type { SharedLink } from "$lib/ipc/bindings/SharedLink";
   import { layout } from "$lib/stores/layout.svelte";
   import { player } from "$lib/stores/player.svelte";
   import { downloads } from "$lib/stores/downloads.svelte";
@@ -49,9 +50,15 @@
     const un = on<{ level: "info" | "error"; text: string }>("toast", (e) => toasts.push(e.text, e.level));
     // The tray menu's «Settings».
     const unSettings = on("app:open-settings", () => router.go({ name: "settings" }));
+    // A link handed to the app from outside (mixtape://, the browser extension): an album,
+    // playlist or artist opens its page; a failure says why. Tracks are played in Rust.
+    const unRoute = on<SharedLink>("link://route", (l) => router.go({ name: l.kind, id: l.id } as Route));
+    const unFailed = on<string>("link://failed", (text) => toasts.push(text, "error"));
     return () => {
       void un.then((f) => f());
       void unSettings.then((f) => f());
+      void unRoute.then((f) => f());
+      void unFailed.then((f) => f());
     };
   });
 
