@@ -22,4 +22,18 @@ Var HadDesktopShortcut
       Delete "$DESKTOP\${PRODUCTNAME}.lnk"
     ${EndIf}
   ${EndIf}
+
+  ; mixtape:// links (open from the browser extension, Droplet Island). Per user, no admin needed.
+  ; Rewritten on every install, so an update (which runs the old uninstaller first) keeps it.
+  WriteRegStr HKCU "Software\Classes\mixtape" "" "URL:Mixtape"
+  WriteRegStr HKCU "Software\Classes\mixtape" "URL Protocol" ""
+  WriteRegStr HKCU "Software\Classes\mixtape\DefaultIcon" "" "$\"$INSTDIR\${MAINBINARYNAME}.exe$\",0"
+  WriteRegStr HKCU "Software\Classes\mixtape\shell\open\command" "" "$\"$INSTDIR\${MAINBINARYNAME}.exe$\" $\"%1$\""
+!macroend
+
+!macro NSIS_HOOK_POSTUNINSTALL
+  ; An update runs the old uninstaller with /UPDATE and installs again right after: keep the key then.
+  ${If} $UpdateMode <> 1
+    DeleteRegKey HKCU "Software\Classes\mixtape"
+  ${EndIf}
 !macroend
