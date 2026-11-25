@@ -10,7 +10,7 @@ cargo test -p mixtape-session link                    # SharedLink mapping, pend
 cargo test -p mixtape links                           # argv → link extraction (src-tauri)
 pnpm -C ui test                                       # search card logic, menu share items
 pnpm -C ui check
-node --test tools/link-catcher-tests                  # the extension's match + "came from outside" rules
+node --test "tools/link-catcher-tests/*.test.js"      # the extension's match + "came from outside" rules
 ```
 
 On Android (`../mixtape-android`): `cargo test` for `deeplink` (share text, https, `mixtape://open`).
