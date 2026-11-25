@@ -71,6 +71,17 @@ Streams and downloads from your YouTube Music account, plays offline, and keeps 
 | `Ctrl + L` | Add from link (a pasted YouTube link offers a download too) |
 | `?` | All shortcuts |
 
+## Opening links in Mixtape
+
+- **Paste a link.** Paste a YouTube or YouTube Music link into search and a card appears (track, album, playlist or artist) that you can play or add.
+- **Share.** The **Share track / album / playlist / artist** items in the menus copy a `music.youtube.com` link to the clipboard.
+- **`mixtape://` links.** The installer registers the `mixtape://` scheme for the current user, so `mixtape://open?url=<link>` (for example from Win+R) opens that link in the app.
+- **Browser extension (Chrome and Edge).** *Mixtape Link Catcher* hands YouTube Music links opened from outside the site (a chat, another site, a typed address) to Mixtape and closes the tab. Clicks inside YouTube are left alone. It only listens to YouTube navigations and stores nothing but its two switches in the browser.
+  1. In **Settings → Browser extension** press **Open folder** (or take the `link-catcher` folder from the install directory).
+  2. Open `chrome://extensions` (Edge: `edge://extensions`) and turn on developer mode.
+  3. Press **Load unpacked** and choose that folder.
+  4. The first time, the browser asks to open Mixtape: tick **Always allow**.
+
 ## Installation
 
 Download `Mixtape_<version>_x64-setup.exe` from **[Releases](https://github.com/Reva1v/mixtape/releases/latest)** and run it. It installs for the current user (no admin rights) and speaks English, Ukrainian or Russian, following Windows. The installer is unsigned, so Windows SmartScreen shows «Windows protected your PC»; choose **More info → Run anyway**.
