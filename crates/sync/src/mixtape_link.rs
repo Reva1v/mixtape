@@ -132,6 +132,11 @@ mod tests {
             play(&format!("mixtape://play?at=1&at=2&ids={A}&ids={B}")),
             (strs(&[A]), 1)
         );
+        // Spaces around the number (a `+` is a space in a query) don't make it garbage.
+        assert_eq!(
+            play(&format!("mixtape://play?at=%20500+&ids={A}")),
+            (strs(&[A]), 500)
+        );
     }
 
     #[test]
@@ -143,6 +148,11 @@ mod tests {
         ] {
             assert_eq!(play(&u), (strs(&[A, B]), 1), "{u}");
         }
+        // Spaces around an id are not part of it; an 11-character id with a bad character is dropped.
+        assert_eq!(
+            play(&format!("mixtape://play?ids=%20{A}+,+{B}%20,bad!id!!!!!,{C}")).0,
+            strs(&[A, B, C])
+        );
         // A malformed escape makes that id invalid; the next one still plays.
         assert_eq!(
             play(&format!("mixtape://play?ids={A}%zz,{B}")).0,

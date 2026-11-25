@@ -21,6 +21,7 @@ describe("mayBeLink", () => {
     "PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf",
     "MPREb_abcdefghij",
     "UCuAXFkgsw1L7xaCfnd5JJOw",
+    "-dQw4w9WgX-",
   ])("asks Rust about a bare id that is the whole text: %s", (text) => {
     expect(mayBeLink(text)).toBe(true);
   });

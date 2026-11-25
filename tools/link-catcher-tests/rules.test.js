@@ -26,6 +26,9 @@ test("YouTube Music non-content pages are not caught", () => {
     "https://music.youtube.com/watch",
     "https://music.youtube.com/playlist",
     "https://music.youtube.com/browse/FEmusic_home",
+    "https://music.youtube.com/browse/MPREb_",
+    "https://music.youtube.com/browse/VL",
+    "https://music.youtube.com/channel/abc123",
   ]) {
     assert.equal(catchable(url, on), false, url);
   }
@@ -48,6 +51,11 @@ test("plain YouTube is caught only when the setting is on", () => {
   assert.equal(catchable("https://youtu.be/", on), false);
 });
 
+test("a plain http link is caught like https", () => {
+  assert.equal(catchable("http://music.youtube.com/watch?v=abc", off), true);
+  assert.equal(catchable("http://youtu.be/abc", on), true);
+});
+
 test("other sites and junk are never caught", () => {
   for (const url of ["https://example.com/watch?v=abc", "not a url", "", "chrome://newtab/", "ftp://music.youtube.com/watch?v=a"]) {
     assert.equal(catchable(url, on), false, url);
@@ -55,7 +63,7 @@ test("other sites and junk are never caught", () => {
 });
 
 test("fromOutside: a new tab or typed URL counts as outside", () => {
-  for (const cur of [undefined, null, "", "about:blank", "chrome://newtab/", "edge://newtab/", "https://example.com/page", "https://www.google.com/search?q=x"]) {
+  for (const cur of [undefined, null, "", "about:blank", "chrome://newtab/", "edge://newtab/", "https://example.com/page", "https://www.google.com/search?q=x", "not a url"]) {
     assert.equal(fromOutside(cur), true, String(cur));
   }
 });

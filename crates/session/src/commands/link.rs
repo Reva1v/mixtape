@@ -495,6 +495,10 @@ mod tests {
                 "local:7d444840-9dc0-11d1-b245-5ffdce74fad2",
             ),
             (SharedKind::Playlist, ""),
+            (SharedKind::Playlist, "local0000000001"),
+            (SharedKind::Playlist, "PLabc def!"),
+            (SharedKind::Album, "MPREb_abc def!"),
+            (SharedKind::Artist, "UCabc def!"),
             (SharedKind::Album, "local0000000001"),
             (SharedKind::Album, "dQw4w9WgXcQ"),
             (SharedKind::Artist, "local-artist"),
@@ -504,6 +508,22 @@ mod tests {
             let e = link_share_url(kind, id.into()).unwrap_err();
             assert_eq!(e.kind, ErrorKind::Invalid, "{kind:?} {id}");
         }
+    }
+
+    #[test]
+    fn link_of_trims_and_drops_the_browse_prefix() {
+        assert_eq!(
+            link_of(SharedKind::Track, &format!("  {VID}\n")).unwrap(),
+            Link::Track(TrackId::new(VID))
+        );
+        assert_eq!(
+            link_of(SharedKind::Playlist, &format!(" VL{PL} ")).unwrap(),
+            Link::Playlist(PlaylistId::new(PL))
+        );
+        assert_eq!(
+            link_of(SharedKind::Playlist, PL).unwrap(),
+            Link::Playlist(PlaylistId::new(PL))
+        );
     }
 
     // ---- links handed over ----
@@ -537,6 +557,18 @@ mod tests {
         assert_eq!(out.len(), 4);
     }
 
+    /// The process-wide `INBOX` behind `has_pending`: the only test that touches it.
+    #[test]
+    fn has_pending_follows_the_global_inbox() {
+        assert!(!has_pending());
+        INBOX.hand_over("a".into(), &mut |_| {});
+        assert!(has_pending());
+        let mut out = vec![];
+        INBOX.set_ready(&mut |u| out.push(u));
+        assert_eq!(out, ["a"]);
+        assert!(!has_pending());
+    }
+
     #[test]
     fn ready_with_nothing_waiting_is_fine() {
         let inbox = Inbox::new();
@@ -556,6 +588,16 @@ mod tests {
         assert_eq!(
             decide(&format!("https://music.youtube.com/watch?v={VID}")),
             want
+        );
+    }
+
+    #[test]
+    fn decide_finds_a_plain_link_inside_text() {
+        assert_eq!(
+            decide(&format!(
+                "listen https://music.youtube.com/watch?v={VID} now"
+            )),
+            Action::Track(TrackId::new(VID))
         );
     }
 
