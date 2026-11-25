@@ -11,6 +11,7 @@ pub mod fetch;
 pub mod lastfm;
 pub mod likes;
 pub mod lyrics;
+pub mod mixtape_link;
 pub mod peer;
 pub mod search;
 pub mod sources;
