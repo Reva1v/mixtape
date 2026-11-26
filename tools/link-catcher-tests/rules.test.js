@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { catchable, fromOutside, handoffUrl } from "../link-catcher/rules.js";
+import { catchable, caughtCommit, handoffExit, handoffUrl, youtubeUrl } from "../link-catcher/rules.js";
 
 const off = { catchYoutube: false };
 const on = { catchYoutube: true };
@@ -62,16 +62,48 @@ test("other sites and junk are never caught", () => {
   }
 });
 
-test("fromOutside: a new tab or typed URL counts as outside", () => {
-  for (const cur of [undefined, null, "", "about:blank", "chrome://newtab/", "edge://newtab/", "https://example.com/page", "https://www.google.com/search?q=x", "not a url"]) {
-    assert.equal(fromOutside(cur), true, String(cur));
+test("caughtCommit: a link from another app, a typed address or a bookmark is caught", () => {
+  for (const transitionType of ["auto_toplevel", "typed", "generated", "keyword", "keyword_generated", "auto_bookmark", "start_page"]) {
+    assert.equal(caughtCommit({ transitionType }), true, transitionType);
+    // even when the tab was on YouTube before: the user asked for this address
+    assert.equal(caughtCommit({ transitionType, prevWasYoutube: true }), true, transitionType + " after YouTube");
   }
 });
 
-test("fromOutside: browsing inside YouTube is not outside", () => {
-  for (const cur of ["https://music.youtube.com/", "https://music.youtube.com/watch?v=a", "https://www.youtube.com/", "https://youtu.be/a"]) {
-    assert.equal(fromOutside(cur), false, cur);
+test("caughtCommit: a link is caught only when the tab wasn't on YouTube", () => {
+  assert.equal(caughtCommit({ transitionType: "link" }), true);
+  assert.equal(caughtCommit({ transitionType: "link", prevWasYoutube: false }), true);
+  assert.equal(caughtCommit({ transitionType: "link", prevWasYoutube: true }), false);
+  assert.equal(caughtCommit({ transitionType: "link", transitionQualifiers: ["client_redirect"], prevWasYoutube: true }), false);
+});
+
+test("caughtCommit: back/forward, reload, forms and frames are never caught", () => {
+  assert.equal(caughtCommit({ transitionType: "link", transitionQualifiers: ["forward_back"] }), false);
+  assert.equal(caughtCommit({ transitionType: "auto_toplevel", transitionQualifiers: ["forward_back"] }), false);
+  assert.equal(caughtCommit({ transitionType: "typed", transitionQualifiers: ["forward_back", "from_address_bar"] }), false);
+  for (const transitionType of ["reload", "form_submit", "auto_subframe", "manual_subframe", "", undefined]) {
+    assert.equal(caughtCommit({ transitionType }), false, String(transitionType));
   }
+});
+
+test("caughtCommit: the from_address_bar qualifier alone doesn't block a typed address", () => {
+  assert.equal(caughtCommit({ transitionType: "typed", transitionQualifiers: ["from_address_bar"] }), true);
+});
+
+test("youtubeUrl: YouTube hosts only; hidden or other URLs are not", () => {
+  for (const u of ["https://music.youtube.com/", "https://www.youtube.com/watch?v=a", "https://youtube.com/", "https://youtu.be/a", "https://m.youtube.com/"]) {
+    assert.equal(youtubeUrl(u), true, u);
+  }
+  for (const u of [undefined, null, "", "about:blank", "edge://newtab/", "chrome-extension://njfkgiakgfoadoknhlokkcjapjpanfga/handoff.html", "https://notyoutube.com/", "https://youtube.com.evil.com/", "not a url"]) {
+    assert.equal(youtubeUrl(u), false, String(u));
+  }
+});
+
+test("handoffExit: steps past the caught page, or closes a tab that had nothing before it", () => {
+  assert.deepEqual(handoffExit(1), { close: true });
+  assert.deepEqual(handoffExit(2), { close: true }); // [caught page, handoff]
+  assert.deepEqual(handoffExit(3), { back: 2 }); // [other page, caught page, handoff]
+  assert.deepEqual(handoffExit(10), { back: 2 });
 });
 
 test("handoffUrl percent-encodes the original URL", () => {

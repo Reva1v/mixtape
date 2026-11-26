@@ -35,16 +35,30 @@ export function catchable(url, { catchYoutube = false } = {}) {
   return false;
 }
 
-// True when the page the tab is on now says the link came from outside YouTube
-// (a new tab, a typed address, another site or app). Undefined means the browser hides the
-// tab's URL from us, which happens when the tab is not on a YouTube host.
-export function fromOutside(currentTabUrl) {
-  if (!currentTabUrl) return true;
-  if (currentTabUrl === "about:blank") return true;
-  if (/^(chrome|edge):\/\/newtab\/?/.test(currentTabUrl)) return true;
-  const u = parse(currentTabUrl);
-  if (!u) return true;
-  return !isYoutubeHost(u.hostname.toLowerCase());
+// A YouTube host (the tab shows a YouTube page), for the per-tab "last page was YouTube" note.
+export function youtubeUrl(url) {
+  const u = parse(url || "");
+  return !!u && isYoutubeHost(u.hostname.toLowerCase());
+}
+
+// Transitions that say the link came from outside the site: another app (`auto_toplevel`),
+// a typed address, the omnibox, a bookmark, the start page.
+const OUTSIDE = new Set(["auto_toplevel", "typed", "generated", "keyword", "keyword_generated", "auto_bookmark", "start_page"]);
+
+// Whether a committed main-frame YouTube navigation came from outside YouTube.
+// Decided from the commit itself, so it doesn't depend on how fast the service worker woke up.
+// `prevWasYoutube`: this tab's previous page was a YouTube page.
+export function caughtCommit({ transitionType, transitionQualifiers = [], prevWasYoutube = false }) {
+  if (transitionQualifiers.includes("forward_back")) return false;
+  if (OUTSIDE.has(transitionType)) return true;
+  if (transitionType === "link") return !prevWasYoutube;
+  return false; // reload, form_submit, subframes and the rest
+}
+
+// Where the handoff page goes when done. The caught page has already committed, so it sits one entry
+// before the handoff page: step past it, or close the tab when nothing came before it.
+export function handoffExit(historyLength) {
+  return historyLength > 2 ? { back: 2 } : { close: true };
 }
 
 export function handoffUrl(url) {

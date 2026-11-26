@@ -57,6 +57,7 @@ result.
 **Decision**: `tools/link-catcher/`, an unpacked MV3 extension. Permissions are `webNavigation`,
 `storage`, and host permissions for `music.youtube.com`, `www.youtube.com`, `youtube.com`,
 `m.youtube.com` and `youtu.be` only.
+- **Superseded 2026-11-26** (bug `extension-misses-external-link`): the decision below raced a sleeping service worker; it is now made on `webNavigation.onCommitted` from `transitionType`/`transitionQualifiers` plus an in-memory per-tab "previous page was YouTube" note.
 - `chrome.webNavigation.onBeforeNavigate` (frameId 0) is registered with URL filters
   (`hostSuffix: "youtube.com"`, `hostEquals: "youtu.be"`), so the extension never hears about other
   sites (FR-011). It checks the URL with a small copy of the recognition rules in JS (only to decide

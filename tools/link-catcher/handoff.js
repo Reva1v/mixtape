@@ -1,4 +1,4 @@
-import { handoffUrl } from "./rules.js";
+import { handoffExit, handoffUrl } from "./rules.js";
 
 const original = new URLSearchParams(location.search).get("url") || "";
 const link = document.getElementById("link");
@@ -9,8 +9,9 @@ link.textContent = original;
 
 function closeSoon() {
   setTimeout(async () => {
-    if (history.length > 1) {
-      history.back();
+    const exit = handoffExit(history.length);
+    if (exit.back) {
+      history.go(-exit.back);
     } else {
       const tab = await chrome.tabs.getCurrent();
       if (tab) chrome.tabs.remove(tab.id);
