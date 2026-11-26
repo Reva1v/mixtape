@@ -100,32 +100,32 @@ Pure link logic in `mixtape-sync`, shared by the PC and the phone.
 
 Starts after the PC branch is merged and tagged (T050).
 
-- [ ] T039 [US5] `../mixtape-android/src-tauri/Cargo.toml`: every `mixtape-*` git dep → the new tag from T050; `cargo check` (Android target per that repo's docs) passes
-- [ ] T040 [US5] `../mixtape-android/src-tauri/gen/android/app/src/main/AndroidManifest.xml`: on the main activity add `<intent-filter>` `ACTION_SEND` + `DEFAULT` + `mimeType="text/plain"`; add `<data android:host="open"/>` to the existing `mixtape` filter
-- [ ] T041 [US5] `../mixtape-android/src-tauri/plugins/mixtape-media/android/src/main/java/app/mixtape/media/DeepLink.kt`: accept `ACTION_VIEW` with scheme `mixtape` (hosts `play`, `open`) or `https` (the hosts of T045), and `ACTION_SEND` with `EXTRA_TEXT`; send that one string to `RustBridge.openLink`; keep the handled-extra and history-launch guards for every kind
-- [ ] T042 [US5] `../mixtape-android/src-tauri/src/deeplink.rs`: `open` tries the existing `parse` (play), then `mixtape_sync::mixtape_link::parse` (`Open`), then `mixtape_sync::url_import::find_link`; Track → plays now as the existing single-id play does; Album/Playlist/Artist → emit an event the UI turns into `nav` `{kind, id}` (match the id forms the phone's `nav.svelte.ts` uses); none → the error event «В тексте нет ссылки на YouTube Music» (`tr` ru/uk/en)
-- [ ] T043 [US5] Tests in `../mixtape-android/src-tauri/src/deeplink.rs`: classification of shared text (link alone, inside text, two links, no link), https album/playlist/artist, `mixtape://open`, the old `mixtape://play` still wins
-- [ ] T044 [US5] `../mixtape-android/src/App.svelte` (or where `player://error` is listened): listen the new route event → open the sheet/screen for album/playlist/artist
+- [X] T039 [US5] `../mixtape-android/src-tauri/Cargo.toml`: every `mixtape-*` git dep → the new tag from T050; `cargo check` (Android target per that repo's docs) passes
+- [X] T040 [US5] `../mixtape-android/src-tauri/gen/android/app/src/main/AndroidManifest.xml`: on the main activity add `<intent-filter>` `ACTION_SEND` + `DEFAULT` + `mimeType="text/plain"`; add `<data android:host="open"/>` to the existing `mixtape` filter
+- [X] T041 [US5] `../mixtape-android/src-tauri/plugins/mixtape-media/android/src/main/java/app/mixtape/media/DeepLink.kt`: accept `ACTION_VIEW` with scheme `mixtape` (hosts `play`, `open`) or `https` (the hosts of T045), and `ACTION_SEND` with `EXTRA_TEXT`; send that one string to `RustBridge.openLink`; keep the handled-extra and history-launch guards for every kind
+- [X] T042 [US5] `../mixtape-android/src-tauri/src/deeplink.rs`: `open` tries the existing `parse` (play), then `mixtape_sync::mixtape_link::parse` (`Open`), then `mixtape_sync::url_import::find_link`; Track → plays now as the existing single-id play does; Album/Playlist/Artist → emit an event the UI turns into `nav` `{kind, id}` (match the id forms the phone's `nav.svelte.ts` uses); none → the error event «В тексте нет ссылки на YouTube Music» (`tr` ru/uk/en)
+- [X] T043 [US5] Tests in `../mixtape-android/src-tauri/src/deeplink.rs`: classification of shared text (link alone, inside text, two links, no link), https album/playlist/artist, `mixtape://open`, the old `mixtape://play` still wins
+- [X] T044 [US5] `../mixtape-android/src/App.svelte` (or where `player://error` is listened): listen the new route event → open the sheet/screen for album/playlist/artist
 
 ---
 
 ## Phase 8: User Story 6 — links open in Mixtape directly on the phone (P2), repo `../mixtape-android`
 
-- [ ] T045 [US6] Manifest: an `ACTION_VIEW` + `DEFAULT` + `BROWSABLE` filter, scheme `https`, hosts `music.youtube.com` (path prefixes `/watch`, `/playlist`, `/browse`, `/channel`), `www.youtube.com`, `youtube.com`, `m.youtube.com` (`/watch`, `/shorts`), `youtu.be` (any path); no `autoVerify`
-- [ ] T046 [US6] Kotlin in the media plugin: `linksState()` → `allowed` / `partial` / `off` from `DomainVerificationManager.getDomainVerificationUserState(packageName).hostToStateMap` (SELECTED/VERIFIED counts over the declared hosts), `unsupported` below API 31; `openLinksSettings()` → `Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS` with `package:` URI (fallback `ACTION_APPLICATION_DETAILS_SETTINGS`)
-- [ ] T047 [US6] Rust commands `links_state`, `links_open_settings` in `../mixtape-android/src-tauri/src/links.rs` via `run_mobile_plugin` (as `share` does in `commands.rs`); register; a test for the state string mapping
-- [ ] T048 [US6] Settings item «Открывать ссылки YouTube Music» in the phone's settings screen: state text (Включено / Частично / Выключено), tap → system screen, refresh state on resume; short hint about turning off «Открывать поддерживаемые ссылки» in YouTube Music; strings ru/uk/en
+- [X] T045 [US6] Manifest: an `ACTION_VIEW` + `DEFAULT` + `BROWSABLE` filter, scheme `https`, hosts `music.youtube.com` (path prefixes `/watch`, `/playlist`, `/browse`, `/channel`), `www.youtube.com`, `youtube.com`, `m.youtube.com` (`/watch`, `/shorts`), `youtu.be` (any path); no `autoVerify`
+- [X] T046 [US6] Kotlin in the media plugin: `linksState()` → `allowed` / `partial` / `off` from `DomainVerificationManager.getDomainVerificationUserState(packageName).hostToStateMap` (SELECTED/VERIFIED counts over the declared hosts), `unsupported` below API 31; `openLinksSettings()` → `Settings.ACTION_APP_OPEN_BY_DEFAULT_SETTINGS` with `package:` URI (fallback `ACTION_APPLICATION_DETAILS_SETTINGS`)
+- [X] T047 [US6] Rust commands `links_state`, `links_open_settings` in `../mixtape-android/src-tauri/src/links.rs` via `run_mobile_plugin` (as `share` does in `commands.rs`); register; a test for the state string mapping
+- [X] T048 [US6] Settings item «Открывать ссылки YouTube Music» in the phone's settings screen: state text (Включено / Частично / Выключено), tap → system screen, refresh state on resume; short hint about turning off «Открывать поддерживаемые ссылки» in YouTube Music; strings ru/uk/en
 
 ---
 
 ## Phase 9: Polish & cross-cutting
 
 - [X] T049 Merge the agents' branches into `004-open-shared-links`; full `cargo build`, `cargo clippy --workspace -- -D warnings`, `cargo test --workspace`, `pnpm -C ui check`, `pnpm -C ui test`, `node --test "tools/link-catcher-tests/*.test.js"` (one run, after the merge)
-- [ ] T050 Merge to `main`, then tag for Android deps per `mixtape-android` memory (tag form `v<version>-android.<n>`, next after `v0.3.1-android.18`), push the tag
+- [X] T050 Merge to `main`, then tag for Android deps per `mixtape-android` memory (tag form `v<version>-android.<n>`, next after `v0.3.1-android.18`), push the tag
 - [X] T051 [P] README.md / README.ru.md / README.uk.md: «Открывать ссылки в Mixtape»: the search box, «Поделиться», the extension install steps
 - [X] T052 Mutation check of the new Rust parsers (`find_link`, `share_url`, `mixtape_link::parse`, `links_in`) with skill `mutation-check`, once after the merge
 - [ ] T053 Owner's live checks (quickstart, PC and phone), only with consent and when sound is OK; then release per `mixtape-release` / phone release script
-- [ ] T054 Update `specs/001-mixtape-mvp/STATUS.md` and run `clean-cache` (dry run first)
+- [X] T054 Update `specs/001-mixtape-mvp/STATUS.md` and run `clean-cache` (dry run first)
 
 ---
 
