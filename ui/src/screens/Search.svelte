@@ -7,6 +7,10 @@
   import type { Snippet } from "svelte";
   import { invoke } from "$lib/ipc";
   import CatalogResults from "$lib/ui/CatalogResults.svelte";
+  import LinkCard from "$lib/ui/LinkCard.svelte";
+  import { liveLinkCard } from "$lib/ui/linkCardLive";
+  import { hasYoutubeHost, mayBeLink } from "$lib/ipc/linkHint";
+  import type { SharedLink } from "$lib/ipc/bindings/SharedLink";
   import type { SearchResult } from "$lib/ipc/bindings/SearchResult";
   import type { Track } from "$lib/ipc/bindings/Track";
   import { Fixed } from "$lib/stores/paged.svelte";
@@ -59,15 +63,35 @@
   const tracks = new Fixed<Track>([]);
   let seq = 0;
 
+  // A pasted YouTube Music link becomes a card instead of a search. Only text that could be
+  // a link is sent to Rust, so ordinary typing costs no IPC. `probed` is the text Rust has
+  // answered for. A pasted address shows nothing until then, or the catalog would get the
+  // link as plain text; a bare id may show the old results for the few ms it takes.
+  const card = liveLinkCard();
+  let probed = $state<string | null>(null);
+  const waiting = $derived(hasYoutubeHost(query) && probed !== query.trim());
+  const linked = $derived(!!card.link && probed === query.trim());
+
   $effect(() => {
     const q = query.trim();
     const mine = ++seq;
     if (!q) {
       result = null;
       tracks.items = [];
+      probed = null;
+      card.set(null);
       return;
     }
     const timer = setTimeout(async () => {
+      const hit = mayBeLink(q) ? await invoke<SharedLink | null>("link_parse", { text: q }).catch(() => null) : null;
+      if (mine !== seq) return;
+      probed = q;
+      card.set(hit);
+      if (hit) {
+        result = null;
+        tracks.items = [];
+        return;
+      }
       const r = await invoke<SearchResult>("library_search", { query: q, limit: 30 });
       if (mine !== seq) return;
       result = r;
@@ -75,6 +99,12 @@
     }, 60);
     return () => clearTimeout(timer);
   });
+
+  // Enter plays a pasted track link; any other text is remembered as before.
+  function onEnter() {
+    if (linked && card.link?.kind === "track") void card.play();
+    else recentSearch.add({ kind: "query", text: text.trim() });
+  }
 
   const empty = $derived(
     !!result && !result.tracks.length && !result.albums.length && !result.artists.length && !result.playlists.length,
@@ -164,7 +194,7 @@
         bind:this={input}
         bind:value={text}
         oninput={onInput}
-        onkeydown={(e) => e.key === "Enter" && recentSearch.add({ kind: "query", text: text.trim() })}
+        onkeydown={(e) => e.key === "Enter" && onEnter()}
         placeholder={t.search.placeholder}
         spellcheck="false"
         class="min-w-0 flex-1 bg-transparent text-[16px] text-ink outline-none placeholder:text-ink-3"
@@ -180,6 +210,11 @@
       <IconRecognize class="size-5" />
     </button>
   </div>
+  {#if waiting}
+    <!-- Rust is checking whether this is a link: nothing shows for a moment. -->
+  {:else if linked}
+    <LinkCard {card} raw={query.trim()} />
+  {:else}
   <div class="flex gap-6 px-8 pb-4">
     {#each [["library", t.nav.library], ["catalog", "YouTube Music"]] as [id, label] (id)}
       <button
@@ -279,6 +314,7 @@
         </section>
       {/if}
     </div>
+  {/if}
   {/if}
 </div>
 

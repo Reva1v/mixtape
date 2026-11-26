@@ -178,8 +178,8 @@ fn decode_decimated(path: &Path) -> Result<(Vec<f32>, f64)> {
     loop {
         pcm.clear();
         let more = dec.next_chunk(&mut pcm)?;
-        for f in pcm.chunks_exact(2) {
-            down.push((f[0] + f[1]) * 0.5);
+        for [l, r] in pcm.as_chunks::<2>().0 {
+            down.push((l + r) * 0.5);
         }
         if !more {
             break;

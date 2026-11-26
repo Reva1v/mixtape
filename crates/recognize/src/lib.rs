@@ -81,7 +81,7 @@ impl Signature {
             samples.resize(SIGNATURE_SAMPLES, 0);
         }
         let mut g = Generator::new(samples.len() as u32);
-        for chunk in samples.chunks_exact(128) {
+        for chunk in samples.as_chunks::<128>().0 {
             g.step(chunk);
         }
         g.signature
@@ -640,7 +640,7 @@ mod tests {
         let pcm = match std::env::var("MIXTAPE_RECOGNIZE_PCM") {
             Ok(path) => {
                 let bytes = std::fs::read(path).unwrap();
-                let all: Vec<i16> = bytes.chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]])).collect();
+                let all: Vec<i16> = bytes.as_chunks::<2>().0.iter().map(|b| i16::from_le_bytes(*b)).collect();
                 // `MIXTAPE_RECOGNIZE_SECS` (default 12) from the middle, like the 4 s and 8 s tries.
                 let secs: usize = std::env::var("MIXTAPE_RECOGNIZE_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(12);
                 let half = secs * RATE as usize / 2;

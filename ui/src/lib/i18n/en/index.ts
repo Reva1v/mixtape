@@ -11,6 +11,7 @@ import { smart } from "./smart";
 import { spotify } from "./spotify";
 import { phone } from "./phone";
 import { recognize } from "./recognize";
+import { links } from "./links";
 
 export const en = {
   ...base,
@@ -24,6 +25,7 @@ export const en = {
   ...spotify,
   ...phone,
   ...recognize,
+  ...links,
   updates,
   iconStyle,
 };

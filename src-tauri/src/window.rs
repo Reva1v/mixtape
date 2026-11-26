@@ -60,12 +60,19 @@ pub fn install(app: &AppHandle, in_tray: bool) {
 #[tauri::command]
 pub fn app_ready(window: tauri::WebviewWindow, state: tauri::State<'_, std::sync::Arc<Session>>) -> Result<(), String> {
     if IN_TRAY.load(Ordering::SeqCst) {
-        tracing::info!(elapsed_ms = state.started.elapsed().as_millis() as u64, "ready in the tray");
-        return Ok(());
+        // A link that arrived while the app sat in the tray brings the window up.
+        if !mixtape_session::commands::link::has_pending() {
+            tracing::info!(elapsed_ms = state.started.elapsed().as_millis() as u64, "ready in the tray");
+            mixtape_session::commands::link::set_ready(state.inner());
+            return Ok(());
+        }
+        show_main(window.app_handle());
     }
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())?;
     tracing::info!(elapsed_ms = state.started.elapsed().as_millis() as u64, "window shown");
+    // The links that came before the interface was up are acted on now.
+    mixtape_session::commands::link::set_ready(state.inner());
     Ok(())
 }
 
