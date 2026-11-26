@@ -29,6 +29,6 @@
 
 ## Phase 3: Polish
 
-- [ ] T008 `cargo test -p mixtape-win -p mixtape`, `cargo clippy` on both, then the workspace gates once
+- [X] T008 `cargo test -p mixtape-win -p mixtape`, `cargo clippy` on both, then the workspace gates once
 - [X] T009 Docs: README ×3 «Opening links» gets one line about the island; `specs/001-mixtape-mvp/STATUS.md`
 - [ ] T010 Owner's live check (quickstart in spec Independent Tests) after the island side ships; release
