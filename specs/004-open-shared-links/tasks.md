@@ -92,7 +92,7 @@ Pure link logic in `mixtape-sync`, shared by the PC and the phone.
 - [X] T036 [US3] Ship the extension: `src-tauri/tauri.conf.json` `bundle.resources` += `"../tools/link-catcher/": "link-catcher/"` (the folder holds no tests, see T032)
 - [X] T036a [US3] Session command `extension_open_folder()` in `crates/session/src/commands/link.rs` (or the host trait if resource paths live in `src-tauri`): opens `resource_dir()/link-catcher` in Explorer, dev builds `tools/link-catcher` in the repo; register it
 - [X] T037 [US3] `ui/src/lib/ui/IntegrationsSettings.svelte`: block «Расширение для браузера» with one-line purpose, «Открыть папку», and the three steps (open `chrome://extensions` / `edge://extensions`, turn on developer mode, «Загрузить распакованное» → the folder); strings ru/uk/en (`i18n-keys`)
-- [ ] T038 [US3] Live check of «Always allow» for the extension origin in Chrome and Edge (quickstart step 5). Only if it's missing: in `installer-hooks.nsh` write `HKCU\Software\Policies\Google\Chrome\AutoLaunchProtocolsFromOrigins` and the Edge equivalent as JSON `[{"protocol":"mixtape","allowed_origins":["chrome-extension://<id>"]}]`, removed on uninstall; record the outcome in research.md R6
+- [ ] T038 (Edge done 2026-11-26: prompt allowed for good, links go to Mixtape/island; Chrome open) [US3] Live check of «Always allow» for the extension origin in Chrome and Edge (quickstart step 5). Only if it's missing: in `installer-hooks.nsh` write `HKCU\Software\Policies\Google\Chrome\AutoLaunchProtocolsFromOrigins` and the Edge equivalent as JSON `[{"protocol":"mixtape","allowed_origins":["chrome-extension://<id>"]}]`, removed on uninstall; record the outcome in research.md R6
 
 ---
 
