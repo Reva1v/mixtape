@@ -19,7 +19,9 @@
 param(
     [Parameter(Mandatory)][string]$Notes,
     [string]$Repo = 'Reva1v/mixtape',
-    [string]$KeyPath
+    [string]$KeyPath,
+    # Skip the automatic island release: the island session ships this Mixtape in its own release.
+    [switch]$NoIsland
 )
 $ErrorActionPreference = 'Stop'
 $root = Resolve-Path (Join-Path $PSScriptRoot '..')
@@ -84,7 +86,10 @@ try {
     # Every Mixtape release ships into Droplet Island too (owner, 2026-11-24): the island's own
     # script syncs Mixtape, bumps the island, runs its gates and releases, in the background.
     $follow = 'D:\Projects\Droplet-projects\droplet-island\scripts\follow-mixtape.ps1'
-    if (Test-Path -LiteralPath $follow) {
+    if ($NoIsland) {
+        Write-Host "Droplet Island not started (-NoIsland): its own release will pick up Mixtape $version"
+    }
+    elseif (Test-Path -LiteralPath $follow) {
         Start-Process pwsh -ArgumentList '-NoProfile', '-File', $follow -WindowStyle Hidden
         Write-Host "Droplet Island release started in the background ($follow)"
     }
