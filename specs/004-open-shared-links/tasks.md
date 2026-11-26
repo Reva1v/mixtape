@@ -124,7 +124,7 @@ Starts after the PC branch is merged and tagged (T050).
 - [X] T050 Merge to `main`, then tag for Android deps per `mixtape-android` memory (tag form `v<version>-android.<n>`, next after `v0.3.1-android.18`), push the tag
 - [X] T051 [P] README.md / README.ru.md / README.uk.md: «Открывать ссылки в Mixtape»: the search box, «Поделиться», the extension install steps
 - [X] T052 Mutation check of the new Rust parsers (`find_link`, `share_url`, `mixtape_link::parse`, `links_in`) with skill `mutation-check`, once after the merge
-- [ ] T053 Owner's live checks (quickstart, PC and phone), only with consent and when sound is OK; then release per `mixtape-release` / phone release script
+- [ ] T053 (phone part done 2026-11-26, see quickstart «Live results, phone»; PC part open) Owner's live checks (quickstart, PC and phone), only with consent and when sound is OK; then release per `mixtape-release` / phone release script
 - [X] T054 Update `specs/001-mixtape-mvp/STATUS.md` and run `clean-cache` (dry run first)
 
 ---

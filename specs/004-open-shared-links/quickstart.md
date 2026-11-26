@@ -35,3 +35,19 @@ On Android (`../mixtape-android`): `cargo test` for `deeplink` (share text, http
 
 1. Telegram → long-press a YTM link → Поделиться → Mixtape: plays (app closed and open).
 2. Settings → «Открывать ссылки YouTube Music» → system screen → add the links → tap a link in Telegram → Mixtape.
+
+## Live results, phone (2026-11-26, Samsung S23+, Android 16, Mixtape Android 0.3.0)
+
+- **Share target works for text.** `ACTION_SEND text/plain` resolves to Mixtape and it shows in the system
+  share sheet (checked with `am start -a android.intent.action.SEND -t text/plain`). AyuGram's «Share» on a
+  message with media sends a non-text type, so Mixtape isn't listed there (Droplet is: it accepts `*/*`).
+  To share a link, share the link itself, or paste it into search. Accepting `image/*` with the link in the
+  caption was offered and not taken.
+- **Direct links: music.youtube.com goes to Mixtape.** The owner's phone has no YouTube Music app, so
+  nothing else claims the domain. Enabled with
+  `pm set-app-links-user-selection --user 0 --package app.mixtape true music.youtube.com` (same switch as
+  Settings → Apps → Mixtape → «Открывать по умолчанию»); `cmd package resolve-activity` now gives
+  `app.mixtape/.MainActivity`.
+- **youtube.com / youtu.be stay with the YouTube app.** Google's YouTube app holds them as `system_configured`,
+  which beats a user selection. Taking them would mean turning off the YouTube app's links and sending every
+  YouTube video to Mixtape; left as is.
