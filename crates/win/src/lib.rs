@@ -7,6 +7,8 @@ pub mod autostart;
 pub mod dpapi;
 mod glyph;
 #[cfg(windows)]
+pub mod process;
+#[cfg(windows)]
 mod smtc;
 #[cfg(windows)]
 mod thumbbar;
