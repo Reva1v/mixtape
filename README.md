@@ -75,7 +75,7 @@ Streams and downloads from your YouTube Music account, plays offline, and keeps 
 
 - **Paste a link.** Paste a YouTube or YouTube Music link into search and a card appears (track, album, playlist or artist) that you can play or add.
 - **Share.** The **Share track / album / playlist / artist** items in the menus copy a `music.youtube.com` link to the clipboard.
-- **`mixtape://` links.** The installer registers the `mixtape://` scheme for the current user, so `mixtape://open?url=<link>` (for example from Win+R) opens that link in the app.
+- **`mixtape://` links.** The installer registers the `mixtape://` scheme for the current user, so `mixtape://open?url=<link>` (for example from Win+R) opens that link in the app. When Droplet Island is running, the link plays in the island's built-in Mixtape instead.
 - **Browser extension (Chrome and Edge).** *Mixtape Link Catcher* hands YouTube Music links opened from outside the site (a chat, another site, a typed address) to Mixtape and closes the tab. Clicks inside YouTube are left alone. It only listens to YouTube navigations and stores nothing but its two switches in the browser.
   1. In **Settings → Browser extension** press **Open folder** (or take the `link-catcher` folder from the install directory).
   2. Open `chrome://extensions` (Edge: `edge://extensions`) and turn on developer mode.

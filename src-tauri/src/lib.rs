@@ -50,12 +50,30 @@ pub fn run() {
         .init();
     install_runtime();
 
+    // A start with `mixtape://` links goes to Droplet Island when it runs in this session: it
+    // plays them in its own Mixtape, and this process leaves before anything opens (spec 005).
+    // Also true for a second launch, so a running Mixtape isn't involved then.
+    let start = links::parse(std::env::args().skip(1));
+    let stay = if start.links.is_empty() {
+        Vec::new()
+    } else {
+        let island = (!start.from_island).then(|| mixtape_win::process::find_in_session(links::ISLAND_EXE)).flatten();
+        let stay = links::route(&start, island.as_deref(), links::spawn_island);
+        if stay.is_empty() {
+            tracing::info!(n = start.links.len(), "links handed to the island");
+            std::process::exit(0);
+        }
+        stay
+    };
+    let _ = links::START.set(stay);
+
     tauri::Builder::default()
         // A second launch brings the running app's window forward (also out of the tray).
         // A link in its arguments (the browser extension, the protocol handler) is opened too.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             window::show_main(app);
-            links::hand_over_all(app, links::links_in(args.into_iter()));
+            // Never routed here: the second launch already offered its links to the island.
+            links::hand_over_all(app, links::parse(args).links);
         }))
         // The window is shown by `app_ready` (or stays in the tray), never by the plugin.
         .plugin(
@@ -93,7 +111,7 @@ pub fn run() {
             state.media.install(app.handle());
             tracing::debug!("setup: media installed");
             // A start that carries a link shows the window, also when autostart said `--hidden`.
-            let start_links = links::links_in(std::env::args().skip(1));
+            let start_links = links::START.get().cloned().unwrap_or_default();
             window::install(app.handle(), autostart::launched_hidden() && start_links.is_empty());
             if let Err(e) = tray::install(app.handle(), &state) {
                 tracing::warn!(error = %e, "tray icon unavailable");
